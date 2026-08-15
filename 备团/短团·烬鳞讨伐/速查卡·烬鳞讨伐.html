@@ -1,0 +1,687 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>速查卡 · 烬鳞讨伐（卡片版）</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    background: #171a1f;
+    color: #e8e6e1;
+    line-height: 1.6;
+  }
+  header {
+    position: sticky; top: 0; z-index: 10;
+    background: #101318f2;
+    backdrop-filter: blur(8px);
+    padding: 12px 20px 10px;
+    border-bottom: 1px solid #2c313a;
+  }
+  header h1 { font-size: 1.15rem; letter-spacing: 1px; }
+  header h1 small { color: #9aa0ab; font-weight: normal; font-size: 0.8rem; margin-left: 8px; }
+  nav { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+  nav button {
+    background: #222833; color: #c9c5bc;
+    border: 1px solid #3a4150; border-radius: 8px;
+    padding: 5px 12px; font-size: 0.85rem; cursor: pointer;
+    transition: background .15s, color .15s, border-color .15s;
+  }
+  nav button:hover { background: #2c3340; color: #fff; }
+  nav button.on { background: #f0c15a; color: #171a1f; border-color: #f0c15a; font-weight: 600; }
+  .toolbar { margin-top: 10px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .tool-btn {
+    background: #222833; color: #c9c5bc;
+    border: 1px solid #3a4150; border-radius: 8px;
+    padding: 4px 11px; font-size: 0.82rem; cursor: pointer;
+  }
+  .tool-btn:hover { background: #2c3340; color: #fff; }
+  .settings-panel {
+    background: #1d222b; border: 1px solid #343a46; border-radius: 10px;
+    padding: 9px 12px; display: flex; gap: 14px; flex-wrap: wrap; align-items: center;
+    font-size: 0.83rem;
+  }
+  .set-row { display: flex; align-items: center; gap: 6px; color: #c9c5bc; }
+  .settings-panel select, .settings-panel button {
+    background: #222833; color: #c9c5bc; border: 1px solid #3a4150;
+    border-radius: 6px; padding: 3px 8px; font-size: 0.82rem; cursor: pointer;
+  }
+  .status { color: #7da05c; font-size: 0.78rem; }
+  body.editing .full, body.editing .name { outline: 1px dashed #f0c15a55; outline-offset: 2px; }
+
+  main { max-width: 1280px; margin: 0 auto; padding: 18px 16px 60px; }
+  .group { margin-bottom: 30px; scroll-margin-top: 90px; }
+  .group h3 {
+    font-size: 1.1rem; letter-spacing: 2px;
+    padding-bottom: 8px; margin-bottom: 12px;
+    border-bottom: 1px dashed #3a4150;
+  }
+  .group h3 .count { color: #6b7280; font-size: 0.78rem; font-weight: normal; margin-left: 8px; }
+  .cardwall {
+    display: grid;
+    grid-template-columns: repeat(var(--cols, 4), 1fr);
+    gap: 12px;
+  }
+  .card {
+    background: #1f242c;
+    border: 1px solid #2c313a;
+    border-radius: 12px;
+    padding: 12px 14px;
+    cursor: pointer;
+    transition: transform .15s, border-color .15s, background .15s, box-shadow .15s;
+  }
+  .card:hover {
+    border-color: #f0c15a;
+    background: #262d38;
+    transform: translateY(-3px);
+    box-shadow: 0 6px 16px #0008;
+  }
+  .card .ico { font-size: 1.15rem; }
+  .card .name { font-size: 0.95rem; color: #d6d2c8; font-weight: 600; margin-left: 6px; }
+  .card .hint { display: none; }
+  .full {
+    display: block;
+    margin-top: 8px; padding-top: 8px;
+    border-top: 1px dashed #343a46;
+  }
+  .full p, .full li, .full blockquote, .full .quote-line { font-size: 0.84rem; }
+  .full h5 { color: #f0c15a; margin: 8px 0 3px; font-size: 0.88rem; }
+  .full blockquote { margin-bottom: 4px; }
+  .full table { font-size: 0.78rem; }
+
+  /* 点击放大的弹层 */
+  .backdrop {
+    position: fixed; inset: 0; z-index: 100;
+    background: #000000b8;
+    backdrop-filter: blur(4px);
+    display: none;
+    align-items: center; justify-content: center;
+    padding: 20px;
+  }
+  .backdrop.show { display: flex; }
+  .modal {
+    background: #1f242c;
+    border: 1px solid #3a4150;
+    border-radius: 14px;
+    max-width: 660px; width: 100%;
+    max-height: 86vh;
+    display: flex; flex-direction: column;
+    box-shadow: 0 18px 60px #000c;
+  }
+  .modal-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 18px;
+    border-bottom: 1px solid #2c313a;
+  }
+  .modal-head h2 { font-size: 1.05rem; color: #f0c15a; }
+  .modal-close {
+    background: none; border: none; color: #9aa0ab;
+    font-size: 1.5rem; line-height: 1; cursor: pointer;
+    padding: 2px 8px; border-radius: 6px;
+  }
+  .modal-close:hover { color: #fff; background: #2c3340; }
+  .modal-body { padding: 16px 18px 20px; overflow-y: auto; font-size: 0.98rem; }
+  .modal-body blockquote {
+    background: #272d38; border-left: 3px solid #f0c15a;
+    border-radius: 0 8px 8px 0; padding: 10px 14px; margin-bottom: 10px;
+    color: #efe9dc;
+  }
+  .modal-body ul, .modal-body ol { padding-left: 22px; }
+  .modal-body li { margin: 5px 0; }
+  .modal-body table { width: 100%; border-collapse: collapse; font-size: 0.9rem; margin-top: 6px; }
+  .modal-body th, .modal-body td { border: 1px solid #343a46; padding: 6px 10px; text-align: left; }
+  .modal-body th { background: #262c36; }
+  .modal-body .quote-line { margin: 8px 0; padding-left: 12px; border-left: 2px solid #4a5262; }
+  .modal-body .quote-line .who { color: #f0c15a; font-weight: 600; }
+
+  .foot { text-align: center; color: #6b7280; font-size: 0.8rem; margin-top: 8px; }
+
+  body.font-s .full p, body.font-s .full li, body.font-s .full blockquote, body.font-s .full .quote-line { font-size: 0.76rem; }
+  body.font-l .full p, body.font-l .full li, body.font-l .full blockquote, body.font-l .full .quote-line { font-size: 0.95rem; }
+  @media (max-width: 1000px) { .cardwall { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 560px)  { .cardwall { grid-template-columns: 1fr; } }
+
+  @media print {
+    body { background: #fff; color: #111; }
+    header { position: static; background: #fff; border-bottom: 2px solid #333; }
+    nav { display: none; }
+    .card { page-break-inside: avoid; cursor: default; }
+    .cardwall { grid-template-columns: repeat(2, 1fr); }
+    .card .ico { display: none; }
+    .full { display: block; color: #222; }
+    .full blockquote { background: #f5f5f0; border-left-color: #b8860b; color: #222; }
+    .full th { background: #eee; color: #222; }
+    .backdrop { display: none !important; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🐉 速查卡 · 烬鳞讨伐 <small>卡片版 · 短团 · 4 人 · 3 级开局</small></h1>
+  <nav>
+    <button data-target="grp-act1">幕 1 酒馆</button>
+    <button data-target="grp-act2">幕 2 林地</button>
+    <button data-target="grp-act3">幕 3 营地</button>
+    <button data-target="grp-act4">幕 4 龙巢</button>
+    <button data-target="grp-enemies">敌人属性</button>
+    <button data-target="grp-meta">总览</button>
+  </nav>
+  <div class="toolbar">
+    <button class="tool-btn" id="settings-toggle">⚙️ 调整</button>
+    <div class="settings-panel" id="settings-panel" hidden>
+      <div class="set-row"><label>每行列数</label>
+        <select id="set-cols">
+          <option value="2">2 列</option><option value="3">3 列</option><option value="4" selected>4 列</option>
+        </select>
+      </div>
+      <div class="set-row"><label>字号</label>
+        <select id="set-font">
+          <option value="s">小</option><option value="m" selected>中</option><option value="l">大</option>
+        </select>
+      </div>
+      <div class="set-row"><label><input type="checkbox" id="set-edit"> 编辑模式（点文字直接改）</label></div>
+      <div class="set-row">
+        <button id="set-save">💾 保存修改</button>
+        <button id="set-reset">↩️ 恢复默认</button>
+        <span class="status" id="set-status"></span>
+      </div>
+    </div>
+  </div>
+</header>
+
+<main id="content-root">
+
+  <!-- ==================== 幕 1 ==================== -->
+  <section class="group" id="grp-act1">
+    <h3>幕 1 · 桑哆尔之歌 <span class="count">酒馆集结 · RP 幕</span></h3>
+    <div class="cardwall">
+      <div class="card" data-title="开场白 · 雨夜撞门">
+        <div class="ico">🎬</div><div class="name">开场白</div><div class="hint">可直接念</div>
+        <div class="full"><blockquote>雨从傍晚就开始下，敲着桑哆尔之歌的旧木窗。火塘里的柴噼啪作响，酒气、潮气、还有一点壁炉灰的味道混在一起。镇子不大，这个点还在酒馆里的，除了你们，就是零星几个躲雨的路人。<br><br>然后，门被撞开了。一个浑身泥水的少女跌进来，手里攥着一截烧焦的木牌。她环顾一圈，声音哑得像含了沙："……有人……愿意去灰烬屯吗？那里的人，还没死绝。"</blockquote></div>
+      </div>
+      <div class="card" data-title="集结钩子">
+        <div class="ico">🧲</div><div class="name">集结钩子</div><div class="hint">任选 2~3 个</div>
+        <div class="full"><ul>
+          <li><b>悬赏</b>：告示板求救信，赏金 200 金币 + 龙巢财宝一半。</li>
+          <li><b>旧识</b>：莉娅是某玩家的旧识 / 远亲。</li>
+          <li><b>被牵连</b>：玩家行囊 / 货物被地精劫过。</li>
+          <li><b>名声</b>：有人认出玩家"干过大事"，把话头引到他们身上。</li>
+        </ul></div>
+      </div>
+      <div class="card" data-title="对话范例">
+        <div class="ico">🗣️</div><div class="name">对话范例</div><div class="hint">问与答</div>
+        <div class="full"><ul>
+          <li>问"为什么是我们" → 马库斯："赏金是镇上凑的，谁去都行。可你看看这屋里，除了你们，谁还握得住剑？"</li>
+          <li>犹豫 → 莉娅："我爹的积蓄藏在灰烬屯井底——谁救他，归谁。"</li>
+          <li>讨价还价 → 马库斯："行，赏金加一成——回来我请你们喝到吐。"</li>
+          <li>问地精 → 莉娅："它们不算能打，可它们听龙的话。龙说围，它们就围。"</li>
+        </ul></div>
+      </div>
+      <div class="card" data-title="情报要点">
+        <div class="ico">💡</div><div class="name">情报要点</div><div class="hint">打听时给</div>
+        <div class="full"><ul>
+          <li>灰烬屯三个月前被龙占了，村民被抓去挖矿。</li>
+          <li>地精是龙的手下，但最近偷偷换粮食，眼神"没神"。</li>
+          <li>近路<b>鸦羽谷道</b>走一天；最近三个皮货商没回来。</li>
+          <li>老布隆：矿坑"有条岩浆溪，桥只剩两块石板"。</li>
+        </ul></div>
+      </div>
+      <div class="card" data-title="幕尾">
+        <div class="ico">🎁</div><div class="name">幕尾</div><div class="hint">出发</div>
+        <div class="full"><p>整备出发（购买补给、得知路线）。马库斯塞一袋热饼：<b>"活着回来，账还没结。"</b></p></div>
+      </div>
+      <div class="card" data-title="马库斯老爹 · 桑哆尔之歌老板">
+        <div class="ico">🍺</div><div class="name">马库斯</div><div class="hint">絮叨护短</div>
+        <div class="full">
+          <p><b>性格：</b>絮叨、护短、嗓门大心软。</p>
+          <div class="quote-line"><span class="who">迎接：</span>"哎哟哎哟，这么大的雨……坐坐坐，火边去。别把泥带进来——算了算了，进来吧。"</div>
+          <div class="quote-line"><span class="who">红龙：</span>"红龙最记仇，也最爱漂亮东西。你拿了它的东西，它追你到天涯海角。"</div>
+          <div class="quote-line"><span class="who">地精：</span>"腰板是挺起来了——可你看它们眼神，跟镇上拉磨的骡子一样，没神。"</div>
+          <div class="quote-line"><span class="who">送行：</span>"饼里我多放了盐……活着回来，账还没结。"</div>
+        </div>
+      </div>
+      <div class="card" data-title="莉娅 · 灰烬屯逃出的少女">
+        <div class="ico">👧</div><div class="name">莉娅</div><div class="hint">疲惫倔强</div>
+        <div class="full">
+          <p><b>性格：</b>疲惫但倔强，句句带颤，偶尔爆出狠劲。</p>
+          <div class="quote-line"><span class="who">求救：</span>"……有人愿意去灰烬屯吗？那里的人，还没死绝。"</div>
+          <div class="quote-line"><span class="who">描述龙：</span>"它不像画上那种龙。它知道自己在干什么。每天下午，它飞到矿洞口，数人。一个不少，一个不多。"</div>
+          <div class="quote-line"><span class="who">家里：</span>"我爸还在里面。他腿脚不好，跑不动……"</div>
+          <div class="quote-line"><span class="who">地精：</span>"它们也怕它。有个地精想跑，龙当众把它……（说不下去）"</div>
+        </div>
+      </div>
+      <div class="card" data-title="铁锤·布隆 · 矮人老兵">
+        <div class="ico">🔨</div><div class="name">布隆</div><div class="hint">惜字如金</div>
+        <div class="full">
+          <p><b>性格：</b>粗嗓、惜字如金、嘴嫌弃心熨帖。</p>
+          <div class="quote-line"><span class="who">路线：</span>"顺着废矿车辙走，别走野路。野路有东西。"（"什么东西？"）"不是你们该打听的东西。"</div>
+          <div class="quote-line"><span class="who">拒绝下矿：</span>"老子这把骨头泡过矿洞的水。山脚——送你们到山脚。"</div>
+          <div class="quote-line"><span class="who">临别：</span>"要是你们听见岩壁里有哭一样的声音——那是风。记住，是风。"</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== 幕 2 ==================== -->
+  <section class="group" id="grp-act2">
+    <h3>幕 2 · 鸦羽谷道 <span class="count">地精小队 · 3 级</span></h3>
+    <div class="cardwall">
+      <div class="card" data-title="开场白 · 静得不正常">
+        <div class="ico">🎬</div><div class="name">开场白</div><div class="hint">可直接念</div>
+        <div class="full"><blockquote>谷道两侧是密林，土路被雨水泡得松软。林子里安静得不太正常——没有鸟叫，只有你们自己的脚步声和偶尔落下的水珠声。前方一段路，两边灌木齐腰高，几块灰岩像蹲着的巨兽。</blockquote></div>
+      </div>
+      <div class="card" data-title="敌人配置">
+        <div class="ico">⚔️</div><div class="name">敌人配置</div><div class="hint">4 人 3 级</div>
+        <div class="full"><ul>
+          <li>基础：<b>地精 ×5 + 地精头目 ×1</b></li>
+          <li>加难：+ 座狼 ×1</li>
+          <li>减难：地精 ×4，头目血量 ×1.5</li>
+        </ul></div>
+      </div>
+      <div class="card" data-title="站位表">
+        <div class="ico">🗺️</div><div class="name">站位表</div><div class="hint">坐标 x,y</div>
+        <div class="full"><table>
+          <tr><th>单位</th><th>位置</th></tr>
+          <tr><td>玩家</td><td>x14~16, y15~17（沿路北上）</td></tr>
+          <tr><td>弓手 ×2（西）</td><td>x11,y9；x12,y12</td></tr>
+          <tr><td>弓手 ×1（东）</td><td>x18,y14</td></tr>
+          <tr><td>近战 ×2</td><td>x12,y18；x18,y18</td></tr>
+          <tr><td>地精头目</td><td>x17,y8</td></tr>
+          <tr><td>座狼（可选）</td><td>x10,y15</td></tr>
+        </table></div>
+      </div>
+      <div class="card" data-title="战术">
+        <div class="ico">🎯</div><div class="name">战术</div><div class="hint">怎么打</div>
+        <div class="full"><p>弓手先射 → 头目吹哨 → 近战两翼合围。地精惜命：头目一倒就四散溃逃（引出"追不追"抉择）。</p></div>
+      </div>
+      <div class="card" data-title="战后线索">
+        <div class="ico">🔍</div><div class="name">战后线索</div><div class="hint">至少 2 条</div>
+        <div class="full"><ul>
+          <li>碎颅丘营地木牌徽记（刻龙爪印）。</li>
+          <li>灰烬屯铜矿渣 + "上贡清单"（写给烬鳞大人）。</li>
+          <li>活口："督军也是被逼的……龙抓了我们的崽子。"</li>
+        </ul></div>
+      </div>
+      <div class="card" data-title="分支：追不追 & 审问">
+        <div class="ico">🔀</div><div class="name">分支</div><div class="hint">审问与追击</div>
+        <div class="full"><ul>
+          <li><b>追逃兵</b>：可拦截（先攻优势）；放任则幕 3 营地两波巡逻。</li>
+          <li><b>不追</b>：沿足迹/车辙找营地，幕 3 照常。</li>
+          <li><b>审问活口</b>（两条真话）：①"督军叫我们守这条路等运粮队"；②"营地四个棚屋，东南箱子的东西碰都不许碰"。</li>
+        </ul></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== 幕 3 ==================== -->
+  <section class="group" id="grp-act3">
+    <h3>幕 3 · 碎颅丘 <span class="count">地精战团 · 4 级</span></h3>
+    <div class="cardwall">
+      <div class="card" data-title="开场白 · 碎颅丘营地">
+        <div class="ico">🎬</div><div class="name">开场白</div><div class="hint">可直接念</div>
+        <div class="full"><blockquote>碎颅丘是灰烬屯外一座土丘，顶上平出一片营地：木栅栏歪歪斜斜，四座棚屋挤在两侧，中间一摊篝火还冒着烟。图腾柱上钉着一面焦黑的旗——不是地精的图腾，是一只张开的龙爪。空气里有烤肉味，也有矿石的腥气。</blockquote></div>
+      </div>
+      <div class="card" data-title="营地布局">
+        <div class="ico">🗺️</div><div class="name">营地布局</div><div class="hint">对应地图</div>
+        <div class="full"><ul>
+          <li>南门 x17~18 主入口；西、东侧门。</li>
+          <li>棚屋：西北/东北（宿舍）、西南（伙房）、东南（督军仓房，有箱子）。</li>
+          <li>中央篝火 x16~18；物资堆 x19~21；图腾柱 x17,y7；陷阱四格已画好。</li>
+        </ul></div>
+      </div>
+      <div class="card" data-title="敌人配置">
+        <div class="ico">⚔️</div><div class="name">敌人配置</div><div class="hint">4 级团 · 两波</div>
+        <div class="full"><ul>
+          <li>第一波（可绕过）：地精 ×3 + 座狼 ×2，x19~21, y18~21。</li>
+          <li>主力：<b>大地精督军·格鲁克</b>（约 60~70 HP）+ 地精头目 ×1 + 地精 ×6。</li>
+          <li>加难：棚屋顶弓手 ×2；减难：地精 ×4。</li>
+        </ul></div>
+      </div>
+      <div class="card" data-title="站位表">
+        <div class="ico">🗺️</div><div class="name">站位表</div><div class="hint">坐标 x,y</div>
+        <div class="full"><table>
+          <tr><th>单位</th><th>位置</th></tr>
+          <tr><td>玩家</td><td>南门或侧门进入</td></tr>
+          <tr><td>巡逻</td><td>x20,y20；座狼 x21,y19</td></tr>
+          <tr><td>篝火旁地精</td><td>x16~18, y10~12</td></tr>
+          <tr><td>格鲁克</td><td>图腾柱旁 x17,y7~8</td></tr>
+          <tr><td>棚屋地精</td><td>西北/东南，听到动静 1 轮内冲出</td></tr>
+        </table></div>
+      </div>
+      <div class="card" data-title="战斗动态台词">
+        <div class="ico">💬</div><div class="name">战斗台词</div><div class="hint">每轮挑一句</div>
+        <div class="full"><ul>
+          <li>地精求饶："别杀我！我、我什么都说！"</li>
+          <li>头目："谁放走一个，谁顶班进矿洞！"</li>
+          <li>格鲁克（势弱）："停！要打，先听我说完——你们找错人了，去找它。"</li>
+        </ul></div>
+      </div>
+      <div class="card" data-title="三路径：杀 / 放 / 谈">
+        <div class="ico">🔀</div><div class="name">三路径</div><div class="hint">关键抉择</div>
+        <div class="full"><table>
+          <tr><th>路径</th><th>要点</th><th>幕 4 效果</th></tr>
+          <tr><td><b>杀</b></td><td>搜出矿石账本；幼崽是沉重抉择</td><td>无援军，龙开场吐息</td></tr>
+          <tr><td><b>放</b></td><td>格鲁克："放我们走，等于重演一遍"；地精拆营撤离</td><td>第 2~3 轮地精援军</td></tr>
+          <tr><td><b>谈</b></td><td>游说 DC15（交换条件 DC12）；交出地图/旧伤/挂坠</td><td>龙战弱化 + 撤退有接应</td></tr>
+        </table></div>
+      </div>
+      <div class="card" data-title="隐藏路线">
+        <div class="ico">🕵️</div><div class="name">隐藏路线</div><div class="hint">潜行与偷</div>
+        <div class="full"><ul>
+          <li>潜行偷账本+挂坠直奔矿洞：龙多准备一轮（开场吐息 +1 伤害骰）。</li>
+          <li>先救幼崽再谈判：DC 自动成功，幕 4 援军提前到第 1 轮末。</li>
+        </ul></div>
+      </div>
+      <div class="card" data-title="战利品">
+        <div class="ico">🎁</div><div class="name">战利品</div><div class="hint">营地收获</div>
+        <div class="full"><ul>
+          <li>东南棚屋：矿石账本 + 银币 + 治疗药水 ×1。</li>
+          <li>格鲁克：大地精长剑（可 +1）。</li>
+          <li>谈成：黑曜石龙鳞挂坠（吐息豁免优势一次）。</li>
+          <li>救幼崽：地精偷塞<b>暖玉</b>（50 金 / 信物）。</li>
+        </ul></div>
+      </div>
+      <div class="card" data-title="碎牙·格鲁克 · 大地精督军">
+        <div class="ico">⚔️</div><div class="name">格鲁克</div><div class="hint">三阶段松口</div>
+        <div class="full">
+          <p><b>性格：</b>军人刻板骄傲被打断，嘴硬，逐层松动。</p>
+          <div class="quote-line"><span class="who">接敌：</span>"又是不怕死的两脚兽。围起来！别让他们碰篝火！"</div>
+          <div class="quote-line"><span class="who">被逼墙角：</span>"砍吧。反正不是砍我，就是砍我的崽子。"</div>
+          <div class="quote-line"><span class="who">阶段一：</span>"奴役？我们是替龙办事的。拿工钱的。"</div>
+          <div class="quote-line"><span class="who">阶段二：</span>"工钱是假。崽子是真的。它抓了我们一百二十三个崽子，一天放一个出来送饭。你说，我拿什么换？"</div>
+          <div class="quote-line"><span class="who">阶段三：</span>"矿洞后头有条旧矿道，通龙巢侧洞。龙的左翼根有旧伤……你们要真有本事，就从那儿打。"</div>
+          <div class="quote-line"><span class="who">结局：</span>"阳光镇的人，记着。碎牙·格鲁克，还你们一次。"</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== 幕 4 ==================== -->
+  <section class="group" id="grp-act4">
+    <h3>幕 4 · 烬鳞矿窟 <span class="count">红龙决战 · 5 级</span></h3>
+    <div class="cardwall">
+      <div class="card" data-title="开场白 · 巨厅与龙">
+        <div class="ico">🎬</div><div class="name">开场白</div><div class="hint">可直接念</div>
+        <div class="full"><blockquote>矿窟深处豁然开朗——天然巨厅，穹顶高得吞掉火把的光。两条岩浆溪从两侧石壁上淌下，汇成池子，把整片地面映成暗红色。巨厅中央是一座天然石台，台上堆着金银、盔甲、雕像——以及一条盘卧的红龙。<br><br>它睁开一只眼。那只眼像烧红的炭。"哦——"它慢悠悠地说，"我的地精们终于给我送来了……会说话的玩具。"</blockquote></div>
+      </div>
+      <div class="card" data-title="红龙要点">
+        <div class="ico">🐲</div><div class="name">红龙要点</div><div class="hint">喀拉希斯</div>
+        <div class="full"><ul>
+          <li>会飞、俯冲吐息、贪财嘴碎；把玩家往岩浆池 / 岩浆溪逼。</li>
+          <li>第一轮试探（爪击/抓取），第二轮再吐息，防开场团灭。</li>
+          <li>高台 x16~23, y5~9；飞行空域 x8~30, y8~20。</li>
+        </ul></div>
+      </div>
+      <div class="card" data-title="难度调整">
+        <div class="ico">⚖️</div><div class="name">难度调整</div><div class="hint">任选组合</div>
+        <div class="full"><ul>
+          <li>轻伤开局：左翼旧伤（命中 -1，吐息降档 / DC-1）。</li>
+          <li>盟友助战：地精 / 格鲁克分散注意力（每 3 轮代一次吐息）。</li>
+          <li>道具：龙鳞挂坠、治疗药水 ×2、火球术 / 加速卷轴放宝堆显眼处。</li>
+          <li>撤退预案：劣势明显时龙"玩玩而已"，抓走一人退入深处，给救援机会。</li>
+        </ul></div>
+      </div>
+      <div class="card" data-title="对话分支">
+        <div class="ico">💬</div><div class="name">对话分支</div><div class="hint">玩家不开打时</div>
+        <div class="full"><ul>
+          <li><b>交谈</b>：问"找什么"→"找一件本来就属于我的东西，你们猜"（点到即止）。</li>
+          <li><b>威慑</b>：威吓 DC18。成功 → 它大笑开打（吐息 -1 骰）；失败 → 直接吐息。</li>
+        </ul></div>
+      </div>
+      <div class="card" data-title="地形动态">
+        <div class="ico">🎲</div><div class="name">地形动态</div><div class="hint">战斗中的变化</div>
+        <div class="full"><ul>
+          <li>高台 / 宝堆被毁 → 龙暴怒（下轮必吐息），但分心护财（少一次爪击）。</li>
+          <li>岩浆边俯冲抓人：敏捷豁免 DC13，失败落池边（留活路）。</li>
+          <li>地精援军进场 → 龙被分散注意力一轮。</li>
+        </ul></div>
+      </div>
+      <div class="card" data-title="战利品">
+        <div class="ico">🎁</div><div class="name">战利品</div><div class="hint">龙巢宝堆</div>
+        <div class="full"><ul>
+          <li>金币 800~1200；+1 武器 ×1。</li>
+          <li>治疗药水 ×2~3；法术卷轴 ×1~2。</li>
+          <li>村民私人物品若干（还回去得声望）。</li>
+          <li>侧洞 x26,y22 一带可救莉娅父亲 → 暗格银币 + 旧护符。</li>
+        </ul></div>
+      </div>
+      <div class="card" data-title="决战描写 · 四职业阵容">
+        <div class="ico">⚔️</div><div class="name">决战描写</div><div class="hint">四职业阵容</div>
+        <div class="full">
+          <h5>龙打量队伍（开场可念）</h5>
+          <blockquote>"让我看看……一个把痛当酒喝的狂人，一个口袋里揣着影子的贼，一个连神都敢骗的牧师，还有一个举着剑、眼里写着讨债的骑士。"它的尾巴轻轻敲着石台，"今天的玩具，倒是比平时有意思。"</blockquote>
+          <h5>职业高光（GM 触发点）</h5>
+          <ul>
+            <li><b>狂热者野蛮人</b>：狂暴正面吃下龙焰，火焰卷过皮肤他咧嘴一笑——"就这？"他成为全队的盾，为队友顶出输出窗口。</li>
+            <li><b>诡术师</b>：第 2~3 轮，一截锁链从阴影里探出，勾走龙翼下的黑曜石挂坠——"借来用用。"（偷挂坠 / 摸宝堆 / 扰乱龙）</li>
+            <li><b>诡术牧师</b>：幻影分身骗出一次吐息（白烧一轮）；分身"死"时，真身从另一侧给全队加上祝福。</li>
+            <li><b>复仇圣武士</b>：看准龙俯冲的瞬间立誓——"以吾之血，偿汝之债。"一刀斩在龙颈旧伤（若走谈判线）或胸口，圣光炸开。</li>
+          </ul>
+          <h5>龙的应对（针对这个阵容）</h5>
+          <ul>
+            <li>最先盯上<b>圣武士</b>（圣光太疼）→ 俯冲抓起他，想丢进岩浆池。</li>
+            <li>对<b>牧师分身</b>：歪头用嗅觉辨认——"骗术骗得了眼睛，骗不了火。"第二轮识破。</li>
+            <li>嘲讽<b>野蛮人</b>："你死了，也不会有人为你哭泣。"（可触发狂怒 RP）</li>
+            <li><b>吐息时机</b>：等两人以上聚在宝堆 / 石柱后，一口火把掩体烧穿。</li>
+          </ul>
+          <h5>胜利描写（最后一击，可念）</h5>
+          <blockquote>龙最后一次扇动翅膀，爪子在石台上抓出深深的沟痕。它低头看着穿过胸口的兵刃，金色的眼睛里第一次有了别的东西——不是愤怒，是惊讶。"……灰烬屯……只是……"它没能说完。巨厅安静下来，只有岩浆仍在流淌。</blockquote>
+          <h5>胜利后小剧场</h5>
+          <ul>
+            <li><b>野蛮人</b>：狂怒退去，才发现浑身烧伤，撑着斧子喘气。</li>
+            <li><b>诡术师</b>：从龙翼下摸出挂坠："这玩意儿归我了。"</li>
+            <li><b>牧师</b>：为龙念了半句祷词，又闭上嘴——"算了，它用不着。"</li>
+            <li><b>圣武士</b>：把剑插回鞘，朝灰烬屯的方向单膝跪下——誓约完成。</li>
+          </ul>
+        </div>
+      </div>
+      <div class="card" data-title="喀拉希斯 · 烬鳞 · 青年红龙">
+        <div class="ico">🐲</div><div class="name">喀拉希斯</div><div class="hint">红龙嘴炮</div>
+        <div class="full">
+          <p><b>性格：</b>优雅、戏剧化、轻蔑里带孤独；把自己当艺术品，把别人当观众。</p>
+          <div class="quote-line"><span class="who">开场：</span>"我的地精们终于给我送来了……会说话的玩具。"</div>
+          <div class="quote-line"><span class="who">打量：</span>"嗯……四只。不够肥，但够脆。"</div>
+          <div class="quote-line"><span class="who">战斗：</span>"火焰是一门艺术。你们这些……画布。"</div>
+          <div class="quote-line"><span class="who">战斗：</span>"我的宝库里会多四副漂亮骨架。别担心，我会擦干净放好的。"</div>
+          <div class="quote-line"><span class="who">血线过半：</span>"疼……你们弄疼我了。好，现在我要认真了。"</div>
+          <div class="quote-line"><span class="who">濒死：</span>"灰烬屯……只是一块垫脚石。你们以为……杀了我，就结束了？"</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== 敌人属性 ==================== -->
+  <section class="group" id="grp-enemies">
+    <h3>敌人属性 <span class="count">参考 5e · 以你的棋子库为准</span></h3>
+    <div class="cardwall">
+      <div class="card" data-title="地精小队数值（幕 2）">
+        <div class="ico">👺</div><div class="name">地精小队</div><div class="hint">幕 2</div>
+        <div class="full"><table>
+          <tr><th>单位</th><th>HP</th><th>AC</th><th>先攻</th></tr>
+          <tr><td>地精</td><td>7</td><td>15</td><td>+2</td></tr>
+          <tr><td>地精头目</td><td>21</td><td>17</td><td>+2</td></tr>
+          <tr><td>座狼</td><td>26</td><td>13</td><td>+1</td></tr>
+        </table><p style="margin-top:6px;">座狼速度 50 尺，可"啃咬+扑倒"。</p></div>
+      </div>
+      <div class="card" data-title="战团主力数值（幕 3）">
+        <div class="ico">🛡️</div><div class="name">战团主力</div><div class="hint">幕 3</div>
+        <div class="full"><table>
+          <tr><th>单位</th><th>HP</th><th>AC</th><th>先攻</th></tr>
+          <tr><td>格鲁克（督军）</td><td>60~70</td><td>18~19</td><td>+2</td></tr>
+          <tr><td>地精</td><td>7</td><td>15</td><td>+2</td></tr>
+          <tr><td>座狼</td><td>26</td><td>13</td><td>+1</td></tr>
+        </table><p style="margin-top:6px;">格鲁克可加"每回合一次指挥"：让一名地精立刻移动/再攻击。</p></div>
+      </div>
+      <div class="card" data-title="青年红龙数值（幕 4）">
+        <div class="ico">🔥</div><div class="name">青年红龙</div><div class="hint">幕 4</div>
+        <div class="full"><table>
+          <tr><th>单位</th><th>HP</th><th>AC</th><th>吐息</th></tr>
+          <tr><td>喀拉希斯</td><td>~178</td><td>18</td><td>16d6 / DC17</td></tr>
+        </table>
+        <p style="margin-top:6px;">5 级 4 人团打青年红龙偏难，务必降档或开"轻伤开局"（见难度调整卡）。</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== 总览 ==================== -->
+  <section class="group" id="grp-meta">
+    <h3>总览 <span class="count">决策 · 后日谈 · 准备</span></h3>
+    <div class="cardwall">
+      <div class="card" data-title="决策点速览">
+        <div class="ico">🔀</div><div class="name">决策点</div><div class="hint">9 个分支</div>
+        <div class="full"><table>
+          <tr><th>幕</th><th>决策</th><th>后果</th></tr>
+          <tr><td>1</td><td>接活 / 讨价还价</td><td>情报与补给充足度</td></tr>
+          <tr><td>2</td><td>追不追逃兵</td><td>拦截=先攻优势；放任=两波巡逻</td></tr>
+          <tr><td>2</td><td>审问活口</td><td>营地情报</td></tr>
+          <tr><td>3</td><td>杀 / 放 / 谈</td><td>幕 4 援军、龙警惕度、难度</td></tr>
+          <tr><td>3</td><td>救不救幼崽</td><td>格鲁克好感、谈判 DC、暖玉</td></tr>
+          <tr><td>3</td><td>潜行偷账本</td><td>龙多准备一轮（吐息 +1 伤害骰）</td></tr>
+          <tr><td>4</td><td>谈 / 威慑</td><td>战斗难度</td></tr>
+          <tr><td>4</td><td>救莉娅父亲</td><td>侧洞 x26,y22 一带；支线团圆</td></tr>
+        </table></div>
+      </div>
+      <div class="card" data-title="后日谈 · 桑哆尔之歌的下一夜">
+        <div class="ico">🎉</div><div class="name">后日谈</div><div class="hint">收尾</div>
+        <div class="full">
+          <div class="quote-line"><span class="who">开场：</span>"七天前的雨夜，你们走进这家酒馆时，屋里只有躲雨的路人。现在，连门口都站着人……门又被推开了。这一次，进来的人笑着。"</div>
+          <p style="margin-top:8px;"><b>按分支定基调：</b>全歼=热闹但沉重；释放=两族共居；谈判成功=格鲁克当众行军礼。</p>
+          <div class="quote-line"><span class="who">问马库斯：</span>"门口那块龙鳞，半夜有时候发烫。别问我为什么。"</div>
+          <div class="quote-line"><span class="who">问莉娅：</span>"我要回灰烬屯帮忙重建。你们要来，灰烬屯永远有你们的位置。"</div>
+          <div class="quote-line"><span class="who">问格鲁克：</span>"我们打算把碎颅丘改成两族共居的镇子。你们要不嫌弃——来喝一杯。"</div>
+          <div class="quote-line"><span class="who">告别：</span>"活着，就回来。账还没结。"（和开场一模一样的热饼）</div>
+          <div class="quote-line"><span class="who">尾声暗号：</span><b>"烬鳞之后，再无烬鳞。"</b></div>
+        </div>
+      </div>
+      <div class="card" data-title="备团检查单">
+        <div class="ico">✅</div><div class="name">备团检查单</div><div class="hint">开团前</div>
+        <div class="full"><ol>
+          <li>地图：4 张 .地图.json 已进主控台 maps/ 并加载。</li>
+          <li>棋子库：地精 / 头目 / 座狼 / 格鲁克 / 红龙已建好。</li>
+          <li>先攻列表按幕预填。</li>
+          <li>确认难度调整方案（轻伤 / 援军 / 道具）。</li>
+          <li>过一遍决策点表，标出你愿意放的分支。</li>
+        </ol></div>
+      </div>
+    </div>
+  </section>
+
+  <div class="foot">速查卡 · 烬鳞讨伐（卡片版）— 点任意方格放大阅读，Ctrl/Cmd + P 可打印</div>
+</main>
+
+<!-- 点击放大弹层 -->
+<div class="backdrop" id="backdrop">
+  <div class="modal">
+    <div class="modal-head">
+      <h2 id="modal-title"></h2>
+      <button class="modal-close" id="modal-close" title="关闭">×</button>
+    </div>
+    <div class="modal-body" id="modal-body"></div>
+  </div>
+</div>
+
+<script>
+  /* ===== 手动调整：设置 / 编辑模式 ===== */
+  const SS_KEY = 'card_settings_' + location.pathname;
+  const EDIT_KEY = 'card_edit_' + location.pathname;
+  const root = document.getElementById('content-root');
+  const toggleBtn = document.getElementById('settings-toggle');
+  const panel = document.getElementById('settings-panel');
+  const colsSel = document.getElementById('set-cols');
+  const fontSel = document.getElementById('set-font');
+  const editChk = document.getElementById('set-edit');
+  const statusEl = document.getElementById('set-status');
+
+  function applyCols(n) { document.documentElement.style.setProperty('--cols', n); }
+  function applyFont(f) {
+    document.body.classList.remove('font-s', 'font-m', 'font-l');
+    document.body.classList.add('font-' + f);
+  }
+  function applyEdit(on) {
+    document.body.classList.toggle('editing', on);
+    root.contentEditable = on ? 'true' : 'false';
+  }
+  function savePrefs() {
+    localStorage.setItem(SS_KEY, JSON.stringify({ cols: colsSel.value, font: fontSel.value, edit: editChk.checked }));
+  }
+  function loadPrefs() {
+    try {
+      const p = JSON.parse(localStorage.getItem(SS_KEY) || '{}');
+      colsSel.value = p.cols || '4';
+      fontSel.value = p.font || 'm';
+      editChk.checked = !!p.edit;
+      applyCols(colsSel.value); applyFont(fontSel.value); applyEdit(editChk.checked);
+    } catch (e) { applyCols(4); applyFont('m'); }
+  }
+  function flash(msg) {
+    statusEl.textContent = msg;
+    clearTimeout(flash._t);
+    flash._t = setTimeout(() => { statusEl.textContent = ''; }, 1800);
+  }
+
+  toggleBtn.addEventListener('click', () => { panel.hidden = !panel.hidden; });
+  colsSel.addEventListener('change', () => { applyCols(colsSel.value); savePrefs(); });
+  fontSel.addEventListener('change', () => { applyFont(fontSel.value); savePrefs(); });
+  editChk.addEventListener('change', () => { applyEdit(editChk.checked); savePrefs(); });
+  document.getElementById('set-save').addEventListener('click', () => {
+    localStorage.setItem(EDIT_KEY, root.innerHTML);
+    flash('已保存到本机浏览器');
+  });
+  document.getElementById('set-reset').addEventListener('click', () => {
+    localStorage.removeItem(EDIT_KEY);
+    localStorage.removeItem(SS_KEY);
+    location.reload();
+  });
+
+  const backdrop = document.getElementById('backdrop');
+  const modalTitle = document.getElementById('modal-title');
+  const modalBody = document.getElementById('modal-body');
+
+  function openCard(card) {
+    modalTitle.textContent = card.dataset.title || '';
+    const full = card.querySelector('.full');
+    modalBody.innerHTML = full ? full.innerHTML : '';
+    backdrop.classList.add('show');
+  }
+
+  function closeModal() {
+    backdrop.classList.remove('show');
+  }
+
+  function bindCards() {
+    document.querySelectorAll('.card').forEach((card) => {
+      card.addEventListener('click', () => openCard(card));
+    });
+  }
+
+  document.getElementById('modal-close').addEventListener('click', closeModal);
+  backdrop.addEventListener('click', (e) => {
+    if (e.target === backdrop) closeModal();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeModal();
+  });
+
+  function bindNav() {
+    document.querySelectorAll('nav button').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const el = document.getElementById(btn.dataset.target);
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    });
+  }
+
+  function init() {
+    loadPrefs();
+    const saved = localStorage.getItem(EDIT_KEY);
+    if (saved) root.innerHTML = saved;
+    bindCards();
+    bindNav();
+  }
+  init();
+</script>
+</body>
+</html>

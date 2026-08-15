@@ -1,0 +1,2405 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>地图工坊 · 5尺网格地图制作器</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg:#101218; --panel:#191c25; --panel2:#212531; --border:#2b303d;
+  --text:#e8eaf0; --muted:#9aa3b2; --accent:#e0b34c; --danger:#e74c5e;
+}
+html,body { height:100%; }
+body {
+  display:flex; flex-direction:column;
+  font-family:"PingFang SC","Microsoft YaHei","Noto Sans SC",system-ui,sans-serif;
+  background:var(--bg); color:var(--text); overflow:hidden; user-select:none;
+}
+input,select,button { font:inherit; color:inherit; }
+input,select {
+  background:#141722; border:1px solid var(--border); border-radius:8px;
+  padding:6px 8px; outline:none; width:100%;
+}
+input:focus,select:focus { border-color:var(--accent); }
+button {
+  cursor:pointer; border:1px solid var(--border); background:var(--panel2);
+  color:var(--text); border-radius:8px; padding:7px 10px;
+  transition:background .15s, filter .15s;
+}
+button:hover { background:#2b3140; }
+button.primary { background:var(--accent); border-color:var(--accent); color:#241d0a; font-weight:600; }
+button.primary:hover { background:#f0c45c; }
+button.active { border-color:var(--accent); background:#2b2733; color:var(--accent); }
+
+header {
+  display:flex; align-items:center; justify-content:space-between; gap:10px;
+  padding:8px 14px; background:var(--panel); border-bottom:1px solid var(--border);
+  flex-wrap:wrap; z-index:5;
+}
+.brand { display:flex; align-items:center; gap:8px; font-size:17px; font-weight:700; white-space:nowrap; }
+.brand em { color:var(--accent); font-style:normal; }
+.controls { display:flex; align-items:flex-end; gap:8px; flex-wrap:wrap; }
+.controls label { display:flex; flex-direction:column; gap:3px; font-size:12px; color:var(--muted); }
+.controls input, .controls select { width:86px; }
+.controls input#map-name { width:130px; }
+.controls .zoom-group { display:flex; align-items:center; gap:4px; }
+.zoom-group button { width:30px; padding:5px 0; }
+#zoom-readout { min-width:44px; text-align:center; font-size:12px; color:var(--muted); }
+
+main { flex:1; display:flex; min-height:0; }
+.panel { width:268px; min-width:268px; background:var(--panel); overflow-y:auto; padding-bottom:12px; }
+.left-panel { border-right:1px solid var(--border); }
+.right-panel { border-left:1px solid var(--border); }
+.card { background:var(--panel); margin:12px 10px 0; padding:12px; border:1px solid var(--border); border-radius:12px; display:flex; flex-direction:column; gap:8px; }
+.card h2 { font-size:15px; color:var(--accent); border-bottom:1px solid var(--border); padding-bottom:6px; }
+.hint { font-size:12px; color:var(--muted); line-height:1.5; }
+.tool-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:6px; }
+.palette-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:5px; }
+.palette-btn {
+  display:flex; align-items:center; gap:6px; padding:5px 7px; font-size:12px;
+  border-radius:8px; text-align:left;
+}
+.palette-btn .sw { width:18px; height:18px; border-radius:5px; border:1px solid rgba(255,255,255,.25); flex-shrink:0; }
+.palette-group {
+  grid-column: 1 / -1;
+  font-size: 12px;
+  color: var(--accent);
+  margin-top: 4px;
+  border-top: 1px solid var(--border);
+  padding-top: 6px;
+}
+.btn-row { display:flex; gap:6px; }
+.btn-row button { flex:1; }
+.gen-row { display:flex; gap:6px; align-items:flex-end; }
+.gen-row label { flex:1; display:flex; flex-direction:column; gap:3px; font-size:12px; color:var(--muted); }
+.gen-row input { padding:5px 6px; }
+
+.center { flex:1; min-width:0; display:flex; flex-direction:column; background:#0f1116; }
+#canvas-wrap { flex:1; min-height:0; display:flex; padding:14px; overflow:auto; }
+#map-canvas {
+  margin:auto;
+  max-width:100%; max-height:100%; width:auto; height:auto;
+  border:1px solid var(--border); border-radius:4px; box-shadow:0 8px 30px rgba(0,0,0,.5);
+  cursor:crosshair; touch-action:none;
+  background:#181b21;
+}
+.statusbar {
+  display:flex; gap:18px; padding:7px 14px; background:var(--panel);
+  border-top:1px solid var(--border); font-size:13px; color:var(--muted);
+}
+.statusbar b { color:var(--text); font-weight:600; }
+::-webkit-scrollbar { width:8px; height:8px; }
+::-webkit-scrollbar-thumb { background:#333947; border-radius:8px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">🗺️ 地图工坊 <em>5 尺网格地图制作器</em></div>
+  <div class="controls">
+    <label>地图名称<input id="map-name" value="我的地牢" maxlength="20"></label>
+    <label>列（格）<input id="cols" type="number" min="8" max="80" value="24"></label>
+    <label>行（格）<input id="rows" type="number" min="8" max="80" value="18"></label>
+    <label>每格像素<select id="cell-scale">
+      <option value="40">40</option>
+      <option value="50" selected>50</option>
+      <option value="60">60</option>
+      <option value="80">80</option>
+    </select></label>
+    <div class="zoom-group">
+      <button id="btn-zoom-out" title="缩小">−</button>
+      <span id="zoom-readout">100%</span>
+      <button id="btn-zoom-in" title="放大">＋</button>
+      <button id="btn-zoom-fit" title="适应窗口">⛶</button>
+    </div>
+    <button id="btn-new">🆕 新建地图</button>
+  </div>
+</header>
+
+<main>
+  <aside class="panel left-panel">
+    <section class="card">
+      <h2>🛠 工具</h2>
+      <div class="tool-grid">
+        <button data-tool="brush" class="active">✏️ 画笔</button>
+        <button data-tool="line">〰️ 直线</button>
+        <button data-tool="rect">▭ 矩形</button>
+        <button data-tool="fill">🪣 填充</button>
+        <button data-tool="erase">🧽 橡皮</button>
+        <button data-tool="pick">💉 拾取</button>
+        <button data-tool="select">🖱 框选</button>
+        <button data-tool="pan">🖐 平移</button>
+        <button data-tool="object">🧩 物件</button>
+      </div>
+      <label class="gen-row" style="flex-direction:column;gap:3px;">
+        <span style="font-size:12px;color:var(--muted);">笔刷大小</span>
+        <select id="brush-size">
+          <option value="1">1×1</option>
+          <option value="2">2×2</option>
+          <option value="3">3×3</option>
+          <option value="5">5×5</option>
+        </select>
+      </label>
+      <p class="hint">左键绘制，右键拾取地块 / 移除物件。<br>快捷键：B 画笔 / L 直线 / R 矩形 / F 填充 / E 橡皮 / P 拾取 / S 框选 / H 平移 / O 物件，Ctrl+Z 撤销。</p>
+    </section>
+
+    <section class="card">
+      <h2>🎨 地块</h2>
+      <div class="palette-grid" id="palette"></div>
+      <p class="hint">每格代表 D&amp;D 世界中的 <b style="color:var(--accent);">5 尺</b>。</p>
+    </section>
+
+    <section class="card">
+      <h2>🧩 大物件</h2>
+      <div class="palette-grid" id="object-palette"></div>
+      <p class="hint">选好物件后用「🧩 物件」工具点击或拖动放置（有占地预览）；「🧽 橡皮」或右键点物件可移除。物件会随地图导出。</p>
+    </section>
+  </aside>
+
+  <section class="center">
+    <div id="canvas-wrap">
+      <canvas id="map-canvas"></canvas>
+    </div>
+    <div class="statusbar">
+      <span>地图尺寸：<b id="size-readout"></b></span>
+      <span>当前地块：<b id="tile-readout">石地板</b></span>
+      <span>位置：<b id="pos-readout">—</b></span>
+    </div>
+  </section>
+
+  <aside class="panel right-panel">
+    <section class="card">
+      <h2>⚙️ 操作</h2>
+      <div class="btn-row">
+        <button id="btn-open">📂 打开</button>
+        <button id="btn-save">💾 保存</button>
+      </div>
+      <div class="btn-row">
+        <button id="btn-undo">↩ 撤销</button>
+        <button id="btn-redo">↪ 重做</button>
+      </div>
+      <button id="btn-clear">🗑 清空地图</button>
+      <button id="btn-export-png">⬇ 导出 PNG</button>
+      <button id="btn-export-table" class="primary">📤 导出到跑团台</button>
+      <p class="hint">「打开」可读取 .地图.json 继续编辑；「保存」生成同格式 JSON，跑团台可直接导入。编辑中会自动保存草稿到浏览器，重开页面自动恢复。</p>
+    </section>
+
+    <section class="card">
+      <h2>📐 选区</h2>
+      <div class="btn-row">
+        <button id="btn-copy">📋 复制</button>
+        <button id="btn-cut">✂️ 剪切</button>
+      </div>
+      <div class="btn-row">
+        <button id="btn-paste">📥 粘贴</button>
+        <button id="btn-rotate">↻ 旋转</button>
+      </div>
+      <p class="hint">用「框选」工具拖选区域；拖住选区内部可整体移动，点一下空白格可设定粘贴位置，Ctrl+C / Ctrl+X / Ctrl+V 复制剪切粘贴。</p>
+    </section>
+
+    <section class="card">
+      <h2>🎲 随机生成</h2>
+      <div class="gen-row">
+        <label>房间数<input id="gen-rooms" type="number" value="6" min="2" max="30"></label>
+      </div>
+      <div class="gen-row">
+        <label>走廊宽<input id="gen-cw" type="number" value="2" min="1" max="4"></label>
+        <label>房间最小<input id="gen-min" type="number" value="4" min="3" max="12"></label>
+        <label>房间最大<input id="gen-max" type="number" value="9" min="4" max="20"></label>
+      </div>
+      <div class="gen-row">
+        <label>种子<input id="gen-seed" placeholder="留空=随机"></label>
+      </div>
+      <button id="btn-generate" class="primary">🎲 生成地牢</button>
+      <button id="btn-maze" class="primary">🌀 生成迷宫</button>
+    </section>
+
+    <section class="card">
+      <h2>📜 模板</h2>
+      <select id="template-select">
+        <option value="">选择模板…</option>
+      </select>
+      <div class="btn-row">
+        <button id="btn-template">📜 应用模板</button>
+        <button id="btn-save-template">➕ 存为模板</button>
+      </div>
+      <button id="btn-del-template">🗑 删除模板</button>
+      <p class="hint">「存为模板」把当前整张地图存成自定义模板；选中自定义模板后可删除。</p>
+    </section>
+  </aside>
+</main>
+<input type="file" id="file-open" accept=".json,application/json" hidden>
+
+<script>
+'use strict';
+
+/* ==================== 地块定义 ==================== */
+
+const TILE_GROUPS = [
+  { name: '🟫 地面', ids: ['void', 'floor', 'wood', 'grass', 'road', 'sand', 'ice', 'water'] },
+  { name: '🧱 墙与障碍', ids: ['wall', 'woodwall', 'rock', 'rubble', 'bars', 'fence', 'pillar', 'hedge'] },
+  { name: '🚪 门与通道', ids: ['door', 'gate', 'stairs', 'bridge', 'portal'] },
+  { name: '🪑 家具物品', ids: ['table', 'chest', 'bed', 'bookshelf', 'altar', 'throne', 'barrel', 'crate', 'fountain', 'statue'] },
+  { name: '⚠️ 机关危险', ids: ['trap', 'lava', 'spikes', 'pit', 'torch'] },
+  { name: '🌿 自然环境', ids: ['tree', 'bush', 'mushroom'] },
+];
+
+const TILES = [
+  { id: 'void', name: '虚空', emoji: '⬛', base: '#181b21' },
+  { id: 'floor', name: '石地板', emoji: '🟫', base: '#8f8574' },
+  { id: 'wood', name: '木地板', emoji: '🪵', base: '#a97c50' },
+  { id: 'grass', name: '草地', emoji: '🌿', base: '#7da05c' },
+  { id: 'road', name: '土路', emoji: '🛤️', base: '#c4a46f' },
+  { id: 'sand', name: '沙地', emoji: '🏖️', base: '#d9c27a' },
+  { id: 'ice', name: '冰面', emoji: '🧊', base: '#bcd9e8' },
+  { id: 'water', name: '水面', emoji: '🌊', base: '#4f8fc2' },
+  { id: 'wall', name: '石墙', emoji: '🧱', base: '#5c6068' },
+  { id: 'woodwall', name: '木墙', emoji: '🪨', base: '#6f4f2e' },
+  { id: 'rock', name: '岩石', emoji: '🗻', base: '#6e6a63' },
+  { id: 'rubble', name: '碎石', emoji: '🪨', base: '#777168' },
+  { id: 'bars', name: '铁栏杆', emoji: '⛓️', base: '#6d7a8a' },
+  { id: 'fence', name: '木栅栏', emoji: '🚧', base: '#8a6a3b' },
+  { id: 'pillar', name: '石柱', emoji: '🏛️', base: '#8d8d96' },
+  { id: 'hedge', name: '树篱', emoji: '🌳', base: '#4a7a3a' },
+  { id: 'door', name: '木门', emoji: '🚪', base: '#8a5a2b' },
+  { id: 'gate', name: '铁门', emoji: '⚙️', base: '#4a5a6a' },
+  { id: 'stairs', name: '楼梯', emoji: '🪜', base: '#9a8a70' },
+  { id: 'bridge', name: '木桥', emoji: '🌉', base: '#9c6b3a' },
+  { id: 'portal', name: '传送门', emoji: '🌀', base: '#6f5bd9' },
+  { id: 'table', name: '桌子', emoji: '🪑', base: '#7a5a35' },
+  { id: 'chest', name: '宝箱', emoji: '📦', base: '#9c6b2f' },
+  { id: 'bed', name: '床', emoji: '🛏️', base: '#c98f6a' },
+  { id: 'bookshelf', name: '书架', emoji: '📚', base: '#7a4a2b' },
+  { id: 'altar', name: '祭坛', emoji: '🪦', base: '#9a9ab0' },
+  { id: 'throne', name: '王座', emoji: '👑', base: '#b08d57' },
+  { id: 'barrel', name: '木桶', emoji: '🛢️', base: '#8a5a2b' },
+  { id: 'crate', name: '板条箱', emoji: '📦', base: '#a97c50' },
+  { id: 'fountain', name: '喷泉', emoji: '⛲', base: '#7fa8c9' },
+  { id: 'statue', name: '雕像', emoji: '🗿', base: '#9aa0a8' },
+  { id: 'trap', name: '陷阱', emoji: '⚠️', base: '#8d6e63' },
+  { id: 'lava', name: '岩浆', emoji: '🌋', base: '#d94f2b' },
+  { id: 'spikes', name: '尖刺', emoji: '🔺', base: '#9aa0a8' },
+  { id: 'pit', name: '深坑', emoji: '🕳️', base: '#1e2126' },
+  { id: 'torch', name: '火把', emoji: '🔥', base: '#8a7a5a' },
+  { id: 'tree', name: '树木', emoji: '🌳', base: '#3f6b3a' },
+  { id: 'bush', name: '灌木', emoji: '🌿', base: '#4a7a3a' },
+  { id: 'mushroom', name: '蘑菇', emoji: '🍄', base: '#6a6f4a' },
+];
+
+const TILE_BY_ID = Object.fromEntries(TILES.map((t) => [t.id, t]));
+
+/* ==================== 大物件定义 ==================== */
+
+const OBJECTS = [
+  { id: 'bigaltar', name: '大祭坛', emoji: '🪦', w: 2, h: 2 },
+  { id: 'thronedais', name: '王座高台', emoji: '👑', w: 2, h: 2 },
+  { id: 'longtable', name: '长桌', emoji: '🪑', w: 3, h: 2 },
+  { id: 'giantstatue', name: '巨像', emoji: '🗿', w: 2, h: 2 },
+  { id: 'boulder', name: '巨岩', emoji: '🪨', w: 2, h: 2 },
+  { id: 'carpet', name: '豪华地毯', emoji: '🟥', w: 2, h: 2, layer: 0 },
+  { id: 'bigpit', name: '深渊·岩浆', emoji: '🌋', w: 2, h: 2 },
+  { id: 'giantdoor', name: '巨门', emoji: '🚪', w: 2, h: 2 },
+  { id: 'bigtree', name: '大树', emoji: '🌳', w: 2, h: 2 },
+  { id: 'dragoncannon', name: '灭龙炮', emoji: '🎯', w: 3, h: 3 },
+];
+const OBJECT_BY_ID = Object.fromEntries(OBJECTS.map((o) => [o.id, o]));
+
+// 基于格子坐标的稳定伪随机：同一格子的装饰每次绘制都一致
+function stableRand(x, y, salt) {
+  let h = (Math.imul(x + 1, 374761393) + Math.imul(y + 1, 668265263) + Math.imul(salt + 1, 1274126177)) >>> 0;
+  h = (h ^ (h >>> 13)) >>> 0;
+  h = Math.imul(h, 1274126177) >>> 0;
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+}
+
+// 画笔面板：按分组排列的基础地块 + 带状态的变体
+const PALETTE = [];
+TILE_GROUPS.forEach((grp) => {
+  grp.ids.forEach((id) => {
+    const t = TILE_BY_ID[id];
+    PALETTE.push({ id, state: null, name: t.name, emoji: t.emoji, base: t.base, group: grp.name });
+  });
+});
+PALETTE.push(
+  { id: 'door', state: 'open', name: '门·开', emoji: '🚪', base: '#8a5a2b', group: '🚪 门与通道' },
+  { id: 'door', state: 'locked', name: '门·锁', emoji: '🔒', base: '#8a5a2b', group: '🚪 门与通道' },
+  { id: 'gate', state: 'open', name: '铁门·开', emoji: '⚙️', base: '#4a5a6a', group: '🚪 门与通道' },
+  { id: 'portal', state: 'on', name: '传送·开', emoji: '🌀', base: '#6f5bd9', group: '🚪 门与通道' },
+  { id: 'chest', state: 'open', name: '宝箱·开', emoji: '🎁', base: '#9c6b2f', group: '🪑 家具物品' },
+  { id: 'trap', state: 'tripped', name: '陷阱·触发', emoji: '💥', base: '#e63946', group: '⚠️ 机关危险' },
+  { id: 'torch', state: 'on', name: '火把·燃', emoji: '🔥', base: '#8a7a5a', group: '⚠️ 机关危险' }
+);
+
+/* ==================== 状态 ==================== */
+
+const canvas = document.getElementById('map-canvas');
+const g = canvas.getContext('2d');
+const $ = (sel) => document.querySelector(sel);
+
+let cols = 24, rows = 18, scale = 50;
+let grid = [];
+let paintStates = {};
+let mapObjects = {};
+let tool = 'brush', brush = 1, selectedTile = 'floor';
+let selectedState = null;
+let selectedObject = 'bigaltar';
+let undoStack = [], redoStack = [];
+const DRAFT_KEY = 'dnd-mapworkshop-draft-v1';
+let drawing = false, dragStart = null, dragCur = null, gesturePushed = false;
+let rafPending = false;
+let zoom = 1, fitMode = false;
+let selection = null, clipboard = null;
+let movingSel = false, moveData = null;
+let panning = false, panStart = null;
+let lastClickCell = null;
+
+/* ==================== 缩放 / 平移 ==================== */
+
+function setScaleInput(v) {
+  const sel = $('#cell-scale');
+  if (![...sel.options].some((o) => o.value == v)) {
+    const opt = document.createElement('option');
+    opt.value = v;
+    opt.textContent = v;
+    sel.appendChild(opt);
+  }
+  sel.value = v;
+}
+
+function applyZoom(z) {
+  zoom = Math.min(4, Math.max(0.2, z));
+  fitMode = false;
+  updateCanvasScale();
+}
+
+function updateCanvasScale() {
+  canvas.style.width = Math.round(canvas.width * zoom) + 'px';
+  canvas.style.height = Math.round(canvas.height * zoom) + 'px';
+  canvas.style.maxWidth = 'none';
+  canvas.style.maxHeight = 'none';
+  $('#zoom-readout').textContent = Math.round(zoom * 100) + '%';
+}
+
+function fitZoom() {
+  const wrap = $('#canvas-wrap');
+  const w = wrap.clientWidth - 28, h = wrap.clientHeight - 28;
+  if (!w || !h || !canvas.width) return;
+  zoom = Math.min(w / canvas.width, h / canvas.height, 1);
+  fitMode = true;
+  updateCanvasScale();
+  wrap.scrollLeft = 0;
+  wrap.scrollTop = 0;
+}
+
+function drawOverlay(x0, y0, x1, y1, fill, stroke, lw) {
+  const px0 = x0 * scale, py0 = y0 * scale;
+  const pw = (x1 - x0 + 1) * scale, ph = (y1 - y0 + 1) * scale;
+  if (fill) { g.fillStyle = fill; g.fillRect(px0, py0, pw, ph); }
+  if (stroke) {
+    g.strokeStyle = stroke;
+    g.lineWidth = lw || 2;
+    g.strokeRect(px0 + 1, py0 + 1, pw - 2, ph - 2);
+  }
+}
+
+/* ==================== 网格操作 ==================== */
+
+function makeGrid(c, r, fill) {
+  return Array.from({ length: r }, () => Array(c).fill(fill));
+}
+
+function newMap() {
+  cols = clampInt($('#cols').value, 8, 80);
+  rows = clampInt($('#rows').value, 8, 80);
+  scale = parseInt($('#cell-scale').value, 10) || 50;
+  canvas.width = cols * scale;
+  canvas.height = rows * scale;
+  grid = makeGrid(cols, rows, 'void');
+  paintStates = {};
+  mapObjects = {};
+  undoStack = [];
+  redoStack = [];
+  render();
+  updateStatus();
+  try { localStorage.removeItem(DRAFT_KEY); } catch (e) {}
+  fitZoom();
+}
+
+function clampInt(v, min, max) {
+  const n = parseInt(v, 10);
+  if (isNaN(n)) return min;
+  return Math.min(max, Math.max(min, n));
+}
+
+function snapshot() {
+  return {
+    grid: grid.map((row) => row.slice()),
+    states: { ...paintStates },
+    objects: { ...mapObjects },
+  };
+}
+
+function pushUndo() {
+  undoStack.push(snapshot());
+  if (undoStack.length > 80) undoStack.shift();
+  redoStack = [];
+}
+
+function undo() {
+  if (!undoStack.length) return;
+  redoStack.push(snapshot());
+  const s = undoStack.pop();
+  grid = s.grid;
+  paintStates = s.states;
+  mapObjects = s.objects || {};
+  render();
+  saveDraft();
+}
+
+function redo() {
+  if (!redoStack.length) return;
+  undoStack.push(snapshot());
+  const s = redoStack.pop();
+  grid = s.grid;
+  paintStates = s.states;
+  mapObjects = s.objects || {};
+  render();
+  saveDraft();
+}
+
+/* ==================== 绘制渲染 ==================== */
+
+const WALL_LIKE = ['wall', 'woodwall', 'door', 'gate', 'rock'];
+function neighborAt(x, y, ids) {
+  return x >= 0 && y >= 0 && x < cols && y < rows && ids.includes(grid[y][x]);
+}
+
+function drawDetail(id, state, px, py, s) {
+  const cx = px + s / 2;
+  const cy = py + s / 2;
+  const r = s / 2;
+  const x = Math.round(px / s);
+  const y = Math.round(py / s);
+  switch (id) {
+    case 'void': break;
+    case 'floor': {
+      g.fillStyle = 'rgba(0,0,0,.10)';
+      g.fillRect(px + s * .15, py + s * .25, s * .18, s * .12);
+      g.fillRect(px + s * .62, py + s * .58, s * .16, s * .10);
+      g.fillRect(px + s * .38, py + s * .78, s * .12, s * .08);
+      break;
+    }
+    case 'wood': {
+      g.strokeStyle = 'rgba(0,0,0,.18)';
+      g.lineWidth = Math.max(1, s * .04);
+      for (let i = 1; i <= 2; i++) {
+        const y = py + s * i / 3;
+        g.beginPath(); g.moveTo(px, y); g.lineTo(px + s, y); g.stroke();
+      }
+      break;
+    }
+    case 'grass': {
+      g.fillStyle = 'rgba(40,70,35,.35)';
+      for (let i = 0; i < 5; i++) {
+        g.fillRect(px + stableRand(x, y, i + 30) * s, py + stableRand(x, y, i + 40) * s, s * .06, s * .12);
+      }
+      break;
+    }
+    case 'water': {
+      g.strokeStyle = 'rgba(255,255,255,.35)';
+      g.lineWidth = Math.max(1, s * .05);
+      for (let i = 1; i <= 2; i++) {
+        const y = py + s * i / 3;
+        g.beginPath();
+        g.moveTo(px + s * .1, y);
+        g.quadraticCurveTo(px + s * .5, y - s * .08, px + s * .9, y);
+        g.stroke();
+      }
+      break;
+    }
+    case 'wall': {
+      const n = neighborAt(x, y - 1, ['wall']);
+      const s2 = neighborAt(x, y + 1, ['wall']);
+      const w = neighborAt(x - 1, y, ['wall']);
+      const e = neighborAt(x + 1, y, ['wall']);
+      if (n || s2 || w || e) {
+        g.fillStyle = 'rgba(255,255,255,.05)';
+        g.fillRect(px, py, s, s);
+      }
+      g.strokeStyle = 'rgba(0,0,0,.26)';
+      g.lineWidth = Math.max(1, s * .045);
+      const bh = s / 3;
+      for (let row = 0; row < 3; row++) {
+        g.beginPath(); g.moveTo(px, py + row * bh + bh / 2); g.lineTo(px + s, py + row * bh + bh / 2); g.stroke();
+        const off = row % 2 ? s / 2 : 0;
+        for (let bx = off; bx < s; bx += s / 2) {
+          g.beginPath(); g.moveTo(px + bx, py + row * bh); g.lineTo(px + bx, py + row * bh + bh); g.stroke();
+        }
+      }
+      g.lineWidth = Math.max(1, s * .08);
+      g.strokeStyle = 'rgba(0,0,0,.55)';
+      if (!n) { g.beginPath(); g.moveTo(px, py); g.lineTo(px + s, py); g.stroke(); }
+      if (!s2) { g.beginPath(); g.moveTo(px, py + s); g.lineTo(px + s, py + s); g.stroke(); }
+      if (!w) { g.beginPath(); g.moveTo(px, py); g.lineTo(px, py + s); g.stroke(); }
+      if (!e) { g.beginPath(); g.moveTo(px + s, py); g.lineTo(px + s, py + s); g.stroke(); }
+      break;
+    }
+    case 'woodwall': {
+      const n = neighborAt(x, y - 1, ['woodwall']);
+      const s2 = neighborAt(x, y + 1, ['woodwall']);
+      const w = neighborAt(x - 1, y, ['woodwall']);
+      const e = neighborAt(x + 1, y, ['woodwall']);
+      if (n || s2 || w || e) {
+        g.fillStyle = 'rgba(255,255,255,.04)';
+        g.fillRect(px, py, s, s);
+      }
+      g.strokeStyle = 'rgba(0,0,0,.25)';
+      g.lineWidth = Math.max(1, s * .05);
+      for (let bx = s * .33; bx < s; bx += s * .33) {
+        g.beginPath(); g.moveTo(px + bx, py); g.lineTo(px + bx, py + s); g.stroke();
+      }
+      g.lineWidth = Math.max(1, s * .08);
+      g.strokeStyle = 'rgba(0,0,0,.5)';
+      if (!n) { g.beginPath(); g.moveTo(px, py); g.lineTo(px + s, py); g.stroke(); }
+      if (!s2) { g.beginPath(); g.moveTo(px, py + s); g.lineTo(px + s, py + s); g.stroke(); }
+      if (!w) { g.beginPath(); g.moveTo(px, py); g.lineTo(px, py + s); g.stroke(); }
+      if (!e) { g.beginPath(); g.moveTo(px + s, py); g.lineTo(px + s, py + s); g.stroke(); }
+      break;
+    }
+    case 'door': {
+      const n = neighborAt(x, y - 1, WALL_LIKE);
+      const s2 = neighborAt(x, y + 1, WALL_LIKE);
+      const w = neighborAt(x - 1, y, WALL_LIKE);
+      const e = neighborAt(x + 1, y, WALL_LIKE);
+      let horiz = (w && e) && !(n && s2);
+      let vert = (n && s2) && !(w && e);
+      if (!horiz && !vert) {
+        if ((w || e) && !(n || s2)) horiz = true;
+        else if ((n || s2) && !(w || e)) vert = true;
+        else horiz = true;
+      }
+      const rx = vert ? px + s * .26 : px + s * .08;
+      const ry = vert ? py + s * .08 : py + s * .26;
+      const rw = vert ? s * .48 : s * .84;
+      const rh = vert ? s * .84 : s * .48;
+      if (state === 'open') {
+        g.fillStyle = '#2a2d36';
+        g.fillRect(rx, ry, rw, rh);
+        g.fillStyle = '#6f4520';
+        if (vert) {
+          g.fillRect(rx, ry, rw, s * .12);
+          g.fillRect(rx, ry + rh - s * .12, rw, s * .12);
+        } else {
+          g.fillRect(rx, ry, s * .12, rh);
+          g.fillRect(rx + rw - s * .12, ry, s * .12, rh);
+        }
+        g.fillStyle = 'rgba(255,255,255,.18)';
+        if (vert) g.fillRect(rx + rw / 2 - s * .03, ry + s * .05, s * .06, s * .12);
+        else g.fillRect(rx + s * .05, ry + rh / 2 - s * .03, s * .12, s * .06);
+      } else {
+        g.fillStyle = '#6f4520';
+        g.fillRect(rx, ry, rw, rh);
+        g.fillStyle = 'rgba(0,0,0,.35)';
+        if (vert) g.fillRect(rx + rw / 2 - s * .03, ry, s * .06, rh);
+        else g.fillRect(rx, ry + rh / 2 - s * .03, rw, s * .06);
+        g.fillStyle = 'rgba(255,255,255,.25)';
+        if (vert) g.fillRect(rx + s * .05, ry + s * .05, rw - s * .1, s * .08);
+        else g.fillRect(rx + s * .05, ry + s * .05, s * .08, rh - s * .1);
+        if (state === 'locked') {
+          g.fillStyle = '#ffd23f';
+          g.beginPath(); g.arc(cx, cy, s * .14, 0, Math.PI * 2); g.fill();
+          g.fillStyle = '#2b2d42';
+          g.fillRect(cx - s * .03, cy - s * .04, s * .06, s * .1);
+        }
+      }
+      break;
+    }
+    case 'rock': {
+      g.fillStyle = 'rgba(0,0,0,.25)';
+      g.beginPath();
+      g.moveTo(cx - r, cy + r * .3);
+      g.lineTo(cx - r * .5, cy - r);
+      g.lineTo(cx + r * .5, cy - r * .7);
+      g.lineTo(cx + r, cy + r * .5);
+      g.closePath(); g.fill();
+      g.fillStyle = 'rgba(255,255,255,.14)';
+      g.beginPath();
+      g.moveTo(cx - r * .5, cy - r);
+      g.lineTo(cx + r * .5, cy - r * .7);
+      g.lineTo(cx + r * .15, cy + r * .1);
+      g.closePath(); g.fill();
+      break;
+    }
+    case 'tree': {
+      g.fillStyle = '#4c331f';
+      g.fillRect(cx - s * .07, cy, s * .14, s * .22);
+      g.fillStyle = '#2f552b';
+      g.beginPath(); g.arc(cx, cy - s * .12, r * .75, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#43753d';
+      g.beginPath(); g.arc(cx - r * .2, cy - r * .25, r * .5, 0, Math.PI * 2); g.fill();
+      g.beginPath(); g.arc(cx + r * .2, cy - r * .15, r * .45, 0, Math.PI * 2); g.fill();
+      break;
+    }
+    case 'road': {
+      g.strokeStyle = 'rgba(0,0,0,.18)';
+      g.lineWidth = Math.max(1, s * .06);
+      for (let i = 0; i < 2; i++) {
+        const y = py + s * (.35 + i * .3);
+        g.beginPath(); g.moveTo(px, y); g.lineTo(px + s, y); g.stroke();
+      }
+      break;
+    }
+    case 'stairs': {
+      g.strokeStyle = 'rgba(0,0,0,.28)';
+      g.lineWidth = Math.max(1, s * .05);
+      for (let i = 1; i <= 4; i++) {
+        g.beginPath(); g.moveTo(px, py + s * i / 5); g.lineTo(px + s, py + s * i / 5); g.stroke();
+      }
+      break;
+    }
+    case 'chest': {
+      g.fillStyle = '#5d3a15';
+      g.fillRect(px + s * .2, py + s * .55, s * .6, s * .3);
+      if (state === 'open') {
+        g.fillStyle = '#b98a3e';
+        g.fillRect(px + s * .14, py + s * .28, s * .72, s * .18);
+        g.fillStyle = '#ffd23f';
+        g.beginPath(); g.arc(cx - s * .12, py + s * .26, s * .07, 0, Math.PI * 2); g.fill();
+        g.beginPath(); g.arc(cx + s * .14, py + s * .18, s * .06, 0, Math.PI * 2); g.fill();
+      } else {
+        g.fillStyle = '#b98a3e';
+        g.fillRect(px + s * .18, py + s * .4, s * .64, s * .2);
+        g.fillStyle = '#8a6426';
+        g.fillRect(px + s * .2, py + s * .44, s * .6, s * .1);
+        g.fillStyle = '#ffd23f';
+        g.fillRect(cx - s * .04, py + s * .5, s * .08, s * .12);
+      }
+      break;
+    }
+    case 'table': {
+      g.fillStyle = '#5d3a15';
+      g.fillRect(px + s * .16, py + s * .68, s * .12, s * .22);
+      g.fillRect(px + s * .72, py + s * .68, s * .12, s * .22);
+      g.fillStyle = '#8a5f33';
+      g.fillRect(px + s * .1, py + s * .3, s * .8, s * .42);
+      g.fillStyle = 'rgba(255,255,255,.15)';
+      g.fillRect(px + s * .1, py + s * .3, s * .8, s * .1);
+      break;
+    }
+    case 'torch': {
+      g.fillStyle = '#5d4a2a';
+      g.fillRect(px + s * .46, py + s * .4, s * .08, s * .45);
+      if (state === 'on') {
+        g.fillStyle = '#ff9d2e';
+        g.beginPath(); g.arc(cx, py + s * .28, s * .13, 0, Math.PI * 2); g.fill();
+        g.fillStyle = '#ffe08a';
+        g.beginPath(); g.arc(cx, py + s * .28, s * .06, 0, Math.PI * 2); g.fill();
+      } else {
+        g.fillStyle = '#5f5341';
+        g.beginPath(); g.arc(cx, py + s * .28, s * .08, 0, Math.PI * 2); g.fill();
+        g.fillStyle = '#7a4a2b';
+        g.fillRect(px + s * .42, py + s * .3, s * .16, s * .08);
+      }
+      break;
+    }
+    case 'trap': {
+      if (state === 'tripped') {
+        g.fillStyle = '#c1121f';
+        g.beginPath(); g.arc(cx, cy, s * .28, 0, Math.PI * 2); g.fill();
+        g.strokeStyle = '#ffe08a';
+        g.lineWidth = Math.max(1, s * .05);
+        for (let i = 0; i < 8; i++) {
+          const a = i * Math.PI / 4;
+          g.beginPath(); g.moveTo(cx, cy); g.lineTo(cx + Math.cos(a) * s * .38, cy + Math.sin(a) * s * .38); g.stroke();
+        }
+      } else {
+        g.fillStyle = 'rgba(0,0,0,.18)';
+        g.beginPath(); g.arc(cx, cy, s * .2, 0, Math.PI * 2); g.fill();
+        g.strokeStyle = 'rgba(255,255,255,.25)';
+        g.lineWidth = Math.max(1, s * .04);
+        g.beginPath(); g.arc(cx, cy, s * .2, 0, Math.PI * 2); g.stroke();
+      }
+      break;
+    }
+    case 'sand': {
+      g.fillStyle = 'rgba(0,0,0,.12)';
+      for (let i = 0; i < 4; i++) {
+        g.fillRect(px + stableRand(x, y, i + 50) * s, py + stableRand(x, y, i + 60) * s, s * .07, s * .05);
+      }
+      break;
+    }
+    case 'ice': {
+      g.strokeStyle = 'rgba(255,255,255,.7)';
+      g.lineWidth = Math.max(1, s * .05);
+      g.beginPath(); g.moveTo(px + s * .1, py + s * .3); g.lineTo(px + s * .6, py + s * .1); g.stroke();
+      g.beginPath(); g.moveTo(px + s * .5, py + s * .7); g.lineTo(px + s * .9, py + s * .5); g.stroke();
+      break;
+    }
+    case 'bars': {
+      g.fillStyle = 'rgba(0,0,0,.35)';
+      g.fillRect(px, py, s, s * .06);
+      g.fillRect(px, py + s * .94, s, s * .06);
+      g.fillStyle = '#8fa0b3';
+      g.fillRect(px + s * .08, py + s * .06, s * .08, s * .88);
+      g.fillRect(px + s * .46, py + s * .06, s * .08, s * .88);
+      g.fillRect(px + s * .84, py + s * .06, s * .08, s * .88);
+      break;
+    }
+    case 'fence': {
+      const n = neighborAt(x, y - 1, ['fence']);
+      const s2 = neighborAt(x, y + 1, ['fence']);
+      const w = neighborAt(x - 1, y, ['fence']);
+      const e = neighborAt(x + 1, y, ['fence']);
+      g.fillStyle = '#6b4c28';
+      if ((w || e) && !(n || s2)) {
+        g.fillRect(px + s * .02, py + s * .3, s * .96, s * .1);
+        g.fillRect(px + s * .02, py + s * .62, s * .96, s * .1);
+        if (!w) g.fillRect(px + s * .04, py + s * .08, s * .12, s * .84);
+        if (!e) g.fillRect(px + s * .84, py + s * .08, s * .12, s * .84);
+      } else if ((n || s2) && !(w || e)) {
+        g.fillRect(px + s * .3, py + s * .02, s * .1, s * .96);
+        g.fillRect(px + s * .62, py + s * .02, s * .1, s * .96);
+        if (!n) g.fillRect(px + s * .08, py + s * .04, s * .84, s * .12);
+        if (!s2) g.fillRect(px + s * .08, py + s * .84, s * .84, s * .12);
+      } else {
+        g.fillRect(px + s * .06, py + s * .1, s * .12, s * .8);
+        g.fillRect(px + s * .82, py + s * .1, s * .12, s * .8);
+        g.fillRect(px + s * .12, py + s * .3, s * .76, s * .1);
+        g.fillRect(px + s * .12, py + s * .62, s * .76, s * .1);
+      }
+      break;
+    }
+    case 'pillar': {
+      g.fillStyle = 'rgba(0,0,0,.3)';
+      g.fillRect(px + s * .25, py + s * .08, s * .5, s * .84);
+      g.fillStyle = '#b8bcc4';
+      g.fillRect(px + s * .2, py + s * .08, s * .6, s * .84);
+      g.fillStyle = 'rgba(255,255,255,.25)';
+      g.fillRect(px + s * .2, py + s * .08, s * .15, s * .84);
+      g.fillStyle = '#8d8d96';
+      g.fillRect(px + s * .1, py + s * .02, s * .8, s * .1);
+      g.fillRect(px + s * .1, py + s * .88, s * .8, s * .1);
+      break;
+    }
+    case 'hedge': {
+      g.fillStyle = '#2f552b';
+      g.beginPath(); g.arc(px + s * .25, cy, s * .3, 0, Math.PI * 2); g.fill();
+      g.beginPath(); g.arc(px + s * .75, cy, s * .3, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#4a7a3a';
+      g.beginPath(); g.arc(px + s * .5, cy - s * .05, s * .32, 0, Math.PI * 2); g.fill();
+      break;
+    }
+    case 'gate': {
+      const n = neighborAt(x, y - 1, WALL_LIKE);
+      const s2 = neighborAt(x, y + 1, WALL_LIKE);
+      const w = neighborAt(x - 1, y, WALL_LIKE);
+      const e = neighborAt(x + 1, y, WALL_LIKE);
+      let horiz = (w && e) && !(n && s2);
+      let vert = (n && s2) && !(w && e);
+      if (!horiz && !vert) {
+        if ((w || e) && !(n || s2)) horiz = true;
+        else if ((n || s2) && !(w || e)) vert = true;
+        else horiz = true;
+      }
+      const rx = vert ? px + s * .26 : px + s * .08;
+      const ry = vert ? py + s * .08 : py + s * .26;
+      const rw = vert ? s * .48 : s * .84;
+      const rh = vert ? s * .84 : s * .48;
+      if (state === 'open') {
+        g.fillStyle = '#2a2d36';
+        g.fillRect(rx, ry, rw, rh);
+        g.fillStyle = '#4a5a6a';
+        if (vert) {
+          g.fillRect(rx, ry, s * .12, rh);
+          g.fillRect(rx + rw - s * .12, ry, s * .12, rh);
+        } else {
+          g.fillRect(rx, ry, rw, s * .12);
+          g.fillRect(rx, ry + rh - s * .12, rw, s * .12);
+        }
+      } else {
+        g.fillStyle = '#3c4c5c';
+        g.fillRect(rx, ry, rw, rh);
+        g.fillStyle = '#8fa0b3';
+        if (vert) {
+          for (let i = 0; i < 4; i++) g.fillRect(rx + s * (.08 + i * .12), ry + s * .08, s * .06, rh - s * .16);
+        } else {
+          for (let i = 0; i < 4; i++) g.fillRect(rx + s * .08, ry + s * (.08 + i * .12), rw - s * .16, s * .06);
+        }
+        g.fillStyle = '#2b2d42';
+        if (vert) g.fillRect(rx + rw / 2 - s * .2, ry + s * .06, s * .4, s * .12);
+        else g.fillRect(rx + s * .06, ry + rh / 2 - s * .2, s * .12, s * .4);
+      }
+      break;
+    }
+    case 'bridge': {
+      g.fillStyle = '#6b4c28';
+      g.fillRect(px, py + s * .08, s, s * .84);
+      g.fillStyle = '#9c6b3a';
+      for (let i = 0; i < 5; i++) {
+        g.fillRect(px + s * (.1 + i * .2), py + s * .16, s * .1, s * .7);
+      }
+      g.fillStyle = 'rgba(0,0,0,.2)';
+      g.fillRect(px, py + s * .08, s, s * .08);
+      g.fillRect(px, py + s * .84, s, s * .08);
+      break;
+    }
+    case 'portal': {
+      g.fillStyle = '#3a3550';
+      g.beginPath(); g.arc(cx, cy, s * .4, 0, Math.PI * 2); g.fill();
+      if (state === 'on') {
+        g.fillStyle = '#9d7bff';
+        g.beginPath(); g.arc(cx, cy, s * .32, 0, Math.PI * 2); g.fill();
+        g.fillStyle = '#d9c9ff';
+        g.beginPath(); g.arc(cx, cy, s * .18, 0, Math.PI * 2); g.fill();
+      } else {
+        g.fillStyle = '#5b5470';
+        g.beginPath(); g.arc(cx, cy, s * .28, 0, Math.PI * 2); g.fill();
+      }
+      break;
+    }
+    case 'bed': {
+      g.fillStyle = '#8a5a3b';
+      g.fillRect(px + s * .08, py + s * .1, s * .84, s * .16);
+      g.fillStyle = '#e3c9b8';
+      g.fillRect(px + s * .1, py + s * .26, s * .8, s * .55);
+      g.fillStyle = '#f5e6dc';
+      g.fillRect(px + s * .1, py + s * .26, s * .3, s * .55);
+      g.fillStyle = '#b08d57';
+      g.fillRect(px + s * .08, py + s * .78, s * .84, s * .12);
+      break;
+    }
+    case 'bookshelf': {
+      g.fillStyle = '#5d3a15';
+      g.fillRect(px + s * .1, py + s * .08, s * .8, s * .84);
+      g.fillStyle = '#a97c50';
+      g.fillRect(px + s * .14, py + s * .14, s * .72, s * .22);
+      g.fillRect(px + s * .14, py + s * .42, s * .72, s * .22);
+      g.fillRect(px + s * .14, py + s * .7, s * .72, s * .22);
+      g.fillStyle = '#c94f4f';
+      g.fillRect(px + s * .18, py + s * .18, s * .14, s * .14);
+      g.fillStyle = '#4f7ac9';
+      g.fillRect(px + s * .36, py + s * .18, s * .14, s * .14);
+      g.fillStyle = '#4fc98a';
+      g.fillRect(px + s * .54, py + s * .18, s * .14, s * .14);
+      g.fillStyle = '#c9a84f';
+      g.fillRect(px + s * .18, py + s * .46, s * .14, s * .14);
+      g.fillStyle = '#8a4fc9';
+      g.fillRect(px + s * .36, py + s * .46, s * .14, s * .14);
+      g.fillStyle = '#4fc9c9';
+      g.fillRect(px + s * .54, py + s * .46, s * .14, s * .14);
+      break;
+    }
+    case 'altar': {
+      g.fillStyle = '#6f6f86';
+      g.fillRect(px + s * .15, py + s * .55, s * .7, s * .25);
+      g.fillRect(px + s * .3, py + s * .8, s * .4, s * .1);
+      g.fillStyle = '#9a9ab0';
+      g.fillRect(px + s * .2, py + s * .25, s * .6, s * .32);
+      g.fillStyle = '#c9a84f';
+      g.fillRect(cx - s * .08, py + s * .35, s * .16, s * .12);
+      break;
+    }
+    case 'throne': {
+      g.fillStyle = '#7a5a35';
+      g.fillRect(px + s * .55, py + s * .25, s * .18, s * .55);
+      g.fillRect(px + s * .15, py + s * .7, s * .7, s * .14);
+      g.fillRect(px + s * .22, py + s * .18, s * .5, s * .55);
+      g.fillStyle = '#c9a84f';
+      g.fillRect(px + s * .3, py + s * .05, s * .34, s * .18);
+      g.fillStyle = '#8a3b3b';
+      g.fillRect(px + s * .28, py + s * .4, s * .4, s * .28);
+      break;
+    }
+    case 'barrel': {
+      g.fillStyle = '#6b4c28';
+      g.fillRect(px + s * .15, py + s * .08, s * .7, s * .84);
+      g.fillStyle = '#8a5a2b';
+      g.beginPath(); g.ellipse(cx, py + s * .08, s * .35, s * .08, 0, 0, Math.PI * 2); g.fill();
+      g.beginPath(); g.ellipse(cx, py + s * .92, s * .35, s * .08, 0, 0, Math.PI * 2); g.fill();
+      g.fillStyle = 'rgba(0,0,0,.3)';
+      g.fillRect(px + s * .12, py + s * .38, s * .76, s * .08);
+      g.fillRect(px + s * .12, py + s * .55, s * .76, s * .08);
+      break;
+    }
+    case 'crate': {
+      g.fillStyle = '#8a5a2b';
+      g.fillRect(px + s * .12, py + s * .12, s * .76, s * .76);
+      g.fillStyle = 'rgba(0,0,0,.3)';
+      g.fillRect(px + s * .12, py + s * .12, s * .76, s * .12);
+      g.fillRect(px + s * .12, py + s * .12, s * .12, s * .76);
+      g.strokeStyle = 'rgba(0,0,0,.35)';
+      g.lineWidth = Math.max(1, s * .05);
+      g.beginPath(); g.moveTo(px + s * .16, py + s * .16); g.lineTo(px + s * .84, py + s * .84); g.stroke();
+      g.beginPath(); g.moveTo(px + s * .84, py + s * .16); g.lineTo(px + s * .16, py + s * .84); g.stroke();
+      break;
+    }
+    case 'fountain': {
+      g.fillStyle = '#5c6f7a';
+      g.beginPath(); g.ellipse(cx, py + s * .78, s * .42, s * .14, 0, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#7fa8c9';
+      g.beginPath(); g.ellipse(cx, py + s * .68, s * .32, s * .12, 0, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#4f8fc2';
+      g.fillRect(cx - s * .05, py + s * .28, s * .1, s * .34);
+      g.fillStyle = 'rgba(255,255,255,.7)';
+      g.beginPath(); g.arc(cx, py + s * .22, s * .08, 0, Math.PI * 2); g.fill();
+      break;
+    }
+    case 'statue': {
+      g.fillStyle = '#6f737c';
+      g.fillRect(px + s * .3, py + s * .68, s * .4, s * .18);
+      g.fillRect(px + s * .38, py + s * .4, s * .24, s * .3);
+      g.beginPath(); g.arc(cx, py + s * .3, s * .14, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#9aa0a8';
+      g.fillRect(px + s * .42, py + s * .34, s * .16, s * .3);
+      break;
+    }
+    case 'lava': {
+      g.fillStyle = '#ff9d2e';
+      g.fillRect(px + s * .05, py + s * .05, s * .9, s * .9);
+      g.fillStyle = '#ff5a1f';
+      g.beginPath(); g.arc(px + s * .3, py + s * .35, s * .2, 0, Math.PI * 2); g.fill();
+      g.beginPath(); g.arc(px + s * .7, py + s * .65, s * .18, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#ffd23f';
+      g.beginPath(); g.arc(px + s * .3, py + s * .35, s * .08, 0, Math.PI * 2); g.fill();
+      g.beginPath(); g.arc(px + s * .7, py + s * .65, s * .07, 0, Math.PI * 2); g.fill();
+      break;
+    }
+    case 'spikes': {
+      g.fillStyle = '#b8bcc4';
+      for (let i = 0; i < 4; i++) {
+        const sx = px + s * (.1 + i * .24);
+        g.beginPath();
+        g.moveTo(sx - s * .08, py + s * .9);
+        g.lineTo(sx + s * .12, py + s * .9);
+        g.lineTo(sx + s * .02, py + s * .15);
+        g.closePath(); g.fill();
+      }
+      break;
+    }
+    case 'pit': {
+      g.fillStyle = '#0f1116';
+      g.fillRect(px + s * .08, py + s * .08, s * .84, s * .84);
+      g.strokeStyle = 'rgba(255,255,255,.3)';
+      g.lineWidth = Math.max(1, s * .05);
+      g.strokeRect(px + s * .08, py + s * .08, s * .84, s * .84);
+      g.strokeStyle = 'rgba(255,255,255,.15)';
+      g.beginPath(); g.moveTo(px + s * .15, py + s * .2); g.lineTo(px + s * .3, py + s * .5); g.lineTo(px + s * .18, py + s * .8); g.stroke();
+      break;
+    }
+    case 'bush': {
+      g.fillStyle = '#2f552b';
+      g.beginPath(); g.arc(px + s * .3, py + s * .55, s * .28, 0, Math.PI * 2); g.fill();
+      g.beginPath(); g.arc(px + s * .7, py + s * .55, s * .28, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#4a7a3a';
+      g.beginPath(); g.arc(cx, py + s * .4, s * .3, 0, Math.PI * 2); g.fill();
+      break;
+    }
+    case 'mushroom': {
+      g.fillStyle = '#e3d9c9';
+      g.fillRect(px + s * .42, py + s * .45, s * .16, s * .35);
+      g.fillStyle = '#c94f4f';
+      g.beginPath(); g.arc(cx, py + s * .4, s * .24, Math.PI, 0); g.fill();
+      g.fillStyle = '#ffd9d9';
+      g.beginPath(); g.arc(cx - s * .1, py + s * .38, s * .05, 0, Math.PI * 2); g.fill();
+      g.beginPath(); g.arc(cx + s * .08, py + s * .3, s * .04, 0, Math.PI * 2); g.fill();
+      break;
+    }
+    case 'rubble': {
+      g.fillStyle = 'rgba(0,0,0,.22)';
+      for (let i = 0; i < 4; i++) {
+        const sx = px + s * (.15 + stableRand(x, y, i) * .7);
+        const sy = py + s * (.15 + stableRand(x, y, i + 10) * .7);
+        const rr = s * (.08 + stableRand(x, y, i + 20) * .1);
+        g.beginPath(); g.arc(sx, sy, rr, 0, Math.PI * 2); g.fill();
+      }
+      break;
+    }
+  }
+}
+
+/* ==================== 大物件绘制 ==================== */
+
+function drawObject(g, px, py, s, id, w, h) {
+  const W = w * s, H = h * s;
+  const cx = px + W / 2, cy = py + H / 2;
+  switch (id) {
+    case 'bigaltar': {
+      g.fillStyle = '#5b5f68';
+      g.fillRect(px + s * .12, py + s * .68, W - s * .24, H - s * .76);
+      g.fillStyle = '#70757f';
+      g.fillRect(px + s * .12, py + s * .55, W - s * .24, H - s * .63);
+      g.fillStyle = '#90959f';
+      g.fillRect(px + s * .22, py + s * .3, W - s * .44, s * .28);
+      g.fillStyle = 'rgba(255,255,255,.18)';
+      g.fillRect(px + s * .22, py + s * .3, W - s * .44, s * .08);
+      g.fillStyle = '#838894';
+      g.fillRect(px + s * .28, py + H - s * .38, W - s * .56, s * .16);
+      g.fillStyle = '#999ea8';
+      g.fillRect(px + s * .38, py + H - s * .22, W - s * .76, s * .14);
+      g.fillStyle = '#e0b34c';
+      g.beginPath(); g.arc(cx - W * .19, cy - s * .18, s * .09, 0, Math.PI * 2); g.fill();
+      g.beginPath(); g.arc(cx + W * .19, cy - s * .18, s * .09, 0, Math.PI * 2); g.fill();
+      g.beginPath(); g.arc(cx, cy + s * .12, s * .06, 0, Math.PI * 2); g.fill();
+      break;
+    }
+    case 'thronedais': {
+      g.fillStyle = '#4b4f58';
+      g.fillRect(px + s * .06, py + s * .58, W - s * .12, H - s * .66);
+      g.fillStyle = '#6b707a';
+      g.fillRect(px + s * .08, py + s * .3, W - s * .16, H - s * .38);
+      g.fillStyle = 'rgba(255,255,255,.12)';
+      g.fillRect(px + s * .08, py + s * .3, W - s * .16, s * .08);
+      g.fillStyle = '#8a5a35';
+      g.fillRect(px + W * .28, py + s * .22, W * .44, s * .6);
+      g.fillStyle = '#6f4520';
+      g.fillRect(px + W * .22, py + s * .16, W * .56, s * .12);
+      g.fillRect(px + W * .3, py + s * .82, W * .4, s * .1);
+      g.fillStyle = '#a83b3b';
+      g.fillRect(px + W * .3, py + s * .42, W * .4, s * .28);
+      g.fillStyle = '#c9a84f';
+      g.fillRect(px + W * .34, py + s * .05, W * .32, s * .14);
+      break;
+    }
+    case 'longtable': {
+      g.fillStyle = '#5d3a15';
+      g.fillRect(px + s * .12, py + s * .58, W - s * .24, s * .22);
+      g.fillStyle = '#8a5f33';
+      g.fillRect(px + s * .08, py + s * .42, W - s * .16, s * .28);
+      g.fillStyle = 'rgba(255,255,255,.16)';
+      g.fillRect(px + s * .08, py + s * .42, W - s * .16, s * .06);
+      g.strokeStyle = 'rgba(0,0,0,.2)';
+      g.lineWidth = Math.max(1, s * .04);
+      for (let i = 1; i < w; i++) {
+        g.beginPath(); g.moveTo(px + i * s, py + s * .42); g.lineTo(px + i * s, py + s * .7); g.stroke();
+      }
+      g.fillStyle = '#7a5a35';
+      g.fillRect(px + s * .16, py + s * .12, W - s * .32, s * .14);
+      g.fillRect(px + s * .16, py + H - s * .26, W - s * .32, s * .14);
+      g.fillStyle = '#4a2f12';
+      for (let i = 0; i < w; i++) {
+        g.fillRect(px + (i + .15) * s, py + s * .72, s * .12, s * .16);
+        g.fillRect(px + (i + .73) * s, py + s * .72, s * .12, s * .16);
+      }
+      break;
+    }
+    case 'giantstatue': {
+      g.fillStyle = '#6a6e76';
+      g.fillRect(px + s * .12, py + s * .68, W - s * .24, H - s * .78);
+      g.fillStyle = '#848891';
+      g.fillRect(px + s * .18, py + s * .55, W - s * .36, s * .16);
+      g.fillStyle = '#7a7e87';
+      g.fillRect(px + W * .34, py + s * .16, W * .32, s * .42);
+      g.beginPath(); g.arc(cx, py + s * .18, s * .16, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#90949d';
+      g.fillRect(px + W * .2, py + s * .3, W * .13, s * .3);
+      g.fillRect(px + W * .67, py + s * .3, W * .13, s * .3);
+      g.fillStyle = '#b8bcc4';
+      g.fillRect(cx + W * .08, py + s * .22, s * .1, s * .36);
+      g.fillStyle = 'rgba(255,255,255,.2)';
+      g.fillRect(px + W * .34, py + s * .16, W * .1, s * .42);
+      break;
+    }
+    case 'boulder': {
+      g.fillStyle = '#4f4c47';
+      g.beginPath();
+      g.moveTo(px + s * .18, py + H - s * .16);
+      g.lineTo(px + s * .3, py + s * .38);
+      g.lineTo(px + W * .48, py + s * .08);
+      g.lineTo(px + W * .78, py + s * .3);
+      g.lineTo(px + W - s * .16, py + H - s * .2);
+      g.closePath(); g.fill();
+      g.fillStyle = 'rgba(255,255,255,.14)';
+      g.beginPath();
+      g.moveTo(px + s * .3, py + s * .38);
+      g.lineTo(px + W * .48, py + s * .08);
+      g.lineTo(px + W * .45, py + s * .5);
+      g.lineTo(px + s * .36, py + H - s * .3);
+      g.closePath(); g.fill();
+      g.fillStyle = 'rgba(0,0,0,.18)';
+      g.beginPath(); g.arc(px + W * .72, py + H - s * .3, s * .2, 0, Math.PI * 2); g.fill();
+      break;
+    }
+    case 'carpet': {
+      g.fillStyle = '#8f2f33';
+      g.fillRect(px + s * .05, py + s * .08, W - s * .1, H - s * .16);
+      g.fillStyle = '#c9a84f';
+      g.fillRect(px + s * .08, py + s * .12, W - s * .16, H - s * .24);
+      g.fillStyle = '#7a2227';
+      g.fillRect(px + s * .14, py + s * .18, W - s * .28, H - s * .36);
+      g.fillStyle = 'rgba(255,255,255,.14)';
+      g.fillRect(px + s * .14, py + s * .18, W - s * .28, s * .06);
+      g.fillStyle = '#e0b34c';
+      for (let i = 0; i < w * 2 - 1; i++) {
+        g.beginPath(); g.arc(px + s * .5 + i * s, cy, s * .05, 0, Math.PI * 2); g.fill();
+      }
+      break;
+    }
+    case 'bigpit': {
+      g.fillStyle = '#171a20';
+      g.fillRect(px + s * .08, py + s * .08, W - s * .16, H - s * .16);
+      g.fillStyle = 'rgba(0,0,0,.35)';
+      g.fillRect(px + s * .08, py + s * .08, W - s * .16, s * .08);
+      g.strokeStyle = 'rgba(255,255,255,.18)';
+      g.lineWidth = Math.max(1, s * .05);
+      g.strokeRect(px + s * .08, py + s * .08, W - s * .16, H - s * .16);
+      g.fillStyle = '#ff5a1f';
+      g.beginPath(); g.arc(px + W * .28, py + H * .35, s * .18, 0, Math.PI * 2); g.fill();
+      g.beginPath(); g.arc(px + W * .68, py + H * .62, s * .22, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#ffd23f';
+      g.beginPath(); g.arc(px + W * .28, py + H * .35, s * .07, 0, Math.PI * 2); g.fill();
+      g.beginPath(); g.arc(px + W * .68, py + H * .62, s * .09, 0, Math.PI * 2); g.fill();
+      break;
+    }
+    case 'giantdoor': {
+      g.fillStyle = '#4a4e57';
+      g.fillRect(px + s * .02, py + s * .1, W - s * .04, H - s * .2);
+      g.fillStyle = '#2c313b';
+      g.fillRect(px + s * .1, py + s * .14, W - s * .2, H - s * .28);
+      g.fillStyle = '#4d5561';
+      g.fillRect(px + s * .12, py + s * .16, (W - s * .24) / 2, H - s * .32);
+      g.fillRect(px + s * .12 + (W - s * .24) / 2, py + s * .16, (W - s * .24) / 2, H - s * .32);
+      g.strokeStyle = 'rgba(0,0,0,.35)';
+      g.lineWidth = Math.max(1, s * .04);
+      g.beginPath(); g.moveTo(cx, py + s * .16); g.lineTo(cx, py + H - s * .16); g.stroke();
+      g.fillStyle = '#8b93a0';
+      for (let i = 0; i < 3; i++) {
+        const yy = py + s * (.28 + i * .22);
+        g.beginPath(); g.arc(px + W * .25, yy, s * .05, 0, Math.PI * 2); g.fill();
+        g.beginPath(); g.arc(px + W * .75, yy, s * .05, 0, Math.PI * 2); g.fill();
+      }
+      g.strokeStyle = '#c9a84f';
+      g.lineWidth = Math.max(1, s * .06);
+      g.beginPath(); g.arc(cx, py + H - s * .26, s * .1, 0, Math.PI * 2); g.stroke();
+      break;
+    }
+    case 'bigtree': {
+      g.fillStyle = '#4a3320';
+      g.fillRect(cx - s * .18, py + H * .45, s * .36, H * .45);
+      g.beginPath();
+      g.moveTo(cx - s * .18, py + H * .62);
+      g.lineTo(px + s * .05, py + H * .82);
+      g.lineTo(px + s * .25, py + H * .78);
+      g.lineTo(cx - s * .06, py + H * .66);
+      g.lineTo(px + s * .18, py + H * .9);
+      g.lineTo(px + s * .36, py + H * .82);
+      g.lineTo(cx, py + H * .7);
+      g.lineTo(px + W - s * .18, py + H * .9);
+      g.lineTo(px + W - s * .36, py + H * .78);
+      g.lineTo(cx + s * .1, py + H * .64);
+      g.lineTo(px + W - s * .2, py + H * .8);
+      g.lineTo(px + W - s * .02, py + H * .72);
+      g.lineTo(cx + s * .18, py + H * .6);
+      g.closePath(); g.fill();
+      g.fillStyle = '#2f552b';
+      g.beginPath(); g.arc(cx, py + H * .28, W * .3, 0, Math.PI * 2); g.fill();
+      g.beginPath(); g.arc(px + W * .25, py + H * .42, W * .2, 0, Math.PI * 2); g.fill();
+      g.beginPath(); g.arc(px + W * .75, py + H * .42, W * .2, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#43753d';
+      g.beginPath(); g.arc(px + W * .3, py + H * .22, W * .18, 0, Math.PI * 2); g.fill();
+      g.beginPath(); g.arc(px + W * .68, py + H * .2, W * .16, 0, Math.PI * 2); g.fill();
+      break;
+    }
+    case 'dragoncannon': {
+      g.fillStyle = '#4a3520';
+      g.fillRect(px + s * .1, py + s * 1.42, W - s * .2, s * .98);
+      g.fillStyle = '#6b4c28';
+      g.fillRect(px + s * .14, py + s * 1.34, W - s * .28, s * .94);
+      for (const wx of [s * .45, W - s * .45]) {
+        for (const wy of [s * 1.62, s * 2.28]) {
+          g.fillStyle = '#2f2213';
+          g.beginPath(); g.arc(px + wx, py + wy, s * .22, 0, Math.PI * 2); g.fill();
+          g.fillStyle = '#5d4a2a';
+          g.beginPath(); g.arc(px + wx, py + wy, s * .1, 0, Math.PI * 2); g.fill();
+          g.strokeStyle = 'rgba(0,0,0,.4)';
+          g.lineWidth = Math.max(1, s * .04);
+          for (let i = 0; i < 6; i++) {
+            const a = i * Math.PI / 3;
+            g.beginPath(); g.moveTo(px + wx, py + wy); g.lineTo(px + wx + Math.cos(a) * s * .2, py + wy + Math.sin(a) * s * .2); g.stroke();
+          }
+        }
+      }
+      g.fillStyle = '#7a5a35';
+      g.fillRect(px + s * .28, py + s * 1.04, W - s * .44, s * .22);
+      g.fillStyle = 'rgba(255,255,255,.12)';
+      g.fillRect(px + s * .28, py + s * 1.04, W - s * .44, s * .06);
+      g.fillStyle = '#8a6a3b';
+      g.fillRect(px + W - s * .62, py + s * .78, s * .2, s * .32);
+      g.fillRect(px + W - s * .62, py + s * 1.2, s * .2, s * .32);
+      g.strokeStyle = '#e8e0d0';
+      g.lineWidth = Math.max(1, s * .05);
+      g.beginPath(); g.moveTo(px + W - s * .54, py + s * .78); g.lineTo(px + s * .95, py + s * 1.15); g.lineTo(px + W - s * .54, py + s * 1.5); g.stroke();
+      g.fillStyle = '#c9c9d0';
+      g.fillRect(px + s * .52, py + s * 1.11, W - s * 1.28, s * .09);
+      g.fillStyle = '#e0b34c';
+      g.beginPath(); g.moveTo(px + W - s * .6, py + s * 1.09); g.lineTo(px + W - s * .28, py + s * 1.165); g.lineTo(px + W - s * .6, py + s * 1.24); g.closePath(); g.fill();
+      g.fillStyle = '#ffe08a';
+      g.beginPath(); g.arc(px + W - s * .38, py + s * 1.165, s * .055, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#4c5158';
+      g.beginPath(); g.arc(px + s * .24, py + s * 1.15, s * .13, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#8b93a0';
+      g.beginPath(); g.arc(px + s * .24, py + s * 1.15, s * .06, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#6b6f78';
+      g.fillRect(px + s * 1.12, py + s * .22, s * .1, s * .5);
+      g.fillRect(px + s * 1.3, py + s * .28, s * .1, s * .44);
+      g.fillStyle = '#c9c9d0';
+      g.fillRect(px + s * 1.22, py + s * .14, s * .07, s * .56);
+      break;
+    }
+  }
+}
+
+function drawAllObjects() {
+  Object.keys(mapObjects)
+    .sort((ka, kb) => ((OBJECT_BY_ID[mapObjects[ka].id] || {}).layer || 1) - ((OBJECT_BY_ID[mapObjects[kb].id] || {}).layer || 1))
+    .forEach((key) => {
+      const [ox, oy] = key.split(',').map(Number);
+      const ob = mapObjects[key];
+      if (!OBJECT_BY_ID[ob.id]) return;
+      drawObject(g, ox * scale, oy * scale, scale, ob.id, ob.w, ob.h);
+    });
+}
+
+function objectAt(x, y) {
+  for (const key of Object.keys(mapObjects)) {
+    const [ox, oy] = key.split(',').map(Number);
+    const ob = mapObjects[key];
+    if (x >= ox && x < ox + ob.w && y >= oy && y < oy + ob.h) return { key, ob, ox, oy };
+  }
+  return null;
+}
+
+function objectAnchor(cell) {
+  const o = OBJECT_BY_ID[selectedObject];
+  if (!o) return { x: cell.x, y: cell.y };
+  return {
+    x: Math.min(Math.max(cell.x, 0), cols - o.w),
+    y: Math.min(Math.max(cell.y, 0), rows - o.h),
+  };
+}
+
+function removeObjectsOverlap(ax, ay, w, h) {
+  Object.keys(mapObjects).forEach((key) => {
+    const [ox, oy] = key.split(',').map(Number);
+    const ob = mapObjects[key];
+    if (ax < ox + ob.w && ax + w > ox && ay < oy + ob.h && ay + h > oy) delete mapObjects[key];
+  });
+}
+
+function placeObject(ax, ay) {
+  const o = OBJECT_BY_ID[selectedObject];
+  if (!o) return;
+  removeObjectsOverlap(ax, ay, o.w, o.h);
+  mapObjects[`${ax},${ay}`] = { id: o.id, w: o.w, h: o.h };
+}
+
+function drawTileAt(x, y) {
+  const id = (grid[y] && grid[y][x]) || 'void';
+  const t = TILE_BY_ID[id];
+  const px = x * scale, py = y * scale;
+  g.fillStyle = t.base;
+  g.fillRect(px, py, scale, scale);
+  drawDetail(id, paintStates[`${x},${y}`] || null, px, py, scale);
+}
+
+function drawGrid() {
+  g.lineWidth = 1;
+  const major = 5;
+  g.font = `${Math.max(9, scale * .3)}px "PingFang SC",sans-serif`;
+  g.textAlign = 'left';
+  g.textBaseline = 'top';
+  for (let x = 0; x <= cols; x++) {
+    const isMajor = x % major === 0;
+    g.strokeStyle = isMajor ? 'rgba(0,0,0,.45)' : 'rgba(0,0,0,.18)';
+    g.beginPath(); g.moveTo(x * scale + .5, 0); g.lineTo(x * scale + .5, rows * scale); g.stroke();
+    if (isMajor && x > 0) {
+      g.fillStyle = 'rgba(0,0,0,.55)';
+      g.fillText(String(x), x * scale + 3, 3);
+    }
+  }
+  for (let y = 0; y <= rows; y++) {
+    const isMajor = y % major === 0;
+    g.strokeStyle = isMajor ? 'rgba(0,0,0,.45)' : 'rgba(0,0,0,.18)';
+    g.beginPath(); g.moveTo(0, y * scale + .5); g.lineTo(cols * scale, y * scale + .5); g.stroke();
+    if (isMajor && y > 0) {
+      g.fillStyle = 'rgba(0,0,0,.55)';
+      g.fillText(String(y), 3, y * scale + 3);
+    }
+  }
+}
+
+function render() {
+  if (rafPending) return;
+  rafPending = true;
+  requestAnimationFrame(() => {
+    rafPending = false;
+    for (let y = 0; y < rows; y++) {
+      for (let x = 0; x < cols; x++) drawTileAt(x, y);
+    }
+    drawAllObjects();
+    if (dragCur && (tool === 'line' || tool === 'rect')) drawPreview();
+    drawGrid();
+    if (selection) {
+      drawOverlay(selection.x0, selection.y0, selection.x1, selection.y1, 'rgba(224,179,76,.10)', 'rgba(224,179,76,.95)', 2);
+    }
+    if (tool === 'select' && dragStart && dragCur) {
+      const ox0 = Math.min(dragStart.x, dragCur.x), ox1 = Math.max(dragStart.x, dragCur.x);
+      const oy0 = Math.min(dragStart.y, dragCur.y), oy1 = Math.max(dragStart.y, dragCur.y);
+      drawOverlay(ox0, oy0, ox1, oy1, 'rgba(224,179,76,.10)', 'rgba(224,179,76,.95)', 2);
+    }
+    if (movingSel && moveData) {
+      const gx = moveData.rect.x0 + moveData.dx;
+      const gy = moveData.rect.y0 + moveData.dy;
+      const gw = moveData.rect.x1 - moveData.rect.x0 + 1;
+      const gh = moveData.rect.y1 - moveData.rect.y0 + 1;
+      drawOverlay(gx, gy, gx + gw - 1, gy + gh - 1, 'rgba(224,179,76,.20)', 'rgba(224,179,76,.9)', 2);
+    }
+    if (tool === 'object' && dragCur && OBJECT_BY_ID[selectedObject]) {
+      const o = OBJECT_BY_ID[selectedObject];
+      g.save();
+      g.globalAlpha = .5;
+      drawObject(g, dragCur.x * scale, dragCur.y * scale, scale, o.id, o.w, o.h);
+      g.restore();
+      drawOverlay(dragCur.x, dragCur.y, dragCur.x + o.w - 1, dragCur.y + o.h - 1, 'rgba(224,179,76,.15)', 'rgba(224,179,76,.9)', 2);
+    }
+  });
+}
+
+function drawPreview() {
+  const a = dragStart, b = dragCur;
+  const cells = tool === 'line' ? lineCells(a.x, a.y, b.x, b.y) : rectCells(a, b);
+  const t = TILE_BY_ID[selectedTile];
+  g.fillStyle = t.base + '88';
+  cells.forEach(([x, y]) => {
+    if (x >= 0 && y >= 0 && x < cols && y < rows) {
+      g.fillRect(x * scale, y * scale, scale, scale);
+    }
+  });
+}
+
+/* ==================== 绘制操作 ==================== */
+
+function setCell(x, y, id, state) {
+  if (x < 0 || y < 0 || x >= cols || y >= rows) return;
+  grid[y][x] = id;
+  const key = `${x},${y}`;
+  if (state) paintStates[key] = state;
+  else delete paintStates[key];
+}
+
+function applyPaint(cx, cy) {
+  if (tool === 'erase') {
+    const hit = objectAt(cx, cy);
+    if (hit) { delete mapObjects[hit.key]; return; }
+  }
+  const tileId = tool === 'erase' ? 'void' : selectedTile;
+  const st = tool === 'erase' ? null : selectedState;
+  if (tool === 'fill') { floodFill(cx, cy, tileId, st); return; }
+  const r = Math.floor(brush / 2);
+  for (let dy = -r; dy <= r; dy++) {
+    for (let dx = -r; dx <= r; dx++) {
+      const x = cx + dx, y = cy + dy;
+      if (x >= 0 && y >= 0 && x < cols && y < rows) {
+        if (brush % 2 === 0 && Math.abs(dx) + Math.abs(dy) > brush - 1) continue;
+        setCell(x, y, tileId, st);
+      }
+    }
+  }
+}
+
+function lineCells(x0, y0, x1, y1) {
+  const cells = [];
+  let dx = Math.abs(x1 - x0), dy = Math.abs(y1 - y0);
+  const sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
+  let err = dx - dy;
+  while (true) {
+    cells.push([x0, y0]);
+    if (x0 === x1 && y0 === y1) break;
+    const e2 = 2 * err;
+    if (e2 > -dy) { err -= dy; x0 += sx; }
+    if (e2 < dx) { err += dx; y0 += sy; }
+  }
+  return cells;
+}
+
+function rectCells(a, b) {
+  const cells = [];
+  const x0 = Math.min(a.x, b.x), x1 = Math.max(a.x, b.x);
+  const y0 = Math.min(a.y, b.y), y1 = Math.max(a.y, b.y);
+  for (let y = y0; y <= y1; y++) {
+    for (let x = x0; x <= x1; x++) cells.push([x, y]);
+  }
+  return cells;
+}
+
+function floodFill(sx, sy, tileId, st) {
+  const target = grid[sy] && grid[sy][sx];
+  if (target === undefined || target === tileId) return;
+  const stack = [[sx, sy]];
+  while (stack.length) {
+    const [x, y] = stack.pop();
+    if (x < 0 || y < 0 || x >= cols || y >= rows) continue;
+    if (grid[y][x] !== target) continue;
+    setCell(x, y, tileId, st);
+    stack.push([x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]);
+  }
+}
+
+function applyLineOrRect(a, b) {
+  const cells = tool === 'line' ? lineCells(a.x, a.y, b.x, b.y) : rectCells(a, b);
+  const tileId = tool === 'erase' ? 'void' : selectedTile;
+  const st = tool === 'erase' ? null : selectedState;
+  cells.forEach(([x, y]) => {
+    setCell(x, y, tileId, st);
+  });
+}
+
+/* ==================== 选区操作 ==================== */
+
+function copyRect(x0, y0, x1, y1, includeObjects = true) {
+  const cells = [];
+  const states = {};
+  const objs = {};
+  if (includeObjects) {
+    Object.keys(mapObjects).forEach((key) => {
+      const [ox, oy] = key.split(',').map(Number);
+      if (ox >= x0 && ox <= x1 && oy >= y0 && oy <= y1) {
+        objs[`${ox - x0},${oy - y0}`] = { ...mapObjects[key] };
+      }
+    });
+  }
+  for (let yy = y0; yy <= y1; yy++) {
+    const row = [];
+    for (let xx = x0; xx <= x1; xx++) {
+      row.push(grid[yy][xx]);
+      const key = `${xx},${yy}`;
+      if (paintStates[key]) states[`${xx - x0},${yy - y0}`] = paintStates[key];
+    }
+    cells.push(row);
+  }
+  return { w: x1 - x0 + 1, h: y1 - y0 + 1, cells, states, objs };
+}
+
+function cutRect(x0, y0, x1, y1, includeObjects = true) {
+  const clip = copyRect(x0, y0, x1, y1, includeObjects);
+  for (let yy = y0; yy <= y1; yy++) {
+    for (let xx = x0; xx <= x1; xx++) {
+      grid[yy][xx] = 'void';
+      delete paintStates[`${xx},${yy}`];
+    }
+  }
+  if (includeObjects) {
+    Object.keys(mapObjects).forEach((key) => {
+      const [ox, oy] = key.split(',').map(Number);
+      if (ox >= x0 && ox <= x1 && oy >= y0 && oy <= y1) delete mapObjects[key];
+    });
+  }
+  return clip;
+}
+
+function pasteRect(x0, y0, clip) {
+  for (let yy = 0; yy < clip.h; yy++) {
+    for (let xx = 0; xx < clip.w; xx++) {
+      const tx = x0 + xx, ty = y0 + yy;
+      if (tx < 0 || ty < 0 || tx >= cols || ty >= rows) continue;
+      grid[ty][tx] = clip.cells[yy][xx];
+      const sk = `${xx},${yy}`;
+      if (clip.states[sk]) paintStates[`${tx},${ty}`] = clip.states[sk];
+      else delete paintStates[`${tx},${ty}`];
+    }
+  }
+  const objs = clip.objs || {};
+  Object.keys(objs).forEach((key) => {
+    const [rx, ry] = key.split(',').map(Number);
+    const ob = objs[key];
+    const ax = x0 + rx, ay = y0 + ry;
+    if (ax >= 0 && ay >= 0 && ax + ob.w <= cols && ay + ob.h <= rows) {
+      removeObjectsOverlap(ax, ay, ob.w, ob.h);
+      mapObjects[`${ax},${ay}`] = { ...ob };
+    }
+  });
+}
+
+function rotateClip(clip) {
+  const cells = [];
+  for (let rx = 0; rx < clip.w; rx++) {
+    const row = [];
+    for (let ry = clip.h - 1; ry >= 0; ry--) row.push(clip.cells[ry][rx]);
+    cells.push(row);
+  }
+  const states = {};
+  for (let ry = 0; ry < clip.h; ry++) {
+    for (let rx = 0; rx < clip.w; rx++) {
+      const sk = `${rx},${ry}`;
+      if (clip.states[sk]) states[`${clip.h - 1 - ry},${rx}`] = clip.states[sk];
+    }
+  }
+  return { w: clip.h, h: clip.w, cells, states };
+}
+
+function rotateSelection() {
+  if (!selection) { toast('先用「框选」工具拖选区域'); return; }
+  pushUndo();
+  const clip = cutRect(selection.x0, selection.y0, selection.x1, selection.y1, false);
+  const rot = rotateClip(clip);
+  const rx = Math.min(Math.max(selection.x0, 0), Math.max(0, cols - rot.w));
+  const ry = Math.min(Math.max(selection.y0, 0), Math.max(0, rows - rot.h));
+  pasteRect(rx, ry, rot);
+  selection = { x0: rx, y0: ry, x1: rx + rot.w - 1, y1: ry + rot.h - 1 };
+  render();
+  saveDraft();
+  toast('选区已旋转');
+}
+
+/* ==================== 鼠标交互 ==================== */
+
+function clampCoord(v, max) {
+  return Math.min(Math.max(v, 0), max);
+}
+
+function eventCell(e) {
+  const rect = canvas.getBoundingClientRect();
+  const x = Math.floor((e.clientX - rect.left) * (canvas.width / rect.width) / scale);
+  const y = Math.floor((e.clientY - rect.top) * (canvas.height / rect.height) / scale);
+  return { x, y };
+}
+
+canvas.addEventListener('pointerdown', (e) => {
+  const cell = eventCell(e);
+  if (cell.x < 0 || cell.y < 0 || cell.x >= cols || cell.y >= rows) return;
+  e.preventDefault();
+  if (e.button === 2) return;
+  canvas.setPointerCapture(e.pointerId);
+
+  if (e.button === 1 || tool === 'pan') {
+    panning = true;
+    panStart = { x: e.clientX, y: e.clientY, sl: $('#canvas-wrap').scrollLeft, st: $('#canvas-wrap').scrollTop };
+    canvas.style.cursor = 'grabbing';
+    if (tool === 'pan') {
+      const wrap = $('#canvas-wrap');
+      const maxX = Math.max(0, Math.round(canvas.width * zoom) + 28 - wrap.clientWidth);
+      const maxY = Math.max(0, Math.round(canvas.height * zoom) + 28 - wrap.clientHeight);
+      if (!maxX && !maxY) toast('地图已完整显示，先按 ＋ 放大再平移');
+    }
+    return;
+  }
+
+  if (tool === 'select') {
+    if (selection && cell.x >= selection.x0 && cell.x <= selection.x1 &&
+        cell.y >= selection.y0 && cell.y <= selection.y1) {
+      drawing = true;
+      movingSel = true;
+      moveData = { start: { ...cell }, rect: { ...selection }, dx: 0, dy: 0 };
+    } else {
+      drawing = true;
+      dragStart = cell;
+      dragCur = cell;
+      selection = null;
+      lastClickCell = { x: cell.x, y: cell.y };
+    }
+    render();
+    updateStatus(cell);
+    return;
+  }
+
+  if (tool === 'object') {
+    const o = OBJECT_BY_ID[selectedObject];
+    if (!o) { toast('先在「大物件」面板选一个物件'); return; }
+    drawing = true;
+    dragStart = dragCur = objectAnchor(cell);
+    if (!gesturePushed) { pushUndo(); gesturePushed = true; }
+    render();
+    updateStatus(cell);
+    return;
+  }
+
+  drawing = true;
+  dragStart = cell;
+  dragCur = cell;
+  if (!gesturePushed) { pushUndo(); gesturePushed = true; }
+  if (tool === 'pick') {
+    selectedTile = grid[cell.y][cell.x] || 'void';
+    selectedState = paintStates[`${cell.x},${cell.y}`] || null;
+    syncPalette();
+    toast(`已拾取：${TILE_BY_ID[selectedTile].name}${selectedState ? `（${selectedState}）` : ''}`);
+    return;
+  }
+  if (tool === 'brush' || tool === 'erase' || tool === 'fill') {
+    applyPaint(cell.x, cell.y);
+  }
+  render();
+  updateStatus(cell);
+});
+
+canvas.addEventListener('pointermove', (e) => {
+  const cell = eventCell(e);
+  if (cell.x >= 0 && cell.y >= 0 && cell.x < cols && cell.y < rows) updateStatus(cell);
+  if (panning && panStart) {
+    const wrap = $('#canvas-wrap');
+    wrap.scrollLeft = panStart.sl - (e.clientX - panStart.x);
+    wrap.scrollTop = panStart.st - (e.clientY - panStart.y);
+    return;
+  }
+  if (!drawing) return;
+  dragCur = cell;
+  if (tool === 'select') {
+    if (movingSel && moveData) {
+      const nw = moveData.rect.x1 - moveData.rect.x0 + 1;
+      const nh = moveData.rect.y1 - moveData.rect.y0 + 1;
+      const tx = Math.min(Math.max(cell.x - moveData.start.x + moveData.rect.x0, 0), Math.max(0, cols - nw));
+      const ty = Math.min(Math.max(cell.y - moveData.start.y + moveData.rect.y0, 0), Math.max(0, rows - nh));
+      moveData.dx = tx - moveData.rect.x0;
+      moveData.dy = ty - moveData.rect.y0;
+    } else {
+      dragCur = { x: clampCoord(cell.x, cols - 1), y: clampCoord(cell.y, rows - 1) };
+    }
+    render();
+    return;
+  }
+  if (tool === 'object' && dragStart) {
+    dragCur = objectAnchor(cell);
+    render();
+    return;
+  }
+  if (tool === 'brush' || tool === 'erase') {
+    if (dragStart && (dragStart.x !== cell.x || dragStart.y !== cell.y)) {
+      lineCells(dragStart.x, dragStart.y, cell.x, cell.y).forEach(([x, y]) => {
+        if (x >= 0 && y >= 0 && x < cols && y < rows) applyPaint(x, y);
+      });
+      dragStart = cell;
+    }
+  }
+  render();
+});
+
+const endDraw = (e) => {
+  if (!drawing && !panning) return;
+  if (panning) { panning = false; panStart = null; canvas.style.cursor = tool === 'pan' ? 'grab' : 'crosshair'; return; }
+  drawing = false;
+  if (tool === 'select') {
+    if (movingSel && moveData) {
+      const rect = moveData.rect, dx = moveData.dx, dy = moveData.dy;
+      if (dx !== 0 || dy !== 0) {
+        pushUndo();
+        const nw = rect.x1 - rect.x0 + 1, nh = rect.y1 - rect.y0 + 1;
+        const tx = Math.min(Math.max(rect.x0 + dx, 0), Math.max(0, cols - nw));
+        const ty = Math.min(Math.max(rect.y0 + dy, 0), Math.max(0, rows - nh));
+        const cut = cutRect(rect.x0, rect.y0, rect.x1, rect.y1);
+        pasteRect(tx, ty, cut);
+        selection = { x0: tx, y0: ty, x1: tx + nw - 1, y1: ty + nh - 1 };
+        toast('选区已移动');
+      }
+      movingSel = false;
+      moveData = null;
+    } else if (dragStart && dragCur) {
+      const x0 = Math.min(dragStart.x, dragCur.x), x1 = Math.max(dragStart.x, dragCur.x);
+      const y0 = Math.min(dragStart.y, dragCur.y), y1 = Math.max(dragStart.y, dragCur.y);
+      selection = (x1 - x0 + 1) > 1 || (y1 - y0 + 1) > 1 ? { x0, y0, x1, y1 } : null;
+    }
+    dragStart = null;
+    dragCur = null;
+    gesturePushed = false;
+    render();
+    saveDraft();
+    return;
+  }
+  if (tool === 'object' && dragStart && dragCur) {
+    placeObject(dragCur.x, dragCur.y);
+    toast(`已放置：${OBJECT_BY_ID[selectedObject].name}`);
+  }
+  if ((tool === 'line' || tool === 'rect') && dragStart && dragCur) {
+    applyLineOrRect(dragStart, dragCur);
+  }
+  dragStart = null;
+  dragCur = null;
+  gesturePushed = false;
+  render();
+  saveDraft();
+};
+
+canvas.addEventListener('pointerup', endDraw);
+canvas.addEventListener('pointercancel', endDraw);
+canvas.addEventListener('contextmenu', (e) => {
+  e.preventDefault();
+  const cell = eventCell(e);
+  if (cell.x < 0 || cell.y < 0 || cell.x >= cols || cell.y >= rows) return;
+  const hit = objectAt(cell.x, cell.y);
+  if (hit) {
+    pushUndo();
+    delete mapObjects[hit.key];
+    render();
+    saveDraft();
+    toast('已移除物件');
+    return;
+  }
+  selectedTile = grid[cell.y][cell.x] || 'void';
+  selectedState = paintStates[`${cell.x},${cell.y}`] || null;
+  syncPalette();
+  toast(`已拾取：${TILE_BY_ID[selectedTile].name}${selectedState ? `（${selectedState}）` : ''}`);
+});
+
+/* ==================== UI ==================== */
+
+function buildPalette() {
+  const box = $('#palette');
+  box.innerHTML = '';
+  const groups = {};
+  PALETTE.forEach((p) => { (groups[p.group] = groups[p.group] || []).push(p); });
+  Object.keys(groups).forEach((gname) => {
+    const h = document.createElement('div');
+    h.className = 'palette-group';
+    h.textContent = gname;
+    box.appendChild(h);
+    groups[gname].forEach((p) => {
+      const b = document.createElement('button');
+      b.className = 'palette-btn';
+      b.dataset.tile = p.id;
+      b.dataset.state = p.state || '';
+      b.innerHTML = `<span class="sw" style="background:${p.base}"></span>${p.emoji} ${p.name}`;
+      b.addEventListener('click', () => {
+        selectedTile = p.id;
+        selectedState = p.state;
+        syncPalette();
+      });
+      box.appendChild(b);
+    });
+  });
+  syncPalette();
+}
+
+function syncPalette() {
+  document.querySelectorAll('.palette-btn').forEach((b) => {
+    b.classList.toggle('active', b.dataset.tile === selectedTile && (b.dataset.state || null) === selectedState);
+  });
+  const cur = PALETTE.find((p) => p.id === selectedTile && (p.state || null) === selectedState);
+  $('#tile-readout').textContent = cur ? cur.name : (TILE_BY_ID[selectedTile] || TILE_BY_ID.void).name;
+}
+
+function buildObjectPalette() {
+  const box = $('#object-palette');
+  box.innerHTML = '';
+  OBJECTS.forEach((o) => {
+    const b = document.createElement('button');
+    b.className = 'palette-btn';
+    b.dataset.obj = o.id;
+    b.innerHTML = `<span class="sw" style="background:#3a3f4a"></span>${o.emoji} ${o.name} <span style="color:var(--muted);font-size:11px;">${o.w}×${o.h}</span>`;
+    b.addEventListener('click', () => {
+      selectedObject = o.id;
+      tool = 'object';
+      syncObjectPalette();
+      document.querySelectorAll('.tool-grid button').forEach((x) => x.classList.toggle('active', x.dataset.tool === 'object'));
+      canvas.style.cursor = 'crosshair';
+    });
+    box.appendChild(b);
+  });
+  syncObjectPalette();
+}
+
+function syncObjectPalette() {
+  document.querySelectorAll('#object-palette .palette-btn').forEach((b) => {
+    b.classList.toggle('active', b.dataset.obj === selectedObject);
+  });
+}
+
+function updateStatus(cell) {
+  $('#size-readout').textContent = `${cols}×${rows} 格（${cols * 5}×${rows * 5} 尺）`;
+  if (cell && cell.x >= 0 && cell.y >= 0 && cell.x < cols && cell.y < rows) {
+    $('#pos-readout').textContent = `列 ${cell.x} · 行 ${cell.y}（${(cell.x + 1) * 5} 尺, ${(cell.y + 1) * 5} 尺）`;
+  } else {
+    $('#pos-readout').textContent = '—';
+  }
+}
+
+let toastTimer = null;
+function toast(msg) {
+  let el = document.getElementById('toast');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'toast';
+    el.style.cssText = 'position:fixed;bottom:26px;left:50%;transform:translateX(-50%);z-index:100;background:#232838;border:1px solid var(--border);border-radius:10px;padding:9px 16px;font-size:14px;box-shadow:0 8px 28px rgba(0,0,0,.5);';
+    document.body.appendChild(el);
+  }
+  el.textContent = msg;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { el.remove(); }, 2000);
+}
+
+document.querySelectorAll('.tool-grid button').forEach((b) => {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('.tool-grid button').forEach((x) => x.classList.remove('active'));
+    b.classList.add('active');
+    tool = b.dataset.tool;
+    canvas.style.cursor = tool === 'pan' ? 'grab' : 'crosshair';
+  });
+});
+
+$('#brush-size').addEventListener('change', (e) => { brush = parseInt(e.target.value, 10) || 1; });
+$('#btn-new').addEventListener('click', () => {
+  if (confirm('新建地图会清空当前内容，确定继续？')) newMap();
+});
+$('#btn-clear').addEventListener('click', () => {
+  pushUndo();
+  grid = makeGrid(cols, rows, 'void');
+  paintStates = {};
+  mapObjects = {};
+  render();
+  saveDraft();
+});
+$('#btn-undo').addEventListener('click', undo);
+$('#btn-redo').addEventListener('click', redo);
+
+$('#btn-zoom-in').addEventListener('click', () => applyZoom(zoom * 1.25));
+$('#btn-zoom-out').addEventListener('click', () => applyZoom(zoom / 1.25));
+$('#btn-zoom-fit').addEventListener('click', fitZoom);
+window.addEventListener('resize', () => { if (fitMode) fitZoom(); });
+
+$('#btn-copy').addEventListener('click', () => {
+  if (!selection) { toast('先用「框选」工具拖选区域'); return; }
+  clipboard = copyRect(selection.x0, selection.y0, selection.x1, selection.y1);
+  toast('已复制选区');
+});
+$('#btn-cut').addEventListener('click', () => {
+  if (!selection) { toast('先用「框选」工具拖选区域'); return; }
+  pushUndo();
+  clipboard = cutRect(selection.x0, selection.y0, selection.x1, selection.y1);
+  render();
+  saveDraft();
+  toast('已剪切选区');
+});
+$('#btn-paste').addEventListener('click', () => {
+  if (!clipboard) { toast('没有可粘贴的内容'); return; }
+  pushUndo();
+  const bx = selection ? selection.x0 : (lastClickCell ? lastClickCell.x : 0);
+  const by = selection ? selection.y0 : (lastClickCell ? lastClickCell.y : 0);
+  const px = Math.min(Math.max(bx, 0), Math.max(0, cols - clipboard.w));
+  const py = Math.min(Math.max(by, 0), Math.max(0, rows - clipboard.h));
+  pasteRect(px, py, clipboard);
+  selection = { x0: px, y0: py, x1: px + clipboard.w - 1, y1: py + clipboard.h - 1 };
+  render();
+  saveDraft();
+  toast('已粘贴');
+});
+$('#btn-rotate').addEventListener('click', rotateSelection);
+
+document.addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+    e.preventDefault();
+    $('#btn-save').click();
+    return;
+  }
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'o') {
+    e.preventDefault();
+    $('#btn-open').click();
+    return;
+  }
+  const tag = (e.target.tagName || '').toLowerCase();
+  if (tag === 'input' || tag === 'select') return;
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') { e.preventDefault(); $('#btn-copy').click(); return; }
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'x') { e.preventDefault(); $('#btn-cut').click(); return; }
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v') { e.preventDefault(); $('#btn-paste').click(); return; }
+  if (e.key === '+' || e.key === '=') { e.preventDefault(); applyZoom(zoom * 1.25); return; }
+  if (e.key === '-' || e.key === '_') { e.preventDefault(); applyZoom(zoom / 1.25); return; }
+  if (e.key === '0') { e.preventDefault(); fitZoom(); return; }
+  const map = { b: 'brush', l: 'line', r: 'rect', f: 'fill', e: 'erase', p: 'pick', s: 'select', h: 'pan', o: 'object' };
+  if (map[e.key.toLowerCase()]) {
+    document.querySelectorAll('.tool-grid button').forEach((x) => x.classList.toggle('active', x.dataset.tool === map[e.key.toLowerCase()]));
+    tool = map[e.key.toLowerCase()];
+    canvas.style.cursor = tool === 'pan' ? 'grab' : 'crosshair';
+  }
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+    e.preventDefault();
+    e.shiftKey ? redo() : undo();
+  }
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
+    e.preventDefault();
+    redo();
+  }
+});
+
+/* ==================== 随机生成 ==================== */
+
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function () {
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+
+function seededRandom() {
+  const seedStr = $('#gen-seed').value.trim();
+  if (!seedStr) return Math.random;
+  let h = 2166136261;
+  for (let i = 0; i < seedStr.length; i++) {
+    h ^= seedStr.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return mulberry32(h);
+}
+
+function generateDungeon() {
+  pushUndo();
+  const rng = seededRandom();
+  const roomsCount = clampInt($('#gen-rooms').value, 2, 30);
+  const cw = clampInt($('#gen-cw').value, 1, 4);
+  const minR = clampInt($('#gen-min').value, 3, 12);
+  const maxR = clampInt($('#gen-max').value, Math.max(4, minR), 20);
+
+  grid = makeGrid(cols, rows, 'wall');
+  const rooms = [];
+  let attempts = 0;
+  while (rooms.length < roomsCount && attempts < 500) {
+    attempts++;
+    const w = minR + Math.floor(rng() * (maxR - minR + 1));
+    const h = minR + Math.floor(rng() * (maxR - minR + 1));
+    const x = 2 + Math.floor(rng() * (cols - w - 4));
+    const y = 2 + Math.floor(rng() * (rows - h - 4));
+    if (x < 1 || y < 1 || x + w >= cols - 1 || y + h >= rows - 1) continue;
+    let overlap = false;
+    for (const r2 of rooms) {
+      if (x < r2.x + r2.w + 1 && x + w + 1 > r2.x && y < r2.y + r2.h + 1 && y + h + 1 > r2.y) {
+        overlap = true; break;
+      }
+    }
+    if (overlap) continue;
+    for (let yy = y; yy < y + h; yy++) {
+      for (let xx = x; xx < x + w; xx++) grid[yy][xx] = 'floor';
+    }
+    rooms.push({ x, y, w, h, cx: x + Math.floor(w / 2), cy: y + Math.floor(h / 2) });
+  }
+
+  // 走廊连接
+  const corridors = [];
+  for (let i = 1; i < rooms.length; i++) {
+    const a = rooms[i - 1], b = rooms[i];
+    const path = [];
+    const steps = [];
+    if (rng() < .5) {
+      for (let x = Math.min(a.cx, b.cx); x <= Math.max(a.cx, b.cx); x++) steps.push([x, a.cy]);
+      for (let y = Math.min(a.cy, b.cy); y <= Math.max(a.cy, b.cy); y++) steps.push([b.cx, y]);
+    } else {
+      for (let y = Math.min(a.cy, b.cy); y <= Math.max(a.cy, b.cy); y++) steps.push([a.cx, y]);
+      for (let x = Math.min(a.cx, b.cx); x <= Math.max(a.cx, b.cx); x++) steps.push([x, b.cy]);
+    }
+    for (const [sx, sy] of steps) {
+      for (let dy = -Math.floor(cw / 2); dy <= Math.floor((cw - 1) / 2); dy++) {
+        for (let dx = -Math.floor(cw / 2); dx <= Math.floor((cw - 1) / 2); dx++) {
+          const xx = sx + dx, yy = sy + dy;
+          if (xx >= 1 && yy >= 1 && xx < cols - 1 && yy < rows - 1) {
+            if (grid[yy][xx] === 'wall') { grid[yy][xx] = 'floor'; path.push([xx, yy]); }
+          }
+        }
+      }
+    }
+    corridors.push({ path, roomA: a, roomB: b });
+  }
+
+  // 门：走廊与房间接壤处放一扇
+  rooms.forEach((room, idx) => {
+    const near = corridors.filter((c) => c.roomA === room || c.roomB === room);
+    for (const c of near) {
+      const door = c.path.find(([x, y]) =>
+        (x === room.x - 1 || x === room.x + room.w || y === room.y - 1 || y === room.y + room.h) &&
+        grid[y][x] === 'floor' &&
+        ((x === room.x - 1 && y >= room.y && y < room.y + room.h) ||
+         (x === room.x + room.w && y >= room.y && y < room.y + room.h) ||
+         (y === room.y - 1 && x >= room.x && x < room.x + room.w) ||
+         (y === room.y + room.h && x >= room.x && x < room.x + room.w)));
+      if (door) {
+        const [dx, dy] = door;
+        if (grid[dy][dx] === 'floor') grid[dy][dx] = 'door';
+        break;
+      }
+    }
+  });
+
+  render();
+  toast(`已生成 ${rooms.length} 个房间`);
+  saveDraft();
+}
+
+function generateMaze() {
+  pushUndo();
+  grid = makeGrid(cols, rows, 'wall');
+  const stack = [[1, 1]];
+  grid[1][1] = 'floor';
+  const rng = seededRandom();
+  const dirs = [[0, 2], [0, -2], [2, 0], [-2, 0]];
+  while (stack.length) {
+    const [x, y] = stack[stack.length - 1];
+    const opts = dirs
+      .map(([dx, dy]) => [x + dx, y + dy])
+      .filter(([nx, ny]) => nx > 0 && ny > 0 && nx < cols - 1 && ny < rows - 1 && grid[ny][nx] === 'wall');
+    if (!opts.length) { stack.pop(); continue; }
+    const [nx, ny] = opts[Math.floor(rng() * opts.length)];
+    grid[y + (ny - y) / 2][x + (nx - x) / 2] = 'floor';
+    grid[ny][nx] = 'floor';
+    stack.push([nx, ny]);
+  }
+  // 出入口
+  grid[1][0] = 'door';
+  grid[rows - 2][cols - 1] = 'door';
+  render();
+  toast('迷宫已生成');
+  saveDraft();
+}
+
+/* ==================== 模板 ==================== */
+
+function applyTemplate(name) {
+  pushUndo();
+  if (name.startsWith('__custom__')) {
+    const tname = name.slice('__custom__'.length);
+    const t = loadTemplates().find((x) => x.name === tname);
+    if (!t) { toast('模板不存在'); return; }
+    cols = clampInt(t.cols, 8, 80);
+    rows = clampInt(t.rows, 8, 80);
+    scale = clampInt(t.scale, 40, 80);
+    canvas.width = cols * scale;
+    canvas.height = rows * scale;
+    grid = t.grid.map((r) => r.slice());
+    paintStates = t.states && typeof t.states === 'object' ? { ...t.states } : {};
+    mapObjects = t.objects && typeof t.objects === 'object' ? { ...t.objects } : {};
+    $('#map-name').value = ($('#map-name').value.trim() || t.name).slice(0, 20);
+    $('#cols').value = cols;
+    $('#rows').value = rows;
+    setScaleInput(scale);
+    undoStack = [];
+    redoStack = [];
+    render();
+    updateStatus();
+    saveDraft();
+    fitZoom();
+    toast(`已应用模板：${t.name}`);
+    return;
+  }
+  grid = makeGrid(cols, rows, 'void');
+  const rng = mulberry32(20260807);
+  const midX = Math.floor(cols / 2), midY = Math.floor(rows / 2);
+
+  if (name === 'hall') {
+    for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) grid[y][x] = 'wall';
+    for (let y = 1; y < rows - 1; y++) for (let x = 1; x < cols - 1; x++) grid[y][x] = 'floor';
+    [[4, 4], [cols - 5, 4], [4, rows - 5], [cols - 5, rows - 5]].forEach(([x, y]) => { grid[y][x] = 'wall'; });
+    grid[1][midX] = 'door';
+    grid[2][midX] = 'floor';
+    grid[1][midX + 2] = 'door';
+    grid[rows - 2][midX] = 'door';
+    grid[midY][1] = 'door';
+    grid[midY][cols - 2] = 'door';
+    grid[2][2] = 'chest';
+    grid[2][cols - 3] = 'chest';
+    grid[rows - 3][2] = 'table';
+    grid[rows - 3][cols - 3] = 'table';
+    grid[2][4] = 'torch';
+    grid[2][cols - 5] = 'torch';
+    grid[rows - 3][midX] = 'stairs';
+  } else if (name === 'camp') {
+    for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) grid[y][x] = 'grass';
+    for (let y = 1; y < rows - 1; y++) grid[y][midX] = 'road';
+    for (let i = 0; i < 12; i++) {
+      const x = 1 + Math.floor(rng() * (cols - 2));
+      const y = 1 + Math.floor(rng() * (rows - 2));
+      if (grid[y][x] === 'grass' && Math.abs(x - midX) > 1) grid[y][x] = 'tree';
+    }
+    [[4, 4], [4, rows - 5], [cols - 5, 4]].forEach(([x, y]) => {
+      for (let dy = 0; dy < 2; dy++) for (let dx = 0; dx < 3; dx++) grid[y + dy][x + dx] = 'wood';
+    });
+    grid[midY - 1][midX] = 'torch';
+    grid[midY + 1][midX] = 'torch';
+    grid[3][midX] = 'chest';
+    grid[rows - 4][cols - 4] = 'rock';
+    grid[2][2] = 'rock';
+  } else if (name === 'cave') {
+    for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) grid[y][x] = 'void';
+    for (let i = 0; i < 26; i++) {
+      const cx = 2 + Math.floor(rng() * (cols - 4));
+      const cy = 2 + Math.floor(rng() * (rows - 4));
+      const rr = 2 + Math.floor(rng() * 4);
+      for (let y = -rr; y <= rr; y++) {
+        for (let x = -rr; x <= rr; x++) {
+          if (x * x + y * y <= rr * rr) {
+            const nx = cx + x, ny = cy + y;
+            if (nx > 0 && ny > 0 && nx < cols - 1 && ny < rows - 1) grid[ny][nx] = 'rock';
+          }
+        }
+      }
+    }
+    const blobs = [];
+    for (let i = 0; i < 5; i++) {
+      const cx = 2 + Math.floor(rng() * (cols - 4));
+      const cy = 2 + Math.floor(rng() * (rows - 4));
+      const rr = 2 + Math.floor(rng() * 3);
+      blobs.push([cx, cy, rr]);
+      for (let y = -rr; y <= rr; y++) {
+        for (let x = -rr; x <= rr; x++) {
+          if (x * x + y * y <= rr * rr) {
+            const nx = cx + x, ny = cy + y;
+            if (nx > 0 && ny > 0 && nx < cols - 1 && ny < rows - 1 && grid[ny][nx] === 'void') grid[ny][nx] = 'floor';
+          }
+        }
+      }
+    }
+    const w = blobs[0];
+    for (let y = -2; y <= 2; y++) for (let x = -2; x <= 2; x++) {
+      const nx = w[0] + x, ny = w[1] + y;
+      if (nx > 0 && ny > 0 && nx < cols - 1 && ny < rows - 1) grid[ny][nx] = 'water';
+    }
+    grid[3][3] = 'chest';
+    grid[rows - 4][3] = 'rubble';
+    grid[3][cols - 4] = 'rubble';
+  } else if (name === 'tavern') {
+    for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) grid[y][x] = 'woodwall';
+    for (let y = 1; y < rows - 1; y++) for (let x = 1; x < cols - 1; x++) grid[y][x] = 'wood';
+    grid[1][midX] = 'door';
+    grid[1][midX + 1] = 'door';
+    for (let x = 2; x < cols - 2; x++) grid[3][x] = 'table';
+    [[5, 5], [5, cols - 6], [rows - 4, 5], [rows - 4, cols - 6], [midY, 4]].forEach(([y, x]) => {
+      grid[y][x] = 'table';
+    });
+    grid[2][2] = 'chest';
+    grid[2][cols - 3] = 'chest';
+    grid[2][4] = 'torch';
+    grid[2][cols - 5] = 'torch';
+    grid[rows - 3][2] = 'torch';
+    grid[rows - 3][cols - 3] = 'torch';
+    grid[rows - 2][2] = 'stairs';
+    grid[rows - 2][3] = 'stairs';
+  }
+  render();
+  toast(`已应用模板：${$('#template-select').selectedOptions[0].text}`);
+  saveDraft();
+}
+
+/* ==================== 自定义模板 ==================== */
+
+const TEMPLATE_KEY = 'dnd-mapworkshop-templates';
+const BUILTIN_TEMPLATES = [
+  { id: 'hall', name: '地牢大厅' },
+  { id: 'camp', name: '野外营地' },
+  { id: 'cave', name: '洞穴' },
+  { id: 'tavern', name: '酒馆' },
+];
+
+function loadTemplates() {
+  try {
+    const raw = localStorage.getItem(TEMPLATE_KEY);
+    const arr = raw ? JSON.parse(raw) : [];
+    return Array.isArray(arr) ? arr : [];
+  } catch (e) { return []; }
+}
+
+function saveTemplates(list) {
+  try { localStorage.setItem(TEMPLATE_KEY, JSON.stringify(list)); } catch (e) {}
+}
+
+function refreshTemplateSelect() {
+  const sel = $('#template-select');
+  sel.innerHTML = '';
+  const add = (value, text) => {
+    const o = document.createElement('option');
+    o.value = value;
+    o.textContent = text;
+    sel.appendChild(o);
+  };
+  add('', '选择模板…');
+  loadTemplates().forEach((t) => add('__custom__' + t.name, '📁 ' + t.name));
+  BUILTIN_TEMPLATES.forEach((t) => add(t.id, t.name));
+}
+
+$('#btn-save-template').addEventListener('click', () => {
+  const name = (prompt('模板名称：', $('#map-name').value.trim() || '我的模板') || '').trim();
+  if (!name) return;
+  const list = loadTemplates();
+  const tpl = { name, cols, rows, scale, grid: grid.map((r) => r.slice()), states: { ...paintStates }, objects: { ...mapObjects } };
+  const idx = list.findIndex((t) => t.name === name);
+  if (idx >= 0) list[idx] = tpl; else list.push(tpl);
+  saveTemplates(list);
+  refreshTemplateSelect();
+  toast(`已保存模板：${name}`);
+});
+
+$('#btn-del-template').addEventListener('click', () => {
+  const v = $('#template-select').value;
+  if (!v.startsWith('__custom__')) { toast('当前选择不是自定义模板'); return; }
+  const name = v.slice('__custom__'.length);
+  if (!confirm(`删除模板「${name}」？`)) return;
+  saveTemplates(loadTemplates().filter((t) => t.name !== name));
+  refreshTemplateSelect();
+  toast('模板已删除');
+});
+
+$('#btn-generate').addEventListener('click', generateDungeon);
+$('#btn-maze').addEventListener('click', generateMaze);
+$('#btn-template').addEventListener('click', () => {
+  const v = $('#template-select').value;
+  if (!v) { toast('请先选择模板'); return; }
+  applyTemplate(v);
+});
+
+/* ==================== 导出 ==================== */
+
+function exportImageDataUrl() {
+  // 重绘一次（不带网格线），保证导出与所见一致
+  for (let y = 0; y < rows; y++) {
+    for (let x = 0; x < cols; x++) drawTileAt(x, y);
+  }
+  drawAllObjects();
+  const dataUrl = canvas.toDataURL('image/png');
+  render();
+  return dataUrl;
+}
+
+function downloadBlob(blob, filename) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function mapName() {
+  return ($('#map-name').value.trim() || '未命名地图').replace(/[\\/:*?"<>|]/g, '_');
+}
+
+function buildMapJson() {
+  return {
+    app: 'dnd-board',
+    kind: 'map',
+    mapName: $('#map-name').value.trim() || '未命名地图',
+    mapData: exportImageDataUrl(),
+    mapW: cols * scale,
+    mapH: rows * scale,
+    gridSize: scale,
+    grid: grid.map((r) => r.slice()),
+    cellStates: { ...paintStates },
+    objects: { ...mapObjects },
+    tokens: [],
+    init: [],
+  };
+}
+
+/* ==================== 草稿自动保存 ==================== */
+
+function saveDraft() {
+  try {
+    localStorage.setItem(DRAFT_KEY, JSON.stringify({
+      cols, rows, scale,
+      name: $('#map-name').value.trim(),
+      grid,
+      states: paintStates,
+      objects: mapObjects,
+    }));
+  } catch (e) { /* 存储失败时静默忽略，不打断编辑 */ }
+}
+
+function loadDraft() {
+  try {
+    const raw = localStorage.getItem(DRAFT_KEY);
+    if (!raw) return false;
+    const d = JSON.parse(raw);
+    if (!d || !Array.isArray(d.grid) || !d.grid.length || !Array.isArray(d.grid[0])) return false;
+    const c = d.grid[0].length, r = d.grid.length;
+    if (c < 8 || r < 8 || c > 80 || r > 80) return false;
+    cols = c; rows = r;
+    scale = clampInt(d.scale, 40, 80);
+    grid = d.grid.map((row) => row.slice());
+    paintStates = d.states && typeof d.states === 'object' ? { ...d.states } : {};
+    mapObjects = d.objects && typeof d.objects === 'object' ? { ...d.objects } : {};
+    canvas.width = cols * scale;
+    canvas.height = rows * scale;
+    $('#map-name').value = (d.name || '未命名地图').slice(0, 20);
+    $('#cols').value = cols;
+    $('#rows').value = rows;
+    setScaleInput(scale);
+    return true;
+  } catch (e) { return false; }
+}
+
+/* ==================== 打开 / 保存 ==================== */
+
+function applyMapData(data) {
+  if (!data || !Array.isArray(data.grid) || !data.grid.length || !Array.isArray(data.grid[0])) {
+    toast('文件格式不正确：缺少网格数据');
+    return;
+  }
+  const c = data.grid[0].length, r = data.grid.length;
+  if (c < 8 || r < 8 || c > 80 || r > 80) {
+    toast(`地图尺寸 ${c}×${r} 超出支持范围（8~80 格）`);
+    return;
+  }
+  cols = c; rows = r;
+  scale = data.gridSize ? clampInt(data.gridSize, 40, 80) : scale;
+  grid = data.grid.map((row) => row.slice());
+  paintStates = data.cellStates && typeof data.cellStates === 'object' ? { ...data.cellStates } : {};
+  mapObjects = data.objects && typeof data.objects === 'object' ? { ...data.objects } : {};
+  canvas.width = cols * scale;
+  canvas.height = rows * scale;
+  $('#map-name').value = (data.mapName || '未命名地图').slice(0, 20);
+  $('#cols').value = cols;
+  $('#rows').value = rows;
+  setScaleInput(scale);
+  undoStack = [];
+  redoStack = [];
+  render();
+  updateStatus();
+  saveDraft();
+  fitZoom();
+  toast(`已打开：${data.mapName || '未命名地图'}（${cols}×${rows}）`);
+}
+
+$('#btn-open').addEventListener('click', () => $('#file-open').click());
+
+$('#file-open').addEventListener('change', (e) => {
+  const f = e.target.files && e.target.files[0];
+  if (!f) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      applyMapData(JSON.parse(reader.result));
+    } catch (err) {
+      toast('无法读取该文件：不是有效的 .地图.json');
+    }
+  };
+  reader.readAsText(f);
+  e.target.value = '';
+});
+
+$('#btn-save').addEventListener('click', () => {
+  downloadBlob(new Blob([JSON.stringify(buildMapJson())], { type: 'application/json' }), mapName() + '.地图.json');
+  saveDraft();
+  toast('已保存 .地图.json，之后可点「打开」继续编辑');
+});
+
+$('#btn-export-png').addEventListener('click', () => {
+  const dataUrl = exportImageDataUrl();
+  const a = document.createElement('a');
+  a.href = dataUrl;
+  a.download = mapName() + '.png';
+  a.click();
+  toast('PNG 已导出（网格由跑团台显示）');
+});
+
+$('#btn-export-table').addEventListener('click', () => {
+  downloadBlob(new Blob([JSON.stringify(buildMapJson())], { type: 'application/json' }), mapName() + '.地图.json');
+  toast('已导出，去跑团台点「导入地图」');
+});
+
+/* ==================== 启动 ==================== */
+
+buildPalette();
+buildObjectPalette();
+refreshTemplateSelect();
+if (loadDraft()) {
+  render();
+  updateStatus();
+  toast('已恢复上次编辑的草稿');
+} else {
+  newMap();
+}
+fitZoom();
+</script>
+</body>
+</html>

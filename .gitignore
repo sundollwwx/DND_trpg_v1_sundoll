@@ -1,0 +1,18 @@
+# macOS / Windows metadata
+.DS_Store
+Thumbs.db
+
+# Python runtime cache
+__pycache__/
+*.py[cod]
+
+# IDE-local settings
+.idea/
+.vscode/
+
+# Runtime and temporary files
+*.log
+*.tmp
+*.temp
+~$*
+

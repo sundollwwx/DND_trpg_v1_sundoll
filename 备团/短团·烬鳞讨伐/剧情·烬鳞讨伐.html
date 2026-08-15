@@ -1,0 +1,962 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>剧情 · 烬鳞讨伐（横向流程图）</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    background: #15181d;
+    color: #e4e2dc;
+    line-height: 1.65;
+  }
+  header {
+    position: sticky; top: 0; z-index: 10;
+    background: #101318f2; backdrop-filter: blur(8px);
+    padding: 12px 20px 10px; border-bottom: 1px solid #2c313a;
+  }
+  header h1 { font-size: 1.15rem; letter-spacing: 1px; }
+  header h1 small { color: #9aa0ab; font-weight: normal; font-size: 0.8rem; margin-left: 8px; }
+  nav { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+  nav button {
+    background: #222833; color: #c9c5bc;
+    border: 1px solid #3a4150; border-radius: 8px;
+    padding: 5px 12px; font-size: 0.85rem; cursor: pointer;
+  }
+  nav button:hover { background: #2c3340; color: #fff; }
+  .toolbar { margin-top: 10px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .tool-btn {
+    background: #222833; color: #c9c5bc; border: 1px solid #3a4150;
+    border-radius: 8px; padding: 4px 11px; font-size: 0.82rem; cursor: pointer;
+  }
+  .tool-btn:hover { background: #2c3340; color: #fff; }
+  .settings-panel {
+    background: #1d222b; border: 1px solid #343a46; border-radius: 10px;
+    padding: 9px 12px; display: flex; gap: 14px; flex-wrap: wrap; align-items: center;
+    font-size: 0.83rem;
+  }
+  .set-row { display: flex; align-items: center; gap: 6px; color: #c9c5bc; }
+  .settings-panel select, .settings-panel button {
+    background: #222833; color: #c9c5bc; border: 1px solid #3a4150;
+    border-radius: 6px; padding: 3px 8px; font-size: 0.82rem; cursor: pointer;
+  }
+  .status { color: #7da05c; font-size: 0.78rem; }
+  body.editing .card { outline: 1px dashed #f0c15a55; outline-offset: 2px; }
+  body.font-l .card { font-size: 1.03rem; }
+  body.font-s .card { font-size: 0.9rem; }
+
+  main { padding: 10px 18px 60px; }
+
+  /* ===== 横向列式流程 ===== */
+  .flow { position: relative; }
+  .columns {
+    display: flex; align-items: flex-start; gap: 72px;
+    overflow-x: auto; padding: 18px 8px 36px;
+    scrollbar-gutter: stable;
+  }
+  .col { flex: 0 0 310px; display: flex; flex-direction: column; gap: 10px; position: relative; }
+  .col-branches, .unit-branches { display: flex; flex-direction: column; gap: 8px; }
+  .col-step {
+    position: relative; z-index: 2;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  /* 列内第二个及以后的版本卡：虚线左边条区分 */
+  .step-main.variant { border-left: 3px dashed #e0a458; }
+
+  .card {
+    background: #1f242c; border: 1px solid #2c313a; border-radius: 12px;
+    padding: 12px 14px; position: relative;
+  }
+  .card .title-row {
+    display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+    padding-bottom: 7px; margin-bottom: 8px;
+    border-bottom: 1px dashed #343a46;
+  }
+  .card .ico { font-size: 1.2rem; }
+  .card .name { font-size: 1rem; color: #d6d2c8; font-weight: 600; }
+  .card .sub { color: #9aa0ab; font-size: 0.75rem; margin-left: auto; width: 100%; }
+  .card p, .card li { font-size: 0.88rem; }
+  .card ul { padding-left: 18px; margin: 6px 0; }
+  .card li { margin: 3px 0; }
+  .card blockquote {
+    background: #272d38; border-left: 3px solid #f0c15a;
+    border-radius: 0 6px 6px 0; padding: 8px 11px; margin: 6px 0;
+    font-size: 0.88rem; color: #efe9dc;
+  }
+  .card table { width: 100%; border-collapse: collapse; font-size: 0.82rem; margin: 6px 0; }
+  .card th, .card td { border: 1px solid #343a46; padding: 4px 7px; text-align: left; }
+  .card th { background: #262c36; }
+  .quote-line { margin: 5px 0; padding-left: 10px; border-left: 2px solid #4a5262; font-size: 0.88rem; }
+  .quote-line .who { color: #f0c15a; font-weight: 600; }
+  .card h5 { color: #f0c15a; margin: 8px 0 3px; font-size: 0.88rem; }
+
+  .card.c1 { border-left: 5px solid #e0a458; }
+  .card.c2 { border-left: 5px solid #7da05c; }
+  .card.c3 { border-left: 5px solid #c96f4a; }
+  .card.c4 { border-left: 5px solid #d94f2b; }
+
+  .branch-card { flex: 0 0 auto; }
+  .branch-card .conseq { color: #9aa0ab; font-size: 0.8rem; }
+
+  /* 卡片底部工具条（编辑模式显示） */
+  .card-tools {
+    display: none; margin-top: 8px; padding-top: 6px;
+    border-top: 1px dashed #343a46; gap: 6px; flex-wrap: wrap;
+  }
+  body.editing .card-tools { display: flex; }
+
+  /* ===== 编辑工具按钮（编辑模式显示） ===== */
+  .tool-edit-btn {
+    display: none; align-items: center; justify-content: center;
+    background: #2c3340; border: 1px solid #3c4352; color: #c9c5bc;
+    border-radius: 6px; padding: 1px 8px; font-size: 0.76rem; cursor: pointer;
+    flex-shrink: 0; white-space: nowrap;
+  }
+  .tool-edit-btn:hover { background: #3a4350; color: #fff; border-color: #f0c15a; }
+  body.editing .tool-edit-btn { display: inline-flex; }
+  .card-del { margin-left: 6px; }
+  .branch-target, .main-next {
+    display: none; margin-top: 6px; width: 100%;
+    background: #222833; color: #c9c5bc; border: 1px solid #3c4352;
+    border-radius: 6px; padding: 3px 7px; font-size: 0.78rem; cursor: pointer;
+  }
+  body.editing .branch-target, body.editing .main-next { display: block; }
+  /* 连线模式 */
+  body.link-mode .card { cursor: crosshair; }
+  body.link-mode .card:hover { border-color: #7da05c; }
+  .card.link-source { border-color: #f0c15a !important; box-shadow: 0 0 0 2px #f0c15a66; }
+  .col-add {
+    position: absolute; right: -24px; top: 50%; transform: translateY(-50%);
+    z-index: 5; white-space: nowrap;
+  }
+
+  #connector { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1; }
+  .foot { text-align: center; color: #6b7280; font-size: 0.8rem; margin-top: 8px; }
+
+  @media print {
+    body { background: #fff; color: #111; }
+    header { position: static; background: #fff; border-bottom: 2px solid #333; }
+    nav, .toolbar, #connector { display: none; }
+    .columns { display: block; overflow: visible; }
+    .col { flex: none; width: 100%; margin-bottom: 14px; page-break-inside: avoid; }
+    .card { background: #fff; border: 1px solid #bbb; }
+    .card blockquote { background: #f5f5f0; border-left-color: #b8860b; color: #222; }
+    .card th { background: #eee; color: #222; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🗺️ 剧情 · 烬鳞讨伐 <small>横向流程图 · 分支指向各自的下一幕</small></h1>
+  <nav>
+    <button data-target="col-bg">背景</button>
+    <button data-target="col-act1">幕 1</button>
+    <button data-target="col-act2">幕 2</button>
+    <button data-target="col-act3">幕 3</button>
+    <button data-target="col-act4">幕 4</button>
+    <button data-target="col-end">结局</button>
+    <button data-target="col-after">后日谈</button>
+    <button data-target="col-ref">资料</button>
+  </nav>
+  <div class="toolbar">
+    <button class="tool-btn" id="btn-link">🔗 画箭头</button>
+    <button class="tool-btn" id="settings-toggle">⚙️ 调整</button>
+    <div class="settings-panel" id="settings-panel" hidden>
+      <div class="set-row"><label>字号</label>
+        <select id="set-font">
+          <option value="s">小</option><option value="m" selected>中</option><option value="l">大</option>
+        </select>
+      </div>
+      <div class="set-row"><label><input type="checkbox" id="set-edit"> ✏️ 编辑格子（改文字 / 增删格子 / 改分支指向）</label></div>
+      <div class="set-row">
+        <button id="set-save">💾 保存修改</button>
+        <button id="set-reset">↩️ 恢复默认</button>
+        <span class="status" id="set-status"></span>
+      </div>
+    </div>
+  </div>
+</header>
+
+<main id="content-root">
+  <div class="flow" id="flow">
+    <svg id="connector" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="#f0c15a"/>
+        </marker>
+      </defs>
+    </svg>
+    <div class="columns">
+
+      <!-- 背景 -->
+      <div class="col" id="col-bg" data-step="bg">
+        <div class="col-step">
+          <div class="card step-main">
+            <div class="title-row"><span class="ico">🌍</span><span class="name">故事背景</span><span class="sub">3 级开局 · 4~6 小时</span></div>
+            <p>青年红龙<b>喀拉希斯</b>（「烬鳞」）占据阳光镇东南的聚落<b>灰烬屯</b>：村民被驱赶挖矿，<b>地精部落被奴役</b>。雨夜，少女莉娅撞进酒馆求救。</p>
+            <table>
+              <tr><th>幕</th><th>等级</th><th>时长</th></tr>
+              <tr><td>1 酒馆</td><td>3</td><td>30~45 分</td></tr>
+              <tr><td>2 谷道</td><td>3</td><td>45~60 分</td></tr>
+              <tr><td>3 营地</td><td>4</td><td>60~90 分</td></tr>
+              <tr><td>4 龙巢</td><td>5</td><td>60~90 分</td></tr>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- 幕 1 -->
+      <div class="col" id="col-act1" data-step="act1">
+        <div class="col-step">
+          <div class="card step-main c1">
+            <div class="title-row"><span class="ico">📖</span><span class="name">幕 1 · 桑哆尔之歌</span><span class="sub">雨夜酒馆</span></div>
+            <blockquote>"有人愿意去灰烬屯吗？那里的人，还没死绝。"</blockquote>
+            <ul>
+              <li><b>钩子</b>：悬赏 / 旧识 / 货物被劫 / 名声</li>
+              <li><b>情报</b>：灰烬屯被占三个月；鸦羽谷道近路</li>
+              <li><b>马库斯</b>："除了你们，谁还握得住剑？"</li>
+            </ul>
+          </div>
+        </div>
+        <div class="col-branches">
+          <div class="card branch-card" data-target="act2">
+            <div class="title-row"><span class="ico">✅</span><span class="name">接活</span></div>
+            <p class="conseq">→ 正常推进</p>
+          </div>
+          <div class="card branch-card" data-target="act2">
+            <div class="title-row"><span class="ico">💰</span><span class="name">讨价还价</span></div>
+            <p class="conseq">→ 赏金 +1 成</p>
+          </div>
+          <div class="card branch-card" data-target="act2">
+            <div class="title-row"><span class="ico">❓</span><span class="name">犹豫</span></div>
+            <p class="conseq">→ 莉娅亮出积蓄</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- 幕 2 -->
+      <div class="col" id="col-act2" data-step="act2">
+        <div class="col-step">
+          <div class="card step-main c2">
+            <div class="title-row"><span class="ico">📖</span><span class="name">幕 2 · 鸦羽谷道</span><span class="sub">3 级 · 战后升 4 级</span></div>
+            <blockquote>林子里安静得不太正常。前方灌木齐腰高，几块灰岩像蹲着的巨兽。</blockquote>
+            <p><b>配置</b>：地精 ×5 + 头目 ×1（加难 +座狼）</p>
+            <table>
+              <tr><th>单位</th><th>位置</th></tr>
+              <tr><td>玩家</td><td>x14~16, y15~17</td></tr>
+              <tr><td>弓手 ×2 西</td><td>x11,y9；x12,y12</td></tr>
+              <tr><td>弓手东 / 近战</td><td>x18,y14 / x12·x18, y18</td></tr>
+              <tr><td>头目 / 座狼</td><td>x17,y8 / x10,y15</td></tr>
+            </table>
+            <p><b>线索</b>：木牌徽记 · 铜矿渣+清单 · "督军也是被逼的"</p>
+          </div>
+        </div>
+        <div class="col-branches">
+          <div class="card branch-card" data-target="act3">
+            <div class="title-row"><span class="ico">🏃</span><span class="name">追逃兵</span></div>
+            <p class="conseq">→ 拦截先攻优势</p>
+          </div>
+          <div class="card branch-card" data-target="act3">
+            <div class="title-row"><span class="ico">🚪</span><span class="name">放任逃兵</span></div>
+            <p class="conseq">→ 营地两波巡逻</p>
+          </div>
+          <div class="card branch-card" data-target="act3">
+            <div class="title-row"><span class="ico">🗣️</span><span class="name">审问活口</span></div>
+            <p class="conseq">→ 营地情报 ×2</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- 幕 3 -->
+      <div class="col" id="col-act3" data-step="act3">
+        <div class="col-step">
+          <div class="card step-main c3">
+            <div class="title-row"><span class="ico">📖</span><span class="name">幕 3 · 碎颅丘</span><span class="sub">4 级 · 战后升 5 级</span></div>
+            <blockquote>图腾柱上钉着焦黑的旗——不是地精的图腾，是一只张开的龙爪。</blockquote>
+            <ul>
+              <li><b>第一波</b>：地精 ×3 + 座狼 ×2（可绕过）</li>
+              <li><b>主力</b>：格鲁克（60~70 HP）+ 头目 + 地精 ×6</li>
+              <li><b>站位</b>：格鲁克 x17,y7~8；篝火 x16~18</li>
+              <li><b>真相</b>：棚屋只有饼和小孩的鞋；龙爪烙印</li>
+            </ul>
+            <div class="quote-line"><span class="who">格鲁克：</span>"工钱是假。崽子是真的。"</div>
+          </div>
+        </div>
+        <div class="col-branches">
+          <div class="card branch-card" data-target="act4">
+            <div class="title-row"><span class="ico">⚔️</span><span class="name">杀</span></div>
+            <p class="conseq">→ 无援军，龙开场吐息</p>
+          </div>
+          <div class="card branch-card" data-target="act4">
+            <div class="title-row"><span class="ico">🕊️</span><span class="name">放</span></div>
+            <p class="conseq">→ 地精援军（2~3 轮）</p>
+          </div>
+          <div class="card branch-card" data-target="act4">
+            <div class="title-row"><span class="ico">🤝</span><span class="name">谈（DC15）</span></div>
+            <p class="conseq">→ 龙战弱化 + 接应</p>
+          </div>
+          <div class="card branch-card" data-target="act4">
+            <div class="title-row"><span class="ico">🕵️</span><span class="name">潜行偷账本</span></div>
+            <p class="conseq">→ 龙多准备一轮</p>
+          </div>
+          <div class="card branch-card" data-target="act4">
+            <div class="title-row"><span class="ico">👶</span><span class="name">先救幼崽再谈</span></div>
+            <p class="conseq">→ DC 自动成功，援军提前</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- 幕 4 -->
+      <div class="col" id="col-act4" data-step="act4">
+        <div class="col-step">
+          <div class="card step-main c4">
+            <div class="title-row"><span class="ico">📖</span><span class="name">幕 4 · 烬鳞矿窟</span><span class="sub">5 级 · 决战</span></div>
+            <blockquote>"我的地精们终于给我送来了……会说话的玩具。"</blockquote>
+            <ul>
+              <li><b>红龙</b>：会飞、俯冲吐息；试探→吐息</li>
+              <li><b>站位</b>：入口 x19~20,y24~26；龙高台 y6~7</li>
+              <li><b>难度</b>：轻伤 / 盟友 / 道具 / 撤退预案</li>
+            </ul>
+            <h5>决战描写（四职业阵容：狂蛮 / 诡术师 / 诡术牧 / 复仇圣武士）</h5>
+            <blockquote>"让我看看……一个把痛当酒喝的狂人，一个口袋里揣着影子的贼，一个连神都敢骗的牧师，还有一个举着剑、眼里写着讨债的骑士。"它的尾巴轻轻敲着石台，"今天的玩具，倒是比平时有意思。"</blockquote>
+            <ul>
+              <li><b>狂蛮</b>：正面吃龙焰咧嘴一笑——"就这？"当全队的盾。</li>
+              <li><b>诡术师</b>：锁链从阴影探出勾走龙翼下的挂坠——"借来用用。"</li>
+              <li><b>诡术牧</b>：幻影骗出一次吐息；真身从另一侧上祝福。</li>
+              <li><b>圣武士</b>：俯冲瞬间立誓"以吾之血，偿汝之债"，斩龙颈旧伤，圣光炸开。</li>
+            </ul>
+            <p><b>龙的应对</b>：先盯圣武士（俯冲丢岩浆）；嗅觉识破牧师分身；嘲讽狂蛮"你死了没人哭"；等人聚在掩体后一口火烧穿。</p>
+            <blockquote>龙最后一次扇动翅膀，低头看着穿过胸口的兵刃，金色眼睛里第一次有了惊讶。"……灰烬屯……只是……"它没能说完。巨厅安静下来，只有岩浆仍在流淌。</blockquote>
+            <p><b>胜利后</b>：狂蛮撑着斧子喘气；诡术师"这玩意儿归我了"；牧师念半句祷词又闭嘴；圣武士朝灰烬屯单膝跪下，誓约完成。</p>
+          </div>
+        </div>
+        <div class="col-branches">
+          <div class="card branch-card" data-target="end">
+            <div class="title-row"><span class="ico">💬</span><span class="name">谈</span></div>
+            <p class="conseq">→ 点到即止，仍会开战</p>
+          </div>
+          <div class="card branch-card" data-target="end">
+            <div class="title-row"><span class="ico">😤</span><span class="name">威慑 DC18</span></div>
+            <p class="conseq">→ 成功吐息 -1 骰；失败直接开打</p>
+          </div>
+          <div class="card branch-card" data-target="end">
+            <div class="title-row"><span class="ico">🆘</span><span class="name">救莉娅父亲</span></div>
+            <p class="conseq">→ 支线团圆；银币 + 旧护符</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- 结局 -->
+      <div class="col" id="col-end" data-step="end">
+        <div class="col-step">
+          <div class="card step-main">
+            <div class="title-row"><span class="ico">🏁</span><span class="name">结局</span><span class="sub">按分支收尾</span></div>
+            <ul>
+              <li>🕊️ <b>释放 + 救人</b>：两族共居，最圆满</li>
+              <li>⚔️ <b>全歼</b>：村民得救，账本留在箱底</li>
+              <li>🏳️ <b>战败撤退（谈判成功）</b>：格鲁克接应，求救信重贴</li>
+            </ul>
+            <div class="quote-line"><span class="who">暗号：</span>"烬鳞之后，再无烬鳞。"</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 后日谈 -->
+      <div class="col" id="col-after" data-step="after">
+        <div class="col-step">
+          <div class="card step-main">
+            <div class="title-row"><span class="ico">🎉</span><span class="name">后日谈 · 下一夜</span></div>
+            <blockquote>门又被推开了。这一次，进来的人笑着。</blockquote>
+            <div class="quote-line"><span class="who">马库斯：</span>"门口那块龙鳞，半夜有时候发烫。"</div>
+            <div class="quote-line"><span class="who">莉娅：</span>"灰烬屯永远有你们的位置。"</div>
+            <div class="quote-line"><span class="who">告别：</span>"活着，就回来。账还没结。"</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 资料 -->
+      <div class="col" id="col-ref" data-step="ref">
+        <div class="col-step">
+          <div class="card step-main">
+            <div class="title-row"><span class="ico">📚</span><span class="name">资料</span><span class="sub">敌人属性 · 检查单 · 地图</span></div>
+            <h5>敌人属性（参考 5e）</h5>
+            <table>
+              <tr><th>单位</th><th>HP</th><th>AC</th><th>先攻</th></tr>
+              <tr><td>地精</td><td>7</td><td>15</td><td>+2</td></tr>
+              <tr><td>头目</td><td>21</td><td>17</td><td>+2</td></tr>
+              <tr><td>座狼</td><td>26</td><td>13</td><td>+1</td></tr>
+              <tr><td>格鲁克</td><td>60~70</td><td>18~19</td><td>+2</td></tr>
+              <tr><td>红龙</td><td>~178</td><td>18</td><td>吐息 16d6</td></tr>
+            </table>
+            <h5>检查单</h5>
+            <ol>
+              <li>地图 4 张已加载。</li>
+              <li>棋子库：地精 / 头目 / 座狼 / 格鲁克 / 红龙。</li>
+              <li>先攻预填；确认难度方案。</li>
+            </ol>
+            <h5>地图索引</h5>
+            <table>
+              <tr><th>文件</th><th>尺寸</th><th>幕</th></tr>
+              <tr><td>酒馆</td><td>20×14</td><td>1</td></tr>
+              <tr><td>林地</td><td>30×20</td><td>2</td></tr>
+              <tr><td>营地</td><td>36×24</td><td>3</td></tr>
+              <tr><td>龙巢</td><td>40×28</td><td>4</td></tr>
+            </table>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="foot">剧情 · 烬鳞讨伐（横向流程图）— 幕与幕横向排布，分支指向各自的下一幕 · 与速查卡内容保持一致</div>
+</main>
+
+<script>
+  /* ===== 手动调整：设置 / 编辑模式 ===== */
+  const SS_KEY = 'story_settings_' + location.pathname;
+  const EDIT_KEY = 'story_edit_' + location.pathname;
+  const root = document.getElementById('content-root');
+  const toggleBtn = document.getElementById('settings-toggle');
+  const panel = document.getElementById('settings-panel');
+  const fontSel = document.getElementById('set-font');
+  const editChk = document.getElementById('set-edit');
+  const statusEl = document.getElementById('set-status');
+
+  function applyFont(f) {
+    document.body.classList.remove('font-s', 'font-m', 'font-l');
+    document.body.classList.add('font-' + f);
+  }
+  function applyEdit(on) {
+    document.body.classList.toggle('editing', on);
+    root.contentEditable = on ? 'true' : 'false';
+  }
+  function savePrefs() {
+    localStorage.setItem(SS_KEY, JSON.stringify({ font: fontSel.value, edit: editChk.checked }));
+  }
+  function loadPrefs() {
+    try {
+      const p = JSON.parse(localStorage.getItem(SS_KEY) || '{}');
+      fontSel.value = p.font || 'm';
+      editChk.checked = !!p.edit;
+      applyFont(fontSel.value); applyEdit(editChk.checked);
+    } catch (e) { applyFont('m'); }
+  }
+  function flash(msg) {
+    statusEl.textContent = msg;
+    clearTimeout(flash._t);
+    flash._t = setTimeout(() => { statusEl.textContent = ''; }, 1800);
+  }
+
+  toggleBtn.addEventListener('click', () => { panel.hidden = !panel.hidden; });
+  fontSel.addEventListener('change', () => { applyFont(fontSel.value); savePrefs(); });
+  editChk.addEventListener('change', () => { applyEdit(editChk.checked); savePrefs(); });
+  document.getElementById('set-save').addEventListener('click', () => {
+    localStorage.setItem(EDIT_KEY, root.innerHTML);
+    flash('已保存到本机浏览器');
+  });
+  document.getElementById('set-reset').addEventListener('click', () => {
+    localStorage.removeItem(EDIT_KEY);
+    localStorage.removeItem(SS_KEY);
+    location.reload();
+  });
+
+  /* ===== 手动连线模式 ===== */
+  let linkMode = false;
+  let linkSource = null;
+  const linkBtn = document.getElementById('btn-link');
+
+  function exitLinkMode() {
+    linkMode = false;
+    linkSource = null;
+    document.body.classList.remove('link-mode');
+    document.querySelectorAll('.card.link-source').forEach((c) => c.classList.remove('link-source'));
+    if (editChk.checked) root.contentEditable = 'true';
+    linkBtn.textContent = '🔗 画箭头';
+    flash('已退出连线模式');
+  }
+
+  linkBtn.addEventListener('click', () => {
+    if (!editChk.checked) {
+      flash('请先开启 ✏️ 编辑模式');
+      return;
+    }
+    if (!linkMode) {
+      linkMode = true;
+      linkSource = null;
+      document.body.classList.add('link-mode');
+      root.contentEditable = 'false';
+      linkBtn.textContent = '⏹ 结束连线';
+      flash('连线模式：点起始卡 → 再点目标卡');
+    } else {
+      exitLinkMode();
+    }
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && linkMode) exitLinkMode();
+  });
+
+  /* ===== 箭头连线 ===== */
+  const connector = document.getElementById('connector');
+  const NS = 'http://www.w3.org/2000/svg';
+
+  function cardCenter(el, rect) {
+    const r = el.getBoundingClientRect();
+    return { x: r.left - rect.left, y: r.top + r.height / 2 - rect.top };
+  }
+
+  function drawConnectors() {
+    const flow = document.getElementById('flow');
+    if (!flow) return;
+    const columns = document.querySelector('.columns');
+    if (!columns) return;
+    // 画布尺寸覆盖全部横向内容，避免滚动后箭头被裁剪
+    connector.setAttribute('width', columns.scrollWidth + 30);
+    connector.setAttribute('height', Math.max(columns.scrollHeight + 30, flow.clientHeight));
+    const flowRect = flow.getBoundingClientRect();
+    while (connector.firstChild) connector.removeChild(connector.firstChild);
+    const lineColor = '#4a5262';
+    const cols = document.querySelectorAll('.columns > .col');
+
+    // 主干：每张主卡 → 下一目标（显式 data-next，或列内第一张默认连下一列）
+    document.querySelectorAll('.step-main').forEach((a) => {
+      const col = a.closest('.col');
+      if (!col) return;
+      let b = null;
+      const nextId = a.dataset.next;
+      if (nextId) {
+        const t = resolveTargetCard(nextId);
+        b = t && t.classList.contains('step-main') ? t : null;
+      }
+      if (!b) {
+        const isFirst = col.querySelector('.col-step > .step-main') === a;
+        if (isFirst) {
+          const nextCol = col.nextElementSibling;
+          if (nextCol) b = nextCol.querySelector('.step-main');
+        }
+      }
+      if (!b) return;
+      const ar = a.getBoundingClientRect();
+      const br = b.getBoundingClientRect();
+      if (ar.height === 0 || br.height === 0) return;
+      const p1 = cardCenter(a, flowRect);
+      const p2 = cardCenter(b, flowRect);
+      const x1 = ar.right - flowRect.left;
+      const x2 = br.left - flowRect.left;
+      const midX = x1 + Math.max(24, (x2 - x1) / 2);
+      const path = document.createElementNS(NS, 'path');
+      path.setAttribute('d', `M ${x1} ${p1.y} L ${midX} ${p1.y} L ${midX} ${p2.y} L ${x2 - 2} ${p2.y}`);
+      path.setAttribute('fill', 'none');
+      path.setAttribute('stroke', lineColor);
+      path.setAttribute('stroke-width', '2');
+      path.setAttribute('marker-end', 'url(#arrow)');
+      connector.appendChild(path);
+    });
+
+    // 分支：分支卡 → data-target 指向的列主卡
+    document.querySelectorAll('.branch-card').forEach((card) => {
+      const targetCard = resolveTargetCard(card.dataset.target);
+      if (!targetCard) return;
+      const cr = card.getBoundingClientRect();
+      const tr = targetCard.getBoundingClientRect();
+      if (cr.height === 0 || tr.height === 0) return;
+      const p1 = cardCenter(card, flowRect);
+      const p2 = cardCenter(targetCard, flowRect);
+      const x1 = cr.right - flowRect.left;
+      const x2 = tr.left - flowRect.left;
+      const midX = x1 + Math.max(24, (x2 - x1) / 2);
+      const path = document.createElementNS(NS, 'path');
+      path.setAttribute('d', `M ${x1} ${p1.y} L ${midX} ${p1.y} L ${midX} ${p2.y} L ${x2 - 2} ${p2.y}`);
+      path.setAttribute('fill', 'none');
+      path.setAttribute('stroke', lineColor);
+      path.setAttribute('stroke-width', '2');
+      path.setAttribute('marker-end', 'url(#arrow)');
+      connector.appendChild(path);
+    });
+
+    // 手动连线：起始卡 data-links → 目标卡（绿色虚线，可区分）
+    document.querySelectorAll('.card[data-links]').forEach((from) => {
+      const fromRect = from.getBoundingClientRect();
+      if (fromRect.height === 0) return;
+      (from.dataset.links || '').split(/\s+/).filter(Boolean).forEach((tid) => {
+        const to = document.getElementById(tid);
+        if (!to) return;
+        const toRect = to.getBoundingClientRect();
+        if (toRect.height === 0) return;
+        const p1 = { x: fromRect.right - flowRect.left, y: fromRect.top + fromRect.height / 2 - flowRect.top };
+        const p2 = { x: toRect.left - flowRect.left, y: toRect.top + toRect.height / 2 - flowRect.top };
+        const midX = p1.x + Math.max(24, (p2.x - p1.x) / 2);
+        const path = document.createElementNS(NS, 'path');
+        path.setAttribute('d', `M ${p1.x} ${p1.y} L ${midX} ${p1.y} L ${midX} ${p2.y} L ${p2.x - 2} ${p2.y}`);
+        path.setAttribute('fill', 'none');
+        path.setAttribute('stroke', '#7da05c');
+        path.setAttribute('stroke-width', '2');
+        path.setAttribute('stroke-dasharray', '6 4');
+        path.setAttribute('marker-end', 'url(#arrow)');
+        connector.appendChild(path);
+      });
+    });
+  }
+
+  function resolveTargetCard(target) {
+    if (!target) return null;
+    let el = document.getElementById(target);
+    if (el) return el;
+    // 兼容旧的"列 id"写法：指向该列主卡
+    const col = document.querySelector('.col[data-step="' + target + '"]');
+    return col ? col.querySelector('.step-main') : null;
+  }
+
+  /* ===== 编辑工具：新增 / 删除 / 指向 ===== */
+  function makeBtn(cls, text, title) {
+    const b = document.createElement('button');
+    b.className = 'tool-edit-btn ' + cls;
+    b.textContent = text;
+    b.title = title || '';
+    b.setAttribute('contenteditable', 'false');
+    return b;
+  }
+
+  function stepOptions(selected) {
+    let html = '';
+    document.querySelectorAll('.columns > .col').forEach((col) => {
+      const first = col.querySelector('.step-main');
+      const label = first && first.querySelector('.name') ? first.querySelector('.name').textContent : col.dataset.step;
+      html += `<optgroup label="${label}">`;
+      col.querySelectorAll('.step-main').forEach((m, idx) => {
+        if (!m.id) return;
+        const mname = m.querySelector('.name') ? m.querySelector('.name').textContent : m.id;
+        html += `<option value="${m.id}"${m.id === selected ? ' selected' : ''}>${mname}${idx > 0 ? '（版本' + (idx + 1) + '）' : ''}</option>`;
+      });
+      col.querySelectorAll('.branch-card').forEach((b) => {
+        if (!b.id) return;
+        const bname = b.querySelector('.name') ? b.querySelector('.name').textContent : b.id;
+        html += `<option value="${b.id}"${b.id === selected ? ' selected' : ''}>${bname}</option>`;
+      });
+      html += '</optgroup>';
+    });
+    return html;
+  }
+
+  function mainNextOptions(selected) {
+    let html = '<option value="">自动（下一列）</option>';
+    document.querySelectorAll('.columns > .col').forEach((col) => {
+      col.querySelectorAll('.step-main').forEach((main) => {
+        if (main && main.id) {
+          const label = main.querySelector('.name') ? main.querySelector('.name').textContent : col.dataset.step;
+          html += `<option value="${main.id}"${main.id === selected ? ' selected' : ''}>${label}</option>`;
+        }
+      });
+    });
+    return html;
+  }
+
+  let cardUid = 0;
+  function newStepId() {
+    let s = 'new-' + (++cardUid);
+    while (document.querySelector('.col[data-step="' + s + '"]')) s = 'new-' + (++cardUid);
+    return s;
+  }
+  function ensureUniqueSteps() {
+    const seen = new Set();
+    document.querySelectorAll('.col').forEach((col) => {
+      let s = col.dataset.step || newStepId();
+      const base = s;
+      let n = 2;
+      while (seen.has(s)) s = base + '-' + (n++);
+      if (s !== col.dataset.step) {
+        const main = col.querySelector('.step-main');
+        if (main && main.id === col.dataset.step + '-main') main.id = s + '-main';
+        col.dataset.step = s;
+      }
+      seen.add(s);
+    });
+  }
+  // 只给"没有 id"的格子发稳定 id；已有 id 永不重编 → 箭头指向稳定
+  function buildMissingIds() {
+    ensureUniqueSteps();
+    document.querySelectorAll('.col').forEach((col) => {
+      const step = col.dataset.step;
+      const mains = col.querySelectorAll('.step-main');
+      mains.forEach((main, idx) => {
+        if (main && !main.id) main.id = idx === 0 ? step + '-main' : step + '-v' + (idx + 1);
+      });
+      col.querySelectorAll('.branch-card').forEach((b) => {
+        if (!b.id) b.id = 'b-' + (++cardUid);
+      });
+    });
+  }
+
+  function newColTemplate() {
+    return `<div class="col" data-step="${newStepId()}">
+      <div class="col-step">
+        <div class="card step-main">
+          <div class="title-row"><span class="ico">📖</span><span class="name">新步骤</span><span class="sub">新列</span></div>
+          <blockquote>在这里写开场白（编辑模式下直接点击修改）</blockquote>
+        </div>
+        <div class="unit-branches"></div>
+      </div>
+    </div>`;
+  }
+
+  function newBranchTemplate() {
+    return `<div class="card branch-card" data-target="end-main">
+      <div class="title-row">
+        <span class="ico">🔀</span><span class="name">新选项</span>
+      </div>
+      <p class="conseq">→ 后果（编辑模式下直接点击修改）</p>
+    </div>`;
+  }
+
+  function migrateBranches() {
+    document.querySelectorAll('.col').forEach((col) => {
+      const stepEl = col.querySelector(':scope > .col-step');
+      const main = stepEl ? stepEl.querySelector(':scope > .step-main') : null;
+      const colBr = col.querySelector(':scope > .col-branches');
+      if (colBr && main) {
+        colBr.classList.remove('col-branches');
+        colBr.classList.add('unit-branches');
+        main.after(colBr);
+      }
+    });
+  }
+
+  function buildEditButtons() {
+    document.querySelectorAll('.col').forEach((col) => {
+      const stepEl = col.querySelector(':scope > .col-step');
+      if (!stepEl) return;
+      stepEl.querySelectorAll(':scope > .step-main').forEach((main, idx) => {
+        let tools = main.querySelector(':scope > .card-tools');
+        if (!tools) {
+          tools = document.createElement('div');
+          tools.className = 'card-tools';
+          main.appendChild(tools);
+          tools.appendChild(makeBtn('card-add-branch', '＋ 分支', '在下方新增一个选项格子'));
+          if (idx === 0) {
+            tools.appendChild(makeBtn('col-move-up', '⬆ 左移', '把这一列向左移'));
+            tools.appendChild(makeBtn('col-move-down', '⬇ 右移', '把这一列向右移'));
+          }
+          tools.appendChild(makeBtn('card-clone', '⧉ 复制版本', '在列内复制一张版本卡'));
+          tools.appendChild(makeBtn('card-clear-links', '✕ 连线', '清除这张卡的手动箭头'));
+          tools.appendChild(makeBtn('card-del', '✕ 删', '删除这张版本卡（仅一张时删除整列）'));
+        }
+        let nextSel = main.querySelector(':scope > .main-next');
+        if (!nextSel) {
+          nextSel = document.createElement('select');
+          nextSel.className = 'main-next';
+          nextSel.title = '这张主卡的主干箭头指向哪里（默认自动连下一列）';
+          nextSel.innerHTML = mainNextOptions(main.dataset.next || '');
+          main.appendChild(nextSel);
+        } else {
+          nextSel.innerHTML = mainNextOptions(main.dataset.next || '');
+        }
+      });
+      if (!col.querySelector(':scope > .col-add')) {
+        const b = makeBtn('col-add', '＋ 列', '在右侧新增一列');
+        col.appendChild(b);
+      }
+    });
+    document.querySelectorAll('.branch-card').forEach((card) => {
+      let tools = card.querySelector(':scope > .card-tools');
+      if (!tools) {
+        tools = document.createElement('div');
+        tools.className = 'card-tools';
+        card.appendChild(tools);
+        tools.appendChild(makeBtn('br-move-up', '⬆ 上移', '在选项列表里上移'));
+        tools.appendChild(makeBtn('br-move-down', '⬇ 下移', '在选项列表里下移'));
+        tools.appendChild(makeBtn('card-clear-links', '✕ 连线', '清除这张卡的手动箭头'));
+        tools.appendChild(makeBtn('card-del', '✕ 删', '删除这个选项格子'));
+      }
+      let sel = card.querySelector(':scope > .branch-target');
+      if (!sel) {
+        sel = document.createElement('select');
+        sel.className = 'branch-target';
+        sel.title = '这个分支指向哪张格子';
+        sel.innerHTML = stepOptions(card.dataset.target);
+        card.appendChild(sel);
+      } else {
+        sel.innerHTML = stepOptions(card.dataset.target);
+      }
+    });
+  }
+
+  document.getElementById('flow').addEventListener('click', (e) => {
+    if (linkMode) {
+      const card = e.target.closest('.card');
+      if (!card) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (!linkSource) {
+        linkSource = card;
+        card.classList.add('link-source');
+        flash('已选起始卡，再点目标卡（Esc 取消）');
+      } else if (card !== linkSource) {
+        if (!card.id) buildMissingIds();
+        const links = (linkSource.dataset.links || '').split(/\s+/).filter(Boolean);
+        if (card.id && !links.includes(card.id)) links.push(card.id);
+        linkSource.dataset.links = links.join(' ');
+        linkSource.classList.remove('link-source');
+        linkSource = null;
+        exitLinkMode();
+        requestAnimationFrame(drawConnectors);
+      }
+      return;
+    }
+    const clearLinks = e.target.closest('.card-clear-links');
+    if (clearLinks) {
+      const card = clearLinks.closest('.card');
+      if (card) {
+        delete card.dataset.links;
+        requestAnimationFrame(drawConnectors);
+      }
+      return;
+    }
+    const del = e.target.closest('.card-del');
+    if (del) {
+      const card = del.closest('.card');
+      const col = card.closest('.col');
+      if (card.classList.contains('step-main') && col) {
+        const mains = col.querySelectorAll('.step-main');
+        if (mains.length > 1) {
+          if (!confirm('删除这张版本卡？会连同它自己的分支一起删除。')) return;
+          const br = card.nextElementSibling;
+          if (br && br.classList.contains('unit-branches')) br.remove();
+          card.remove();
+        } else {
+          if (!confirm('删除整列？会连同分支一起删除。')) return;
+          col.remove();
+        }
+      } else {
+        if (!confirm('删除这个选项格子？')) return;
+        card.remove();
+      }
+      requestAnimationFrame(drawConnectors);
+      return;
+    }
+    const addCol = e.target.closest('.col-add');
+    if (addCol) {
+      addCol.closest('.col').insertAdjacentHTML('afterend', newColTemplate());
+      buildEditButtons();
+      requestAnimationFrame(drawConnectors);
+      return;
+    }
+    const addBr = e.target.closest('.card-add-branch');
+    if (addBr) {
+      const main = addBr.closest('.step-main');
+      let br = main.nextElementSibling;
+      if (!br || !br.classList.contains('unit-branches')) {
+        br = document.createElement('div');
+        br.className = 'unit-branches';
+        main.after(br);
+      }
+      br.insertAdjacentHTML('beforeend', newBranchTemplate());
+      buildMissingIds();
+      buildEditButtons();
+      requestAnimationFrame(drawConnectors);
+      return;
+    }
+    const cloneBtn = e.target.closest('.card-clone');
+    if (cloneBtn) {
+      const main = cloneBtn.closest('.step-main');
+      if (main) {
+        const copy = main.cloneNode(true);
+        copy.removeAttribute('id');
+        copy.classList.add('variant');
+        let br = main.nextElementSibling;
+        let brCopy = null;
+        if (br && br.classList.contains('unit-branches')) {
+          brCopy = br.cloneNode(true);
+          brCopy.querySelectorAll('.branch-card').forEach((b) => b.removeAttribute('id'));
+          // 顺序：版本1 → 分支1 → 版本2（副本）→ 分支2（副本）
+          br.after(copy);
+        } else {
+          main.after(copy);
+        }
+        if (brCopy) copy.after(brCopy);
+        buildMissingIds();
+        buildEditButtons();
+        requestAnimationFrame(drawConnectors);
+      }
+      return;
+    }
+    const moveUp = e.target.closest('.col-move-up');
+    if (moveUp) {
+      const col = moveUp.closest('.col');
+      const prev = col.previousElementSibling;
+      if (prev && prev.classList.contains('col')) col.parentElement.insertBefore(col, prev);
+      requestAnimationFrame(drawConnectors);
+      return;
+    }
+    const moveDown = e.target.closest('.col-move-down');
+    if (moveDown) {
+      const col = moveDown.closest('.col');
+      const next = col.nextElementSibling;
+      if (next && next.classList.contains('col')) col.parentElement.insertBefore(next, col);
+      requestAnimationFrame(drawConnectors);
+      return;
+    }
+    const brUp = e.target.closest('.br-move-up');
+    if (brUp) {
+      const card = brUp.closest('.branch-card');
+      const prev = card.previousElementSibling;
+      if (prev) card.parentElement.insertBefore(card, prev);
+      buildMissingIds();
+      requestAnimationFrame(drawConnectors);
+      return;
+    }
+    const brDown = e.target.closest('.br-move-down');
+    if (brDown) {
+      const card = brDown.closest('.branch-card');
+      const next = card.nextElementSibling;
+      if (next) card.parentElement.insertBefore(next, card);
+      buildMissingIds();
+      requestAnimationFrame(drawConnectors);
+      return;
+    }
+  });
+
+  document.getElementById('flow').addEventListener('change', (e) => {
+    if (e.target.classList.contains('branch-target')) {
+      e.target.closest('.branch-card').dataset.target = e.target.value;
+      requestAnimationFrame(drawConnectors);
+    }
+    if (e.target.classList.contains('main-next')) {
+      e.target.closest('.step-main').dataset.next = e.target.value || '';
+      requestAnimationFrame(drawConnectors);
+    }
+  });
+
+  /* ===== 导航：滚动到列 ===== */
+  document.querySelectorAll('nav button').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const el = document.getElementById(btn.dataset.target);
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start', inline: 'center' });
+    });
+  });
+
+  window.addEventListener('resize', () => requestAnimationFrame(drawConnectors));
+
+  // 横向滚动时箭头跟随卡片
+  const columnsEl = document.querySelector('.columns');
+  if (columnsEl) {
+    columnsEl.addEventListener('scroll', () => requestAnimationFrame(drawConnectors));
+  }
+
+  /* ===== 启动 ===== */
+  function init() {
+    loadPrefs();
+    const saved = localStorage.getItem(EDIT_KEY);
+    if (saved) root.innerHTML = saved;
+    migrateBranches();
+    buildMissingIds();
+    buildEditButtons();
+    requestAnimationFrame(drawConnectors);
+  }
+  init();
+</script>
+</body>
+</html>

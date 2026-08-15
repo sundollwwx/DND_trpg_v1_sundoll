@@ -1,0 +1,1786 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<title>玩家模式 · 桑哆尔</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+[hidden] { display: none !important; }
+:root {
+  --bg:#101218; --panel:#191c25; --panel2:#212531; --panel3:#2a3140;
+  --border:#2b303d; --text:#e8eaf0; --muted:#9aa3b2; --accent:#e0b34c;
+}
+html, body { height: 100%; }
+body { display:flex; flex-direction:column; background:var(--bg); color:var(--text); font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif; overflow:hidden; }
+header {
+  display:flex; align-items:center; gap:12px; flex-wrap:wrap; padding:8px 14px;
+  background:var(--panel); border-bottom:1px solid var(--border); font-size:13px;
+}
+.brand { font-size:16px; font-weight:700; }
+.brand em { color:var(--accent); font-style:normal; }
+.conn { color:var(--muted); }
+.conn.on { color:#2ecc71; }
+.campaign { color:var(--accent); }
+#player-box { display:flex; align-items:center; gap:6px; margin-left:auto; }
+#player-name {
+  width:130px; padding:4px 8px; border-radius:8px; border:1px solid var(--border);
+  background:var(--panel2); color:var(--text); font-size:13px; outline:none;
+}
+#player-name:focus { border-color:var(--accent); }
+#player-hint { color:var(--muted); font-size:12px; }
+
+#layout { flex:1; display:flex; min-height:0; }
+.panel { width:250px; min-width:210px; background:var(--panel); border-right:1px solid var(--border); overflow-y:auto; padding:8px; display:flex; flex-direction:column; gap:8px; }
+#right-panel { border-right:none; border-left:1px solid var(--border); width:310px; min-width:270px; }
+.card { position:relative; background:var(--panel2); border:1px solid var(--border); border-radius:10px; padding:10px; }
+.card h2 { font-size:14px; color:var(--accent); margin-bottom:8px; cursor:pointer; user-select:none; }
+.card h2::after { content:' ▾'; font-size:11px; color:var(--muted); }
+.card.collapsed h2::after { content:' ▸'; }
+.card.collapsed > *:not(h2) { display:none; }
+
+/* 骰子 */
+.dice-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:5px; }
+.die-btn { border:1px solid var(--border); background:var(--panel3); color:var(--text); border-radius:8px; padding:7px 0; cursor:pointer; font-size:12px; }
+.die-btn:hover { border-color:var(--accent); }
+.dice-advrow { display:flex; gap:5px; margin-top:5px; }
+.dice-advrow .die-btn { flex:1; }
+.custom-roll { display:flex; gap:5px; margin-top:5px; }
+#dice-expr { flex:1; min-width:0; padding:6px 8px; border-radius:8px; border:1px solid var(--border); background:var(--panel3); color:var(--text); font-size:12px; }
+#dice-expr:focus { outline:none; border-color:var(--accent); }
+#dice-roll { border:none; background:var(--accent); color:#111; border-radius:8px; padding:0 14px; cursor:pointer; font-weight:700; }
+#dice-result { min-height:24px; font-size:15px; font-weight:700; text-align:center; color:var(--accent); display:flex; align-items:center; justify-content:center; margin-top:6px; }
+#dice-result.rolling { animation:diceSpin .55s ease-in-out; }
+@keyframes diceSpin { 0%{transform:rotate(0) scale(1);} 40%{transform:rotate(180deg) scale(1.4);} 70%{transform:rotate(300deg) scale(.9);} 100%{transform:rotate(360deg) scale(1);} }
+#dice-log { max-height:170px; overflow-y:auto; display:flex; flex-direction:column; gap:4px; margin-top:6px; }
+.roll-line { display:flex; gap:6px; align-items:baseline; background:var(--panel3); border-radius:8px; padding:4px 8px; font-size:12px; }
+.roll-who { color:var(--accent); white-space:nowrap; }
+.roll-expr { color:var(--muted); white-space:nowrap; }
+.roll-detail { flex:1; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.roll-total { font-weight:700; color:#2ecc71; }
+
+/* 涂鸦 */
+.tool-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:5px; }
+.board-tool { border:1px solid var(--border); background:var(--panel3); color:var(--text); border-radius:8px; padding:7px 0; cursor:pointer; font-size:12px; }
+.board-tool.active { border-color:var(--accent); color:var(--accent); background:rgba(224,179,76,.12); }
+.doodle-colors { display:flex; gap:5px; margin-top:7px; }
+.doodle-color { width:26px; height:26px; border-radius:50%; border:2px solid transparent; cursor:pointer; }
+.doodle-color.active { border-color:#fff; }
+.doodle-widths { display:flex; gap:5px; margin-top:6px; }
+.doodle-widths button { flex:1; border:1px solid var(--border); background:var(--panel3); color:var(--text); border-radius:8px; padding:5px 0; cursor:pointer; font-size:12px; }
+.doodle-widths button.active { border-color:var(--accent); color:var(--accent); }
+.doodle-actions { display:flex; gap:5px; margin-top:7px; }
+.doodle-actions button { flex:1; border:1px solid var(--border); background:var(--panel3); color:var(--text); border-radius:8px; padding:6px 0; cursor:pointer; font-size:12px; }
+.hint { font-size:11px; color:var(--muted); line-height:1.5; margin-top:7px; }
+.player-links { display:flex; flex-direction:column; gap:4px; }
+.player-links a { display:block; background:var(--panel3); border:1px solid var(--border); color:var(--text); text-decoration:none; border-radius:8px; padding:6px 8px; font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.player-links a:hover { border-color:var(--accent); color:var(--accent); }
+
+#center { flex:1; display:flex; flex-direction:column; min-width:0; }
+#board-wrap { flex:1; min-height:0; position:relative; }
+#board { position:absolute; inset:0; overflow:hidden; background:#0b0d12; }
+#world { position:absolute; left:0; top:0; transform-origin:0 0; }
+.map-layer { position:absolute; left:0; top:0; pointer-events:none; }
+#tokens { position:absolute; left:0; top:0; }
+.token { position:absolute; transform:translate(-50%,-50%); display:flex; flex-direction:column; align-items:center; justify-content:center; }
+.circle {
+  border-radius:50%; display:flex; align-items:center; justify-content:center;
+  border:2px solid var(--ring,#5b8cff); background:#fff; background-size:cover; background-position:center;
+  font-size:16px; line-height:1; box-shadow:0 0 0 1px rgba(0,0,0,.4), 0 2px 7px rgba(0,0,0,.5);
+}
+.name {
+  position:absolute; transform:translate(-50%,-100%); top:-4px; white-space:nowrap;
+  color:#fff; background:rgba(10,12,18,.62); padding:1px 6px; border-radius:8px;
+  font-size:10px; text-shadow:0 1px 2px rgba(0,0,0,.8); pointer-events:none;
+}
+.name.below { transform:translate(-50%,0); top:auto; bottom:-16px; }
+.rider { position:absolute; border-radius:50%; border:1.5px solid var(--ring,#5b8cff); background:#fff; background-size:cover; background-position:center; box-shadow:0 0 0 1px rgba(0,0,0,.5), 0 2px 5px rgba(0,0,0,.5); }
+.badges { position:absolute; top:-8px; right:-2px; display:flex; gap:2px; pointer-events:none; }
+.badge { width:15px; height:15px; font-size:9px; display:flex; align-items:center; justify-content:center; border-radius:50%; border:1px solid rgba(255,255,255,.6); }
+.empty { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:var(--muted); text-align:center; line-height:2; }
+.token.mine { cursor:grab; touch-action:none; }
+.token.mine.dragging { cursor:grabbing; }
+.token.mine .circle { box-shadow:0 0 0 3px rgba(46,204,113,.9), 0 0 0 1px rgba(0,0,0,.4), 0 2px 7px rgba(0,0,0,.5); }
+.rider.mine { outline:2px solid rgba(46,204,113,.9); outline-offset:1px; cursor:grab; touch-action:none; }
+
+#map-controls { position:absolute; top:10px; right:10px; z-index:30; display:flex; gap:6px; }
+#map-controls button { width:34px; height:34px; border-radius:9px; font-size:16px; border:1px solid var(--border); background:rgba(25,28,37,.9); color:var(--text); cursor:pointer; box-shadow:0 4px 12px rgba(0,0,0,.35); }
+#map-controls button:hover { border-color:var(--accent); color:var(--accent); }
+
+/* 底部先攻条 */
+#init-bar { height:52px; min-height:52px; display:flex; align-items:center; gap:12px; padding:0 12px; background:var(--panel); border-top:1px solid var(--border); }
+.init-left { display:flex; align-items:center; gap:10px; white-space:nowrap; }
+.init-title { font-weight:700; color:var(--accent); }
+#round { color:var(--muted); font-size:13px; }
+#init-list { display:flex; gap:5px; overflow-x:auto; flex:1; padding:4px 0; }
+.init-chip { padding:5px 12px; border-radius:10px; background:var(--panel2); border:1px solid var(--border); font-size:12px; white-space:nowrap; display:flex; gap:8px; align-items:center; }
+.init-chip.current { border-color:var(--accent); color:var(--accent); background:rgba(224,179,76,.12); }
+.init-chip .init-dot { width:8px; height:8px; border-radius:50%; }
+.init-chip .init-val { font-weight:700; }
+
+/* 右侧棋子属性 */
+#detail { display:flex; flex-direction:column; gap:8px; }
+.detail-head { display:flex; align-items:center; gap:10px; }
+.detail-icon { width:46px; height:46px; min-width:46px; border-radius:50%; display:flex; align-items:center; justify-content:center; background:var(--panel3); border:2px solid var(--border); background-size:cover; background-position:center; font-size:20px; }
+.detail-title { flex:1; min-width:0; }
+.detail-title b { display:block; font-size:15px; }
+.detail-sub { font-size:12px; color:var(--muted); line-height:1.5; overflow-wrap:anywhere; }
+.menu-close { border:none; background:var(--panel3); color:var(--muted); width:24px; height:24px; border-radius:50%; cursor:pointer; }
+.hp-bar { height:8px; border-radius:5px; background:var(--panel3); overflow:hidden; }
+.hp-bar i { display:block; height:100%; border-radius:5px; background:#4cc38a; transition:width .3s; }
+.sec { border-top:1px solid var(--border); padding-top:8px; }
+.sec h5 { font-size:11px; color:var(--accent); margin-bottom:6px; }
+.menu-stats { display:grid; grid-template-columns:repeat(3,1fr); gap:4px; }
+.menu-stat { background:var(--panel3); border:1px solid var(--border); border-radius:8px; padding:4px 6px; font-size:11px; text-align:center; }
+.menu-stat b { display:block; font-size:13px; }
+.menu-stat input { width:100%; text-align:center; background:var(--panel2); border:1px solid var(--border); color:var(--text); border-radius:6px; padding:2px 0; font-size:13px; margin-top:2px; }
+.menu-stat input:focus { outline:none; border-color:var(--accent); }
+.menu-stat.save-trained { border-color:#4cc38a; color:#4cc38a; }
+.skill-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:4px; }
+.skill-btn { display:flex; justify-content:space-between; align-items:center; gap:4px; background:var(--panel3); border:1px solid var(--border); color:var(--text); border-radius:8px; padding:5px 6px; font-size:11px; }
+.skill-btn b { font-size:12px; }
+.skill-btn.prof { border-color:#4cc38a; color:#4cc38a; }
+.skill-btn.expert { border-color:#e0b34c; color:#e0b34c; background:rgba(224,179,76,.1); }
+.menu-spells { display:flex; flex-wrap:wrap; gap:5px; }
+.spell-chip { background:var(--panel3); border:1px solid var(--border); border-radius:8px; padding:4px 8px; font-size:12px; }
+.menu-eq { display:flex; flex-direction:column; gap:4px; }
+.eq-item { background:var(--panel3); border:1px solid var(--border); border-radius:8px; padding:4px 8px; font-size:12px; }
+.eq-item b { color:var(--text); }
+.eq-item span { color:var(--muted); }
+.hp-edit { display:flex; align-items:center; gap:5px; font-size:13px; margin-bottom:4px; }
+.hp-edit input { width:56px; padding:3px 5px; border-radius:7px; border:1px solid var(--border); background:var(--panel3); color:var(--text); font-size:13px; text-align:center; }
+.hp-edit input:focus { outline:none; border-color:var(--accent); }
+.hp-edit .slash { color:var(--muted); }
+.hp-edit #detail-ac { margin-left:auto; color:var(--accent); font-weight:700; font-size:12px; }
+.hitdice-box { display:flex; align-items:center; gap:6px; margin-top:6px; padding:5px 7px; background:var(--panel3); border:1px solid var(--border); border-radius:8px; flex-wrap:wrap; }
+.hitdice-box .hd-label { font-size:11px; color:var(--muted); white-space:nowrap; }
+.hitdice-box .slot-cells { flex:0 0 auto; }
+.hitdice-box .hd-roll, .hitdice-box .hd-full { white-space:nowrap; border:1px solid var(--border); background:var(--panel2); color:var(--text); border-radius:7px; padding:4px 8px; font-size:11px; cursor:pointer; }
+.hitdice-box .hd-roll:hover, .hitdice-box .hd-full:hover { border-color:var(--accent); color:var(--accent); }
+.menu-base { display:flex; flex-direction:column; gap:5px; }
+.base-row { display:flex; align-items:center; gap:6px; background:var(--panel3); border:1px solid var(--border); border-radius:8px; padding:3px 8px; font-size:12px; }
+.base-row span { width:64px; color:var(--muted); }
+.base-row input { flex:1; min-width:0; background:var(--panel2); border:1px solid var(--border); color:var(--text); border-radius:6px; padding:3px 6px; font-size:12px; }
+.base-row input:focus { outline:none; border-color:var(--accent); }
+.eq-add-row { display:flex; gap:5px; margin-bottom:6px; }
+.eq-add-row select { flex:1; min-width:0; background:var(--panel3); border:1px solid var(--border); color:var(--text); border-radius:7px; padding:5px 6px; font-size:12px; }
+.eq-add-row button { border:none; background:var(--accent); color:#111; border-radius:7px; padding:0 12px; font-weight:700; cursor:pointer; }
+.eq-row { display:grid; grid-template-columns:1fr 56px 58px 60px 22px; gap:4px; align-items:center; background:var(--panel3); border:1px solid var(--border); border-radius:8px; padding:3px 5px; }
+.eq-row input, .eq-row select { width:100%; min-width:0; background:var(--panel2); border:1px solid var(--border); color:var(--text); border-radius:6px; padding:3px 4px; font-size:11px; }
+.eq-row input:focus, .eq-row select:focus { outline:none; border-color:var(--accent); }
+.eq-row .eq-del { border:none; background:none; color:#e74c5e; cursor:pointer; font-size:14px; }
+.menu-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:5px; }
+.status-cat { grid-column:1/-1; font-size:11px; color:var(--accent); margin:7px 0 2px; }
+.menu-btn { border:1px solid var(--border); background:var(--panel3); color:var(--text); border-radius:8px; padding:6px 2px; font-size:11px; cursor:pointer; line-height:1.25; }
+.menu-btn:hover { border-color:var(--accent); }
+.menu-btn.on { background:rgba(46,204,113,.22); border-color:#2ecc71; color:#2ecc71; }
+
+/* 法术环位：蓝色小方格（玩家只读） */
+.spell-slots-ui { display:flex; flex-direction:column; gap:8px; }
+.spell-sec { background:var(--panel3); border:1px solid var(--border); border-radius:8px; padding:6px; }
+.spell-sec-head { font-size:12px; color:var(--accent); font-weight:700; margin-bottom:5px; }
+.slot-row { display:flex; align-items:center; gap:6px; padding:3px 0; }
+.slot-lv { width:46px; font-size:11px; color:var(--muted); white-space:nowrap; }
+.slot-cells { display:flex; gap:3px; flex:1; flex-wrap:wrap; }
+.slot-cell { width:18px; height:18px; min-width:18px; border-radius:4px; border:1px solid #5aa7e8; background:#8ed0ff; display:flex; align-items:center; justify-content:center; }
+.slot-cell.used { background:#6b7280; border-color:#4b5563; }
+.slot-count { font-size:11px; color:var(--muted); width:36px; text-align:right; white-space:nowrap; }
+.slot-legend { display:flex; align-items:center; gap:4px; font-size:10px; color:var(--muted); margin-top:2px; }
+.slot-legend .slot-cell { width:12px; height:12px; min-width:12px; }
+
+#toast {
+  position:fixed; left:50%; bottom:70px; transform:translateX(-50%) translateY(20px);
+  background:rgba(20,24,34,.94); border:1px solid var(--border); color:var(--text);
+  padding:8px 16px; border-radius:10px; font-size:13px; opacity:0; pointer-events:none;
+  transition:opacity .2s, transform .2s; z-index:99; max-width:80vw; text-align:center;
+}
+#toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+</style>
+</head>
+<body>
+<header>
+  <span class="brand">🐉 DND 跑团台 <em>玩家模式</em></span>
+  <span id="conn" class="conn">连接中…</span>
+  <span id="campaign" class="campaign"></span>
+  <span id="player-box">
+    <input id="player-name" placeholder="你的名字" maxlength="24" autocomplete="off">
+    <span id="player-hint">绿色＝你的棋子</span>
+  </span>
+</header>
+
+<main id="layout">
+  <aside id="left-panel" class="panel">
+    <section class="card">
+      <h2>🎲 骰子</h2>
+      <div class="dice-grid">
+        <button class="die-btn" data-die="d4">d4</button>
+        <button class="die-btn" data-die="d6">d6</button>
+        <button class="die-btn" data-die="d8">d8</button>
+        <button class="die-btn" data-die="d10">d10</button>
+        <button class="die-btn" data-die="d12">d12</button>
+        <button class="die-btn" data-die="d20">d20</button>
+        <button class="die-btn" data-die="d100">d100</button>
+      </div>
+      <div class="dice-advrow">
+        <button class="die-btn" id="dice-adv">⚖️ 优势 d20</button>
+        <button class="die-btn" id="dice-dis">⬇ 劣势 d20</button>
+      </div>
+      <div class="custom-roll">
+        <input id="dice-expr" placeholder="如 2d6+3 / 4d8" autocomplete="off">
+        <button id="dice-roll">掷!</button>
+      </div>
+      <div id="dice-result"></div>
+      <div id="dice-log"></div>
+    </section>
+
+    <section class="card">
+      <h2>🖍️ 战术涂鸦</h2>
+      <div class="tool-grid">
+        <button class="board-tool" data-doodle-tool="pen">✏️ 画笔</button>
+        <button class="board-tool" data-doodle-tool="line">📏 直线</button>
+        <button class="board-tool" data-doodle-tool="arrow">➡️ 箭头</button>
+        <button class="board-tool" data-doodle-tool="circle">⭕ 圆圈</button>
+      </div>
+      <div class="doodle-colors" id="doodle-colors">
+        <button class="doodle-color active" data-color="#ff4d4f" style="background:#ff4d4f" title="红"></button>
+        <button class="doodle-color" data-color="#ffd23f" style="background:#ffd23f" title="黄"></button>
+        <button class="doodle-color" data-color="#2ecc71" style="background:#2ecc71" title="绿"></button>
+        <button class="doodle-color" data-color="#4cc9f0" style="background:#4cc9f0" title="蓝"></button>
+        <button class="doodle-color" data-color="#ffffff" style="background:#ffffff" title="白"></button>
+        <button class="doodle-color" data-color="#ff8a5c" style="background:#ff8a5c" title="橙"></button>
+      </div>
+      <div class="doodle-widths">
+        <button data-width="3">细</button>
+        <button data-width="5" class="active">中</button>
+        <button data-width="9">粗</button>
+      </div>
+      <div class="doodle-actions">
+        <button id="doodle-undo">↩ 撤销</button>
+        <button id="doodle-clear">🗑 清除</button>
+      </div>
+      <p class="hint">选好工具后在地图上直接画，画完自动同步给所有人。</p>
+    </section>
+
+    <section class="card">
+      <h2>📚 常用网站</h2>
+      <div id="player-links" class="player-links"></div>
+    </section>
+  </aside>
+
+  <section id="center">
+    <section id="board-wrap">
+      <div id="board">
+        <div id="world">
+          <canvas id="fog-canvas" class="map-layer"></canvas>
+          <canvas id="doodle-canvas" class="map-layer"></canvas>
+          <div id="tokens"></div>
+        </div>
+        <div id="empty-hint" class="empty">⏳ 等待主机开团…</div>
+        <div id="map-controls">
+          <button id="map-zoom-in" title="放大">＋</button>
+          <button id="map-zoom-out" title="缩小">－</button>
+          <button id="map-fit" title="适应整张地图">⛶</button>
+        </div>
+      </div>
+    </section>
+    <section id="init-bar">
+      <div class="init-left">
+        <span class="init-title">⚔️ 先攻</span>
+        <span id="round"></span>
+      </div>
+      <div id="init-list" class="init-bar-list"></div>
+    </section>
+  </section>
+
+  <aside id="right-panel" class="panel">
+    <section class="card" id="unit-card">
+      <h2>🧙 我的棋子</h2>
+      <div id="detail" hidden>
+        <div class="detail-head">
+          <div class="detail-icon" id="detail-icon">🧙</div>
+          <div class="detail-title">
+            <b id="detail-name"></b>
+            <span id="detail-sub" class="detail-sub"></span>
+          </div>
+          <button id="detail-close" class="menu-close" title="关闭">✕</button>
+        </div>
+        <div class="sec"><h5>职业</h5><div id="detail-class" class="menu-class"></div></div>
+        <div class="sec"><h5>法术环位</h5><div id="detail-spells" class="spell-slots-ui"></div></div>
+        <div class="hp-edit">
+          <span>生命值</span>
+          <input type="number" id="detail-hp-cur" min="0" max="99999">
+          <span class="slash">/</span>
+          <input type="number" id="detail-hp-max" min="1" max="99999">
+          <span id="detail-ac"></span>
+        </div>
+        <div class="hp-bar"><i id="detail-hpbar"></i></div>
+        <div id="player-hitdice" class="hitdice-box"></div>
+        <div class="sec"><h5>属性</h5><div id="detail-stats" class="menu-stats"></div></div>
+        <div class="sec"><h5>豁免</h5><div id="detail-saves" class="menu-stats"></div></div>
+        <div class="sec"><h5>基础</h5><div id="detail-base" class="menu-base"></div></div>
+        <div class="sec"><h5>技能</h5><div id="detail-skills" class="skill-grid"></div></div>
+        <div class="sec"><h5>装备</h5>
+          <div class="eq-add-row">
+            <select id="detail-eq-select"></select>
+            <button id="detail-eq-add" type="button">＋</button>
+          </div>
+          <div id="detail-eq" class="menu-eq"></div>
+        </div>
+        <div class="sec"><h5>攻击</h5><div id="detail-attacks" class="menu-eq"></div></div>
+        <div class="sec"><h5>状态</h5><div id="detail-statuses" class="menu-grid"></div></div>
+      </div>
+    </section>
+  </aside>
+</main>
+
+<div id="toast"></div>
+<script src="../three.min.js"></script>
+<script src="../骰子动画.js?v=25"></script>
+<script>
+'use strict';
+const $ = (s) => document.querySelector(s);
+const TYPE_META = { pc:{ring:'#5b8cff'}, enemy:{ring:'#ef476f'}, npc:{ring:'#f4a261'}, ally:{ring:'#2ecc71'} };
+const CLASS_META = {
+  '无职业': { slotType: 'none', resources: [], subclasses: [], saveProfs: [], skillCount: 0, hitDie: 8 },
+  '野蛮人': { slotType: 'none', resources: [{ key: '狂暴次数', max: 2 }], subclasses: ['狂战士', '图腾战士', '世界树之魂'], saveProfs: ['str', 'con'], skillCount: 2, hitDie: 12 },
+  '战士':   { slotType: 'none', resources: [], subclasses: ['勇士', '战斗大师', '奥法骑士', '灵能武士', '武士'], saveProfs: ['str', 'con'], skillCount: 2, hitDie: 10 },
+  '武僧':   { slotType: 'none', resources: [{ key: '气点', max: 5 }], subclasses: ['四象宗', '暗影宗', '醉拳宗'], saveProfs: ['str', 'dex'], skillCount: 2, hitDie: 8 },
+  '游荡者': { slotType: 'none', resources: [], subclasses: ['刺客', '诡术师', '魂刃', '神偷'], saveProfs: ['dex', 'int'], skillCount: 4, hitDie: 8 },
+  '诗人':   { slotType: 'normal', resources: [{ key: '激励骰', max: 4 }], subclasses: ['学识学院', '英勇学院', '剑舞学院', '低语学院'], saveProfs: ['dex', 'cha'], skillCount: 3, hitDie: 8 },
+  '牧师':   { slotType: 'normal', resources: [{ key: '引导神力', max: 2 }], subclasses: ['生命领域', '光明领域', '战争领域', '知识领域', '自然领域', '风暴领域', '诡术领域'], saveProfs: ['int', 'wis'], skillCount: 2, hitDie: 8 },
+  '德鲁伊': { slotType: 'normal', resources: [{ key: '引导神力', max: 2 }], subclasses: ['月之结社', '大地结社', '星界结社', '野火结社'], saveProfs: ['int', 'wis'], skillCount: 2, hitDie: 8 },
+  '游侠':   { slotType: 'normal', resources: [], subclasses: ['猎人', '兽王', '幽域行者', '林地漫游者'], saveProfs: ['dex', 'wis'], skillCount: 3, hitDie: 10 },
+  '圣武士': { slotType: 'normal', resources: [{ key: '圣疗点数', max: 5 }, { key: '引导神力', max: 2 }], subclasses: ['奉献誓约', '守护誓约', '复仇誓约', '征服誓约'], saveProfs: ['wis', 'cha'], skillCount: 2, hitDie: 10 },
+  '法师':   { slotType: 'normal', resources: [{ key: '奥术恢复', max: 1 }], subclasses: ['防护学派', '咒法学派', '预言学派', '附魔学派', '塑能学派', '幻术学派', '死灵学派', '变化学派'], saveProfs: ['int', 'wis'], skillCount: 2, hitDie: 6 },
+  '术士':   { slotType: 'sorcerer', resources: [], subclasses: ['龙脉血统', '狂野魔法', '灵能之魂', '神圣之魂'], saveProfs: ['con', 'cha'], skillCount: 2, hitDie: 6 },
+  '咒术师': { slotType: 'warlock', resources: [], subclasses: ['大妖精宗主', '邪魔宗主', '上古邪物宗主', '天界宗主'], saveProfs: ['int', 'cha'], skillCount: 2, hitDie: 8 },
+};
+const SUBCLASS_META = {
+  '奥法骑士': { slotType: 'normal' },
+  '诡术师': { slotType: 'normal' },
+  '战斗大师': { resources: [{ key: '战技骰', max: 4 }] },
+};
+function classDef(t) { return CLASS_META[t.className] || CLASS_META['无职业']; }
+function subclassDef(t) { return (t.subClassName && SUBCLASS_META[t.subClassName]) ? SUBCLASS_META[t.subClassName] : null; }
+function effectiveSlotType(t) {
+  const sub = subclassDef(t);
+  if (sub && sub.slotType) return sub.slotType;
+  return classDef(t).slotType;
+}
+function classResourceDefs(t) {
+  const defs = classDef(t).resources.slice();
+  const sub = subclassDef(t);
+  if (sub && sub.resources) sub.resources.forEach((r) => defs.push(r));
+  return defs;
+}
+const STATUSES = [
+  { key: 'blinded',       label: '目盲', emoji: '🙈', color: '#9aa0a8', cat: '感官' },
+  { key: 'deafened',      label: '耳聋', emoji: '🙉', color: '#9aa0a8', cat: '感官' },
+  { key: 'invisible',     label: '隐形', emoji: '👻', color: '#c8d0e0', cat: '感官' },
+  { key: 'charmed',       label: '魅惑', emoji: '💘', color: '#ff7ab8', cat: '心智' },
+  { key: 'frightened',    label: '恐慌', emoji: '😨', color: '#8e7cc3', cat: '心智' },
+  { key: 'stunned',       label: '震慑', emoji: '💢', color: '#ff7a18', cat: '心智' },
+  { key: 'incapacitated', label: '失能', emoji: '🚫', color: '#6d7686', cat: '心智' },
+  { key: 'taunt',         label: '嘲讽', emoji: '😤', color: '#ff8a5c', cat: '心智' },
+  { key: 'paralyze',      label: '麻痹', emoji: '⚡', color: '#ffd23f', cat: '控制' },
+  { key: 'uncon',         label: '昏迷', emoji: '💫', color: '#8d99ae', cat: '控制' },
+  { key: 'petrified',     label: '石化', emoji: '🗿', color: '#8d8d96', cat: '控制' },
+  { key: 'restrain',      label: '束缚', emoji: '🔗', color: '#4cc9f0', cat: '控制' },
+  { key: 'grappled',      label: '受擒', emoji: '🤝', color: '#c9a84f', cat: '控制' },
+  { key: 'prone',         label: '倒地', emoji: '🙃', color: '#b388ff', cat: '控制' },
+  { key: 'poison',        label: '中毒', emoji: '☠️', color: '#3fa34d', cat: '消耗' },
+  { key: 'exhaust',       label: '力竭', emoji: '🥵', color: '#e76f51', cat: '消耗', stackable: true, max: 6 },
+  { key: 'burn',          label: '燃烧', emoji: '🔥', color: '#ff7a18', cat: '消耗' },
+  { key: 'bleed',         label: '流血', emoji: '🩸', color: '#e63946', cat: '消耗' },
+  { key: 'concentrate',   label: '专注', emoji: '✨', color: '#b388ff', cat: '标记' },
+  { key: 'rage',          label: '狂暴', emoji: '😡', color: '#ef476f', cat: '标记' },
+  { key: 'dead',          label: '死亡', emoji: '💀', color: '#2b2d42', cat: '标记' },
+];
+const STATUS_CATS = ['感官', '心智', '控制', '消耗', '标记'];
+const STATUS_META = {};
+STATUSES.forEach((s) => { STATUS_META[s.key] = s.emoji; });
+function statusLevel(t, key) {
+  return (t.statusLevels && typeof t.statusLevels[key] === 'number') ? t.statusLevels[key] : 0;
+}
+function setStatusLevel(t, key, level) {
+  if (!t.statusLevels || typeof t.statusLevels !== 'object') t.statusLevels = {};
+  if (level <= 0) delete t.statusLevels[key];
+  else t.statusLevels[key] = Math.min(level, 6);
+}
+const ABILITY_LABELS = { str:'力量', dex:'敏捷', con:'体质', int:'智力', wis:'感知', cha:'魅力' };
+const ABILITY_KEYS = ['str','dex','con','int','wis','cha'];
+const SKILLS = [
+  { key: 'athletics',    label: '运动', attr: 'str' },
+  { key: 'acrobatics',   label: '杂技', attr: 'dex' },
+  { key: 'sleight',      label: '巧手', attr: 'dex' },
+  { key: 'stealth',      label: '隐匿', attr: 'dex' },
+  { key: 'arcana',       label: '奥秘', attr: 'int' },
+  { key: 'history',      label: '历史', attr: 'int' },
+  { key: 'investigation', label: '调查', attr: 'int' },
+  { key: 'nature',       label: '自然', attr: 'int' },
+  { key: 'religion',     label: '宗教', attr: 'int' },
+  { key: 'animal',       label: '驯兽', attr: 'wis' },
+  { key: 'insight',      label: '洞察', attr: 'wis' },
+  { key: 'medicine',     label: '医药', attr: 'wis' },
+  { key: 'perception',   label: '察觉', attr: 'wis' },
+  { key: 'survival',     label: '生存', attr: 'wis' },
+  { key: 'deception',    label: '欺瞒', attr: 'cha' },
+  { key: 'intimidation', label: '威吓', attr: 'cha' },
+  { key: 'performance',  label: '表演', attr: 'cha' },
+  { key: 'persuasion',   label: '说服', attr: 'cha' },
+];
+const PROF_BY_LEVEL = { 1:2, 2:2, 3:2, 4:2, 5:3, 6:3, 7:3, 8:3, 9:4, 10:4, 11:4, 12:4, 13:5, 14:5, 15:5, 16:5, 17:6, 18:6, 19:6, 20:6 };
+function saveValue(t, key) {
+  return abilityMod(t.stats && t.stats[key]) +
+    ((classDef(t).saveProfs || []).includes(key) ? (t.prof || 2) : 0) +
+    ((t.saveBonuses && t.saveBonuses[key]) || 0);
+}
+function skillValue(t, s) {
+  const st = (t.skillProfs && t.skillProfs[s.key]) || '';
+  const mult = st === 'expert' ? 2 : st === 'prof' ? 1 : 0;
+  return abilityMod((t.stats || {})[s.attr]) + mult * (t.prof || 2);
+}
+const EQUIPMENT_PRESETS = [
+  { name: '皮甲', type: 'armor', baseAC: 11, dexCap: null },
+  { name: '镶嵌皮甲', type: 'armor', baseAC: 12, dexCap: null },
+  { name: '链甲衫', type: 'armor', baseAC: 13, dexCap: 2 },
+  { name: '鳞甲', type: 'armor', baseAC: 14, dexCap: 2 },
+  { name: '胸甲', type: 'armor', baseAC: 14, dexCap: 2 },
+  { name: '半身板甲', type: 'armor', baseAC: 15, dexCap: 2 },
+  { name: '环甲', type: 'armor', baseAC: 14, dexCap: 0 },
+  { name: '链甲', type: 'armor', baseAC: 16, dexCap: 0 },
+  { name: '板甲', type: 'armor', baseAC: 18, dexCap: 0 },
+  { name: '盾牌', type: 'shield', acBonus: 2 },
+  { name: '匕首', type: 'weapon', dice: '1d4', attr: 'dex' },
+  { name: '短剑', type: 'weapon', dice: '1d6', attr: 'dex' },
+  { name: '长剑', type: 'weapon', dice: '1d8', attr: 'str' },
+  { name: '巨剑', type: 'weapon', dice: '2d6', attr: 'str' },
+  { name: '战斧', type: 'weapon', dice: '1d8', attr: 'str' },
+  { name: '短弓', type: 'weapon', dice: '1d6', attr: 'dex' },
+  { name: '长弓', type: 'weapon', dice: '1d8', attr: 'dex' },
+  { name: '轻弩', type: 'weapon', dice: '1d8', attr: 'dex' },
+  { name: '木杖', type: 'weapon', dice: '1d6', attr: 'str' },
+];
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const portraitUrl = (t) => t.iconImgPath ? '../棋子库/' + String(t.iconImgPath).replace(/^棋子库\//, '') : (t.iconImgHd || t.iconImg || '');
+
+const world = $('#world');
+const fogCanvas = $('#fog-canvas');
+const fogCtx = fogCanvas.getContext('2d');
+const doodleCanvas = $('#doodle-canvas');
+const doodleCtx2 = doodleCanvas.getContext('2d');
+let currentMap = null;
+let lastState = null;
+let view = { scale: 1, ox: 0, oy: 0 };
+let lastMapKey = '';
+let myName = '';
+try { myName = localStorage.getItem('sangduoer-watch-name') || ''; } catch (e) { /* 忽略 */ }
+$('#player-name').value = myName;
+let drag = null;
+let selectedTokenId = null;
+let localRids = new Set();
+let toastTimer = null;
+
+// 涂鸦状态
+let doodleTool = null;
+let doodleColor = '#ff4d4f';
+let doodleWidth = 5;
+let doodleDraft = null;
+let doodleUid = 1;
+
+function toast(msg) {
+  const el = $('#toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 2500);
+}
+
+function isMine(t) { return !!myName && (t.owner || '') === myName; }
+function clamp(v, min, max) { return Math.min(max, Math.max(min, v)); }
+
+function applyView() { world.style.transform = `translate(${view.ox}px, ${view.oy}px) scale(${view.scale})`; }
+
+function fit() {
+  const stage = $('#board');
+  const m = currentMap;
+  if (!m) return;
+  const scale = Math.min(stage.clientWidth / m.mapW, stage.clientHeight / m.mapH, 2);
+  view.scale = scale;
+  view.ox = (stage.clientWidth - m.mapW * scale) / 2;
+  view.oy = (stage.clientHeight - m.mapH * scale) / 2;
+  world.style.width = m.mapW + 'px';
+  world.style.height = m.mapH + 'px';
+  applyView();
+}
+
+function zoomAt(cx, cy, factor) {
+  const rect = world.getBoundingClientRect();
+  const wx = (cx - rect.left) / view.scale;
+  const wy = (cy - rect.top) / view.scale;
+  const ns = clamp(view.scale * factor, 0.2, 4);
+  view.ox = view.ox + (cx - rect.left) - wx * ns;
+  view.oy = view.oy + (cy - rect.top) - wy * ns;
+  view.scale = ns;
+  applyView();
+}
+
+function renderMap(m, showGrid) {
+  if (!m) return;
+  const g = m.gridSize || 50;
+  const gridLayer =
+    `repeating-linear-gradient(to right, rgba(255,255,255,.78) 0, rgba(255,255,255,.78) 2px, transparent 2px, transparent ${g}px),` +
+    `repeating-linear-gradient(to bottom, rgba(255,255,255,.78) 0, rgba(255,255,255,.78) 2px, transparent 2px, transparent ${g}px),` +
+    `repeating-linear-gradient(to right, rgba(0,0,0,.16) 0, rgba(0,0,0,.16) 2px, transparent 2px, transparent ${g}px),` +
+    `repeating-linear-gradient(to bottom, rgba(0,0,0,.16) 0, rgba(0,0,0,.16) 2px, transparent 2px, transparent ${g}px)`;
+  const hasMap = !!m.mapData;
+  world.style.backgroundColor = hasMap ? 'transparent' : '#ddd6c2';
+  if (hasMap) {
+    world.style.backgroundImage = showGrid ? `${gridLayer}, url("${m.mapData}")` : `url("${m.mapData}")`;
+    world.style.backgroundSize = showGrid ? `${g}px ${g}px, ${g}px ${g}px, ${g}px ${g}px, ${g}px ${g}px, 100% 100%` : '100% 100%';
+  } else {
+    world.style.backgroundImage = showGrid ? gridLayer : 'none';
+  }
+}
+
+function renderFog(m, fogOn) {
+  fogCanvas.width = m.mapW;
+  fogCanvas.height = m.mapH;
+  fogCtx.clearRect(0, 0, m.mapW, m.mapH);
+  if (!fogOn || !m.fog) return;
+  const cols = Math.floor(m.mapW / m.gridSize);
+  const rows = Math.floor(m.mapH / m.gridSize);
+  fogCtx.fillStyle = 'rgba(8,10,16,.94)';
+  for (const key of Object.keys(m.fog)) {
+    const p = key.split(',').map(Number);
+    if (p[0] >= 0 && p[1] >= 0 && p[0] < cols && p[1] < rows) {
+      fogCtx.fillRect(p[0] * m.gridSize, p[1] * m.gridSize, m.gridSize, m.gridSize);
+    }
+  }
+}
+
+/* ---------- 涂鸦 ---------- */
+function drawDoodleStroke(g, s) {
+  g.strokeStyle = s.color;
+  g.fillStyle = s.color;
+  g.lineWidth = s.width;
+  g.lineCap = 'round';
+  g.lineJoin = 'round';
+  if (s.tool === 'pen') {
+    if (s.points.length < 2) return;
+    g.beginPath();
+    g.moveTo(s.points[0].x, s.points[0].y);
+    for (let i = 1; i < s.points.length; i++) g.lineTo(s.points[i].x, s.points[i].y);
+    g.stroke();
+  } else if (s.tool === 'line' || s.tool === 'arrow') {
+    g.beginPath();
+    g.moveTo(s.x0, s.y0);
+    g.lineTo(s.x1, s.y1);
+    g.stroke();
+    if (s.tool === 'arrow') {
+      const a = Math.atan2(s.y1 - s.y0, s.x1 - s.x0);
+      const h = Math.max(10, s.width * 2.2);
+      g.beginPath();
+      g.moveTo(s.x1, s.y1);
+      g.lineTo(s.x1 - h * Math.cos(a - Math.PI / 6), s.y1 - h * Math.sin(a - Math.PI / 6));
+      g.lineTo(s.x1 - h * Math.cos(a + Math.PI / 6), s.y1 - h * Math.sin(a + Math.PI / 6));
+      g.closePath();
+      g.fill();
+    }
+  } else if (s.tool === 'circle') {
+    const r = Math.hypot(s.x1 - s.x0, s.y1 - s.y0);
+    g.beginPath();
+    g.arc(s.x0, s.y0, r, 0, Math.PI * 2);
+    g.globalAlpha = 0.15;
+    g.fill();
+    g.globalAlpha = 1;
+    g.stroke();
+  }
+}
+
+function renderDoodles() {
+  doodleCtx2.clearRect(0, 0, doodleCanvas.width, doodleCanvas.height);
+  const m = currentMap;
+  if (!m) return;
+  (m.doodles || []).forEach((s) => drawDoodleStroke(doodleCtx2, s));
+  if (doodleDraft) drawDoodleStroke(doodleCtx2, doodleDraft);
+}
+
+function startDoodle(wx, wy) {
+  if (doodleTool === 'pen') {
+    doodleDraft = { tool: 'pen', color: doodleColor, width: doodleWidth, points: [{ x: wx, y: wy }] };
+  } else {
+    doodleDraft = { tool: doodleTool, color: doodleColor, width: doodleWidth, x0: wx, y0: wy, x1: wx, y1: wy };
+  }
+  renderDoodles();
+}
+
+function continueDoodle(wx, wy) {
+  if (!doodleDraft) return;
+  if (doodleDraft.tool === 'pen') {
+    const last = doodleDraft.points[doodleDraft.points.length - 1];
+    const dx = wx - last.x, dy = wy - last.y;
+    const dist = Math.hypot(dx, dy);
+    const n = Math.max(1, Math.ceil(dist / 6));
+    for (let i = 1; i <= n; i++) doodleDraft.points.push({ x: last.x + dx * i / n, y: last.y + dy * i / n });
+  } else {
+    doodleDraft.x1 = wx;
+    doodleDraft.y1 = wy;
+  }
+  renderDoodles();
+}
+
+function endDoodle() {
+  if (!doodleDraft) return;
+  const m = currentMap;
+  if (m) {
+    const isPen = doodleDraft.tool === 'pen';
+    const tooShort = !isPen && Math.hypot(doodleDraft.x1 - doodleDraft.x0, doodleDraft.y1 - doodleDraft.y0) <= 4;
+    if ((isPen && doodleDraft.points.length >= 2) || (!isPen && !tooShort)) {
+      doodleDraft.id = 'pd' + (doodleUid++);
+      if (!Array.isArray(m.doodles)) m.doodles = [];
+      m.doodles.push(doodleDraft);
+      sendDoodles(m);
+    }
+  }
+  doodleDraft = null;
+  renderDoodles();
+}
+
+function sendDoodles(m) {
+  if (!m || !myName) return;
+  fetch('/api/action', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ player: myName, action: { op: 'doodle', mapId: m.id, doodles: m.doodles || [] } }),
+  })
+    .then((r) => r.json())
+    .then((d) => { if (d && d.ok === false) toast('⚠ ' + (d.error || '涂鸦同步失败')); })
+    .catch(() => toast('⚠ 涂鸦未同步到服务器'));
+}
+
+/* ---------- 棋子渲染 ---------- */
+function renderTokens(m) {
+  const box = $('#tokens');
+  box.innerHTML = '';
+  const mountIds = new Set(m.tokens.filter((t) => t.size >= 2).map((t) => t.id));
+  m.tokens.forEach((t) => {
+    if (t.mountId && mountIds.has(t.mountId)) return;
+    const size = m.gridSize * (t.size || 1);
+    const meta = TYPE_META[t.type] || TYPE_META.npc;
+    const el = document.createElement('div');
+    el.className = 'token';
+    el.dataset.id = t.id;
+    el.style.left = t.x + 'px';
+    el.style.top = t.y + 'px';
+    el.style.width = size + 'px';
+    el.style.height = size + 'px';
+    const circle = document.createElement('div');
+    circle.className = 'circle';
+    circle.style.width = (size * 0.76) + 'px';
+    circle.style.height = (size * 0.76) + 'px';
+    circle.style.setProperty('--ring', meta.ring);
+    if (portraitUrl(t)) { circle.style.backgroundImage = `url("${portraitUrl(t)}")`; }
+    else circle.textContent = t.icon || '?';
+    el.appendChild(circle);
+    if (t.statuses && t.statuses.length) {
+      const bd = document.createElement('div');
+      bd.className = 'badges';
+      t.statuses.forEach((k) => {
+        if (!STATUS_META[k]) return;
+        const b = document.createElement('span');
+        b.className = 'badge';
+        b.textContent = STATUS_META[k];
+        bd.appendChild(b);
+      });
+      el.appendChild(bd);
+    }
+    const riders = m.tokens.filter((r) => r.mountId === t.id);
+    if (riders.length && t.size >= 2) {
+      const mn = document.createElement('div');
+      mn.className = 'name below';
+      mn.textContent = t.name;
+      el.appendChild(mn);
+      riders.forEach((r, i) => {
+        const rs = size * 0.4;
+        const rd = document.createElement('div');
+        rd.className = 'rider' + (isMine(r) ? ' mine' : '');
+        rd.dataset.id = r.id;
+        rd.style.width = rs + 'px';
+        rd.style.height = rs + 'px';
+        rd.style.setProperty('--ring', (TYPE_META[r.type] || TYPE_META.npc).ring);
+        const ox = (i % 2 === 0 ? 1 : -1) * size * 0.22;
+        const oy = (i % 2 === 0 ? -1 : 1) * size * 0.22;
+        rd.style.left = (size / 2 + ox - rs / 2) + 'px';
+        rd.style.top = (size / 2 + oy - rs / 2) + 'px';
+        if (portraitUrl(r)) rd.style.backgroundImage = `url("${portraitUrl(r)}")`;
+        else rd.textContent = r.icon || '?';
+        rd.style.fontSize = (rs * 0.45) + 'px';
+        rd.style.display = 'flex';
+        rd.style.alignItems = 'center';
+        rd.style.justifyContent = 'center';
+        el.appendChild(rd);
+        const rn = document.createElement('div');
+        rn.className = 'name';
+        rn.textContent = r.name;
+        rn.style.top = (-size * 0.38 - 8) + 'px';
+        el.appendChild(rn);
+      });
+    } else {
+      const nm = document.createElement('div');
+      nm.className = 'name';
+      nm.textContent = t.name;
+      el.appendChild(nm);
+    }
+    const own = isMine(t) || (t.size >= 2 && riders.some((r) => isMine(r)));
+    if (own) el.classList.add('mine');
+    box.appendChild(el);
+  });
+}
+
+function renderInit(s) {
+  $('#round').textContent = '第 ' + (s.round || 1) + ' 回合';
+  const box = $('#init-list');
+  box.innerHTML = '';
+  const list = [...(s.init || [])].sort((a, b) => b.value - a.value || String(a.name).localeCompare(String(b.name), 'zh'));
+  list.forEach((e) => {
+    const c = document.createElement('span');
+    c.className = 'init-chip' + (s.initCurrent === e.id ? ' current' : '');
+    const dot = document.createElement('span');
+    dot.className = 'init-dot';
+    const t = (s.maps || []).flatMap((m) => m.tokens || []).find((tk) => tk.id === e.tokenId);
+    dot.style.background = t ? ((TYPE_META[t.type] || TYPE_META.npc).ring) : '#9aa3b2';
+    const name = document.createElement('span');
+    name.textContent = e.name;
+    const val = document.createElement('span');
+    val.className = 'init-val';
+    val.textContent = e.value;
+    c.append(dot, name, val);
+    box.appendChild(c);
+  });
+}
+
+function render(s) {
+  $('#conn').textContent = '已连接';
+  $('#conn').classList.add('on');
+  $('#campaign').textContent = s.campaignName ? '📂 ' + s.campaignName : '';
+  renderPlayerLinks(s._links || []);
+  if (s._bgm && s._bgm.url) {
+    applyBgmAction({ action: s._bgm.action, url: s._bgm.url, time: s._bgm.time });
+  }
+  const m = (s.maps || []).find((x) => x.id === s.activeMapId) || (s.maps || [])[0];
+  const prevMap = currentMap;
+  lastState = s;
+  currentMap = m;
+  if (!m) {
+    $('#empty-hint').style.display = 'flex';
+    world.style.visibility = 'hidden';
+    return;
+  }
+  $('#empty-hint').style.display = 'none';
+  world.style.visibility = 'visible';
+  renderInit(s);
+  renderMap(m, s.showGrid !== false);
+  renderFog(m, s.fogOn);
+  doodleCanvas.width = m.mapW;
+  doodleCanvas.height = m.mapH;
+  renderDoodles();
+  renderTokens(m);
+  const key = m.id + ':' + m.mapW + 'x' + m.mapH;
+  if (!prevMap || key !== lastMapKey) { fit(); lastMapKey = key; }
+  if (selectedTokenId) {
+    const t = m.tokens.find((x) => x.id === selectedTokenId);
+    if (t) {
+      const ae = document.activeElement;
+      if (ae && $('#detail') && $('#detail').contains(ae)) {
+        refreshDetailHeader(t);
+        syncHpBar(t);
+      } else {
+        openTokenPanel(t.id);
+      }
+    } else closeTokenPanel();
+  }
+}
+
+function renderPlayerLinks(list) {
+  const box = $('#player-links');
+  if (!box) return;
+  box.innerHTML = '';
+  if (!list || !list.length) {
+    box.innerHTML = '<p class="hint">主机还没有设置常用网站</p>';
+    return;
+  }
+  list.forEach((l) => {
+    if (!l || !l.name || !l.url) return;
+    const a = document.createElement('a');
+    a.href = l.url;
+    a.target = '_blank';
+    a.rel = 'noopener';
+    a.textContent = l.name;
+    a.title = l.url;
+    box.appendChild(a);
+  });
+}
+
+function worldPoint(ev) {
+  const rect = world.getBoundingClientRect();
+  return { x: (ev.clientX - rect.left) / view.scale, y: (ev.clientY - rect.top) / view.scale };
+}
+
+function snapXY(x, y, grid, size) {
+  const sx = size >= 2 ? Math.round(x / grid) * grid : Math.round(x / grid - 0.5) * grid + grid / 2;
+  const sy = size >= 2 ? Math.round(y / grid) * grid : Math.round(y / grid - 0.5) * grid + grid / 2;
+  return { x: sx, y: sy };
+}
+
+function sendMove(dragInfo) {
+  if (!myName) return;
+  const t = currentMap && currentMap.tokens.find((x) => x.id === dragInfo.tokenId);
+  if (!t) return;
+  fetch('/api/action', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ player: myName, action: { op: 'moveToken', mapId: dragInfo.mapId, tokenId: dragInfo.tokenId, x: t.x, y: t.y } }),
+  })
+    .then((r) => r.json())
+    .then((d) => { if (d && d.ok === false) toast('⚠ ' + (d.error || '操作失败')); })
+    .catch(() => toast('⚠ 操作未送达，请检查连接'));
+}
+
+function sendStatus(tokenId, status, on, level) {
+  if (!myName) return;
+  fetch('/api/action', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ player: myName, action: { op: 'setStatus', tokenId, status, on, level } }),
+  })
+    .then((r) => r.json())
+    .then((d) => { if (d && d.ok === false) toast('⚠ ' + (d.error || '操作失败')); })
+    .catch(() => toast('⚠ 操作未送达，请检查连接'));
+}
+
+let patchDebounce = null;
+let pendingPatch = null;
+let patchQueue = [];
+let patchSending = false;
+
+function flushPatchQueue() {
+  if (patchSending || !patchQueue.length) return;
+  patchSending = true;
+  const item = patchQueue.shift();
+  fetch('/api/action', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ player: myName, action: { op: 'patchToken', tokenId: item.tokenId, patch: item.patch } }),
+  })
+    .then((r) => r.json())
+    .then((d) => { if (d && d.ok === false) toast('⚠ ' + (d.error || '同步失败')); })
+    .catch(() => {
+      if ((item.retries || 0) < 2) {
+        item.retries = (item.retries || 0) + 1;
+        patchQueue.unshift(item);
+        toast('同步失败，正在重试…');
+      } else {
+        toast('⚠ 修改未送达，请检查连接');
+      }
+    })
+    .finally(() => { patchSending = false; flushPatchQueue(); });
+}
+
+function sendPatch(tokenId, patch, redraw, immediate) {
+  if (!myName) return;
+  const t = currentMap && currentMap.tokens.find((x) => x.id === tokenId);
+  if (!t) return;
+  Object.assign(t, patch);
+  if (redraw) openTokenPanel(tokenId);
+  const push = (p) => {
+    const last = patchQueue[patchQueue.length - 1];
+    if (last && last.tokenId === tokenId) last.patch = Object.assign(last.patch, p);
+    else patchQueue.push({ tokenId, patch: p });
+    flushPatchQueue();
+  };
+  if (immediate) {
+    clearTimeout(patchDebounce);
+    if (pendingPatch) { push(pendingPatch); pendingPatch = null; }
+    push(patch);
+    return;
+  }
+  pendingPatch = Object.assign(pendingPatch || {}, patch);
+  clearTimeout(patchDebounce);
+  patchDebounce = setTimeout(() => {
+    if (pendingPatch) { push(pendingPatch); pendingPatch = null; }
+  }, 350);
+}
+
+/* ---------- 右侧棋子属性 ---------- */
+function abilityMod(v) { return Math.floor((Number(v) - 10) / 2); }
+function defaultPlayerSlots() {
+  return {
+    type: 'normal',
+    normal: Array.from({ length: 9 }, (_, i) => ({ level: i + 1, used: 0, max: 0 })),
+    none: { used: 0, max: 0 },
+    sorcerer: {
+      points: { used: 0, max: 0 },
+      slots: Array.from({ length: 9 }, (_, i) => ({ level: i + 1, used: 0, max: 0 })),
+    },
+    warlock: { level: 1, used: 0, max: 0 },
+  };
+}
+function normPlayerSlots(t) {
+  const d = defaultPlayerSlots();
+  const old = t.spellSlots;
+  const num = (v) => Math.max(0, Math.min(99, Number(v) || 0));
+  const lvNum = (v) => Math.max(1, Math.min(9, parseInt(v, 10) || 1));
+  const copy = (src, dst) => (src || []).forEach((r, i) => {
+    if (r && i < dst.length) { dst[i].used = num(r.used); dst[i].max = Math.min(20, num(r.max)); }
+  });
+  let hasType = false;
+  if (Array.isArray(old)) copy(old, d.normal);
+  else if (old && typeof old === 'object') {
+    hasType = ['normal', 'none', 'sorcerer', 'warlock'].includes(old.type);
+    if (hasType) d.type = old.type;
+    copy(old.normal, d.normal);
+    if (old.none) {
+      const n = Array.isArray(old.none) ? old.none[0] : old.none;
+      if (n) { d.none.used = num(n.used); d.none.max = Math.min(20, num(n.max)); }
+    }
+    if (old.sorcerer && typeof old.sorcerer === 'object') {
+      if (old.sorcerer.points) { d.sorcerer.points.used = num(old.sorcerer.points.used); d.sorcerer.points.max = Math.min(99, num(old.sorcerer.points.max)); }
+      copy(old.sorcerer.slots, d.sorcerer.slots);
+    }
+    if (Array.isArray(old.warlock)) {
+      let pick = null;
+      old.warlock.forEach((r, i) => {
+        if (r && (r.max > 0 || r.used > 0) && (!pick || i > pick.level - 1)) pick = { level: i + 1, used: r.used, max: r.max };
+      });
+      if (pick) { d.warlock.level = pick.level; d.warlock.used = num(pick.used); d.warlock.max = Math.min(20, num(pick.max)); }
+  } else if (old.warlock && typeof old.warlock === 'object') {
+      d.warlock.level = lvNum(old.warlock.level);
+      d.warlock.used = num(old.warlock.used);
+      d.warlock.max = Math.min(20, num(old.warlock.max));
+    }
+    if (!hasType) {
+      if (d.none.max > 0 || d.none.used > 0) d.type = 'none';
+      else if (d.sorcerer.points.max > 0 || d.sorcerer.points.used > 0 || d.sorcerer.slots.some((r) => r.max > 0 || r.used > 0)) d.type = 'sorcerer';
+      else if (d.warlock.max > 0 || d.warlock.used > 0) d.type = 'warlock';
+    }
+  }
+  if (t.className && t.className !== '无职业') d.type = effectiveSlotType(t);
+  return d;
+}
+function playerAC(t) {
+  const dexMod = abilityMod(t.stats && t.stats.dex);
+  const armor = (t.equipment || []).find((e) => e.type === 'armor');
+  let ac = armor ? armor.baseAC : 10 + Math.max(0, dexMod);
+  if (armor) {
+    if (armor.dexCap === 0) ac = armor.baseAC;
+    else if (armor.dexCap === 2) ac = armor.baseAC + Math.min(2, Math.max(0, dexMod));
+    else ac = armor.baseAC + Math.max(0, dexMod);
+  }
+  (t.equipment || []).forEach((e) => { if (e.type === 'shield' || e.type === 'other') ac += (e.acBonus || 0); });
+  return ac;
+}
+function playerInit(t) { return (t.initBonus || 0) + abilityMod(t.stats && t.stats.dex); }
+function refreshDetailHeader(t) {
+  if (!t) return;
+  const typeName = ({ pc:'玩家角色', enemy:'敌人', npc:'中立NPC', ally:'友好NPC' })[t.type] || '';
+  const clsName = t.className && CLASS_META[t.className] ? t.className : '无职业';
+  const initV = playerInit(t);
+  $('#detail-sub').textContent = `${typeName} · ${clsName}${t.subClassName ? ' · ' + t.subClassName : ''} · AC ${playerAC(t)} · 先攻 ${initV >= 0 ? '+' : ''}${initV}`;
+  $('#detail-ac').textContent = 'AC ' + playerAC(t);
+}
+function syncHpBar(t) {
+  if (!t) return;
+  const hp = Math.max(0, Number(t.hp) || 0);
+  const hpMax = Math.max(1, Number(t.hpMax) || 1);
+  const pct = Math.min(100, Math.round((hp / hpMax) * 100));
+  $('#detail-hp-cur').value = hp;
+  $('#detail-hp-max').value = hpMax;
+  const bar = $('#detail-hpbar');
+  bar.style.width = pct + '%';
+  bar.style.background = pct > 50 ? '#4cc38a' : pct > 25 ? '#f4a261' : '#e74c5e';
+}
+function findPlayerSpellRow(t, sec, level) {
+  if (!t.spellSlots) return null;
+  if (sec === 'normal') return (t.spellSlots.normal || []).find((r) => String(r.level) === String(level));
+  if (sec === 'none') return t.spellSlots.none;
+  if (sec === 'sorcerer') {
+    return level === 'points' ? t.spellSlots.sorcerer.points
+      : (t.spellSlots.sorcerer.slots || []).find((r) => String(r.level) === String(level));
+  }
+  if (sec === 'warlock') return t.spellSlots.warlock;
+  return null;
+}
+
+function playerToggleRow(row, idx, action) {
+  const max = row.max || 0;
+  if (action === 'plus') { row.max = Math.min(20, max + 1); return; }
+  if (action === 'minus') {
+    row.max = Math.max(0, max - 1);
+    if ((row.used || 0) > row.max) row.used = row.max;
+    return;
+  }
+  const rem = Math.max(0, max - (row.used || 0));
+  row.used = idx < rem ? max - idx : max - (idx + 1);
+}
+
+function playerSetResource(tokenId, key, idx, action) {
+  const t = currentMap && currentMap.tokens.find((x) => x.id === tokenId);
+  if (!t) return;
+  const def = classResourceDefs(t).find((x) => x.key === key);
+  if (!def) return;
+  t.classResources = t.classResources || {};
+  const cur = t.classResources[key] || (t.classResources[key] = { used: 0, max: def.max });
+  playerToggleRow(cur, idx, action);
+  sendPatch(tokenId, { classResources: JSON.parse(JSON.stringify(t.classResources)) }, true, true);
+}
+
+function playerSetSpell(tokenId, sec, level, idx, action) {
+  const t = currentMap && currentMap.tokens.find((x) => x.id === tokenId);
+  if (!t) return;
+  const row = findPlayerSpellRow(t, sec, level);
+  if (!row) return;
+  playerToggleRow(row, idx, action);
+  sendPatch(tokenId, { spellSlots: JSON.parse(JSON.stringify(t.spellSlots)) }, true, true);
+}
+
+function renderPlayerHitDice(t) {
+  const box = $('#player-hitdice');
+  if (!box) return;
+  const hd = t.hitDice || { die: classDef(t).hitDie || 8, max: t.level || 1, used: 0 };
+  if (classDef(t).hitDie) hd.die = classDef(t).hitDie;
+  if ((hd.max || 0) !== (t.level || 1)) hd.max = t.level || 1;
+  if (!t.hitDice) t.hitDice = hd;
+  const max = Math.max(0, hd.max || 0);
+  const rem = Math.max(0, max - (hd.used || 0));
+  box.innerHTML = '';
+  const label = document.createElement('span');
+  label.className = 'hd-label';
+  label.textContent = `生命骰 d${hd.die || 8}`;
+  const cells = document.createElement('div');
+  cells.className = 'slot-cells';
+  for (let i = 0; i < max; i++) {
+    const c = document.createElement('button');
+    c.type = 'button';
+    c.className = 'slot-cell' + (i >= rem ? ' used' : '');
+    c.title = '点击切换已用生命骰';
+    c.addEventListener('click', () => {
+      const m = hd.max || 0;
+      const r = Math.max(0, m - (hd.used || 0));
+      hd.used = i < r ? m - i : m - (i + 1);
+      sendPatch(t.id, { hitDice: JSON.parse(JSON.stringify(hd)) }, true, true);
+    });
+    cells.appendChild(c);
+  }
+  const count = document.createElement('span');
+  count.className = 'slot-count';
+  count.textContent = `${rem}/${max}`;
+  const roll = document.createElement('button');
+  roll.type = 'button';
+  roll.className = 'hd-roll';
+  roll.textContent = '🎲 掷1颗';
+  roll.title = `掷 d${hd.die || 8} + 体质调整，恢复生命并消耗 1 颗`;
+  roll.addEventListener('click', () => playerRollHitDie(t, hd));
+  const full = document.createElement('button');
+  full.type = 'button';
+  full.className = 'hd-full';
+  full.textContent = '恢复全部';
+  full.title = '长休后恢复所有生命骰';
+  full.addEventListener('click', () => {
+    hd.used = 0;
+    sendPatch(t.id, { hitDice: JSON.parse(JSON.stringify(hd)) }, true, true);
+  });
+  box.append(label, cells, count, roll, full);
+}
+
+function playerRollHitDie(t, hd) {
+  const rem = Math.max(0, (hd.max || 0) - (hd.used || 0));
+  if (rem <= 0) { toast('没有剩余生命骰，长休后才能恢复'); return; }
+  const die = hd.die || 8;
+  const roll = 1 + Math.floor(Math.random() * die);
+  const con = Math.max(0, abilityMod(t.stats && t.stats.con));
+  const heal = roll + con;
+  t.hp = Math.min(t.hpMax || t.hp, (t.hp || 0) + heal);
+  hd.used = Math.min(hd.max || 0, (hd.used || 0) + 1);
+  sendPatch(t.id, { hitDice: JSON.parse(JSON.stringify(hd)), hp: t.hp }, true, true);
+}
+
+function closeTokenPanel() {
+  selectedTokenId = null;
+  $('#detail').hidden = true;
+}
+
+function openTokenPanel(tokenId) {
+  const m = currentMap;
+  const t = m && m.tokens.find((x) => x.id === tokenId);
+  if (!t || !isMine(t)) { closeTokenPanel(); return; }
+  selectedTokenId = tokenId;
+  $('#detail').hidden = false;
+  $('#detail-name').textContent = t.name;
+  const iconEl = $('#detail-icon');
+  if (portraitUrl(t)) { iconEl.textContent = ''; iconEl.style.backgroundImage = `url("${portraitUrl(t)}")`; }
+  else { iconEl.textContent = t.icon || '🧙'; iconEl.style.backgroundImage = 'none'; }
+  const typeName = ({ pc:'玩家角色', enemy:'敌人', npc:'中立NPC', ally:'友好NPC' })[t.type] || '';
+  const initV = playerInit(t);
+  const clsName = t.className && CLASS_META[t.className] ? t.className : '无职业';
+  $('#detail-sub').textContent = `${typeName} · ${clsName}${t.subClassName ? ' · ' + t.subClassName : ''} · AC ${playerAC(t)} · 先攻 ${initV >= 0 ? '+' : ''}${initV}`;
+  const hp = Math.max(0, Number(t.hp) || 0);
+  const hpMax = Math.max(1, Number(t.hpMax) || 1);
+  const pct = Math.min(100, Math.round((hp / hpMax) * 100));
+  const hpCur = $('#detail-hp-cur');
+  const hpMaxInp = $('#detail-hp-max');
+  hpCur.value = hp;
+  hpMaxInp.value = hpMax;
+  hpCur.onchange = () => {
+    t.hp = clamp(parseInt(hpCur.value, 10) || 0, 0, 99999);
+    sendPatch(tokenId, { hp: t.hp }, true, false);
+  };
+  hpMaxInp.onchange = () => {
+    t.hpMax = clamp(parseInt(hpMaxInp.value, 10) || 1, 1, 99999);
+    sendPatch(tokenId, { hpMax: t.hpMax }, true, false);
+  };
+  $('#detail-ac').textContent = 'AC ' + playerAC(t);
+  const bar = $('#detail-hpbar');
+  bar.style.width = pct + '%';
+  bar.style.background = pct > 50 ? '#4cc38a' : pct > 25 ? '#f4a261' : '#e74c5e';
+  renderPlayerHitDice(t);
+  const statsBox = $('#detail-stats');
+  statsBox.innerHTML = '';
+  ABILITY_KEYS.forEach((k) => {
+    const v = Number((t.stats || {})[k]) || 10;
+    const mod = abilityMod(v);
+    const cell = document.createElement('div');
+    cell.className = 'menu-stat';
+    cell.innerHTML = `<span>${ABILITY_LABELS[k]}</span><input type="number" data-stat="${k}" value="${v}" min="1" max="30"><b data-mod="${k}">${v} (${mod >= 0 ? '+' : ''}${mod})</b>`;
+    const inp = cell.querySelector('input');
+    inp.addEventListener('change', () => {
+      t.stats = t.stats || {};
+      t.stats[k] = clamp(parseInt(inp.value, 10) || 10, 1, 30);
+      const m2 = abilityMod(t.stats[k]);
+      cell.querySelector(`b[data-mod="${k}"]`).textContent = `${t.stats[k]} (${m2 >= 0 ? '+' : ''}${m2})`;
+      refreshDetailHeader(t);
+      sendPatch(tokenId, { stats: { ...t.stats } }, false, false);
+    });
+    statsBox.appendChild(cell);
+  });
+  const savesBox = $('#detail-saves');
+  savesBox.innerHTML = '';
+  ABILITY_KEYS.forEach((k) => {
+    const v = saveValue(t, k);
+    const trained = (classDef(t).saveProfs || []).includes(k);
+    const cell = document.createElement('div');
+    cell.className = 'menu-stat' + (trained ? ' save-trained' : '');
+    cell.title = (ABILITY_LABELS[k].split(' ')[0]) + '豁免' + (trained ? '（职业熟练）' : '');
+    cell.innerHTML = `<span>${ABILITY_LABELS[k].split(' ')[0]}豁免</span><b>${v >= 0 ? '+' : ''}${v}</b>`;
+    savesBox.appendChild(cell);
+  });
+  const clsBox = $('#detail-class');
+  clsBox.innerHTML = '';
+  const clsTitle = document.createElement('div');
+  clsTitle.className = 'eq-item';
+  clsTitle.textContent = `职业：${clsName}` + (t.subClassName ? ` · ${t.subClassName}` : '') + ` · Lv${t.level || 1}`;
+  clsBox.appendChild(clsTitle);
+  classResourceDefs(t).forEach((r) => {
+    const cur = (t.classResources && t.classResources[r.key]) || { used: 0, max: r.max };
+    const rowEl = document.createElement('div');
+    rowEl.className = 'slot-row';
+    const lv = document.createElement('span');
+    lv.className = 'slot-lv';
+    lv.textContent = r.key;
+    const cells = document.createElement('div');
+    cells.className = 'slot-cells';
+    const max = Math.max(0, cur.max || 0);
+    const rem = Math.max(0, max - (cur.used || 0));
+    for (let i = 0; i < max; i++) {
+      const c = document.createElement('button');
+      c.type = 'button';
+      c.className = 'slot-cell' + (i >= rem ? ' used' : '');
+      c.title = '点击切换已用数量';
+      c.addEventListener('click', () => playerSetResource(tokenId, r.key, i, 'toggle'));
+      cells.appendChild(c);
+    }
+    const count = document.createElement('span');
+    count.className = 'slot-count';
+    count.textContent = `${rem}/${max}`;
+    const minus = document.createElement('button');
+    minus.type = 'button';
+    minus.className = 'slot-minus';
+    minus.textContent = '−';
+    minus.title = '减少数量';
+    minus.addEventListener('click', () => playerSetResource(tokenId, r.key, null, 'minus'));
+    const plus = document.createElement('button');
+    plus.type = 'button';
+    plus.className = 'slot-plus';
+    plus.textContent = '＋';
+    plus.title = '增加数量';
+    plus.addEventListener('click', () => playerSetResource(tokenId, r.key, null, 'plus'));
+    rowEl.append(lv, cells, count, minus, plus);
+    clsBox.appendChild(rowEl);
+  });
+  const slots = normPlayerSlots(t);
+  const spellsBox = $('#detail-spells');
+  spellsBox.innerHTML = '';
+  const addPlayerSection = (title, visible) => {
+    if (!visible.length) return;
+    const secEl = document.createElement('div');
+    secEl.className = 'spell-sec';
+    const head = document.createElement('div');
+    head.className = 'spell-sec-head';
+    head.textContent = title;
+    secEl.appendChild(head);
+    visible.forEach(({ label, row, sec, level }) => {
+      const rowEl = document.createElement('div');
+      rowEl.className = 'slot-row';
+      const lv = document.createElement('span');
+      lv.className = 'slot-lv';
+      lv.textContent = label;
+      const cells = document.createElement('div');
+      cells.className = 'slot-cells';
+      const rem = Math.max(0, (row.max || 0) - (row.used || 0));
+      for (let i = 0; i < row.max; i++) {
+        const c = document.createElement('button');
+        c.type = 'button';
+        c.className = 'slot-cell' + (i >= rem ? ' used' : '');
+        c.title = '点击切换已用数量';
+        c.addEventListener('click', () => playerSetSpell(tokenId, sec, level, i, 'toggle'));
+        cells.appendChild(c);
+      }
+      const count = document.createElement('span');
+      count.className = 'slot-count';
+      count.textContent = `${rem}/${row.max}`;
+      const minus = document.createElement('button');
+      minus.type = 'button';
+      minus.className = 'slot-minus';
+      minus.textContent = '−';
+      minus.title = '减少数量';
+      minus.addEventListener('click', () => playerSetSpell(tokenId, sec, level, null, 'minus'));
+      const plus = document.createElement('button');
+      plus.type = 'button';
+      plus.className = 'slot-plus';
+      plus.textContent = '＋';
+      plus.title = '增加数量';
+      plus.addEventListener('click', () => playerSetSpell(tokenId, sec, level, null, 'plus'));
+      rowEl.append(lv, cells, count, minus, plus);
+      secEl.appendChild(rowEl);
+    });
+    spellsBox.appendChild(secEl);
+  };
+  if (slots.type === 'normal') {
+    addPlayerSection('正常环位', slots.normal.filter((r) => r.max > 0 || r.used > 0).map((r) => ({ label: 'Lv' + r.level, row: r, sec: 'normal', level: r.level })));
+  } else if (slots.type === 'none') {
+    addPlayerSection('无环位', (slots.none.max > 0 || slots.none.used > 0) ? [{ label: '无环位', row: slots.none, sec: 'none', level: '0' }] : []);
+  } else if (slots.type === 'sorcerer') {
+    const visible = [];
+    if (slots.sorcerer.points.max > 0 || slots.sorcerer.points.used > 0) visible.push({ label: '术法点', row: slots.sorcerer.points, sec: 'sorcerer', level: 'points' });
+    slots.sorcerer.slots.forEach((r) => { if (r.max > 0 || r.used > 0) visible.push({ label: 'Lv' + r.level, row: r, sec: 'sorcerer', level: r.level }); });
+    addPlayerSection('术士环位', visible);
+  } else if (slots.type === 'warlock') {
+    const w = slots.warlock;
+    addPlayerSection('咒术师环位', (w.max > 0 || w.used > 0) ? [{ label: '契约 Lv' + w.level, row: w, sec: 'warlock', level: 'warlock' }] : []);
+  }
+  if (!spellsBox.children.length) {
+    spellsBox.innerHTML = `<span class="eq-item">${(t.className && t.className !== '无职业') ? '该职业无法术环位' : '未设置法术环位'}</span>`;
+  }
+  if (spellsBox.querySelector('.slot-cell')) {
+    const legend = document.createElement('div');
+    legend.className = 'slot-legend';
+    legend.innerHTML = '<span class="slot-cell"></span> 剩余 <span class="slot-cell used"></span> 已用';
+    spellsBox.appendChild(legend);
+  }
+  // 基础：熟练 / 速度 / 先攻调整
+  const baseBox = $('#detail-base');
+  baseBox.innerHTML = '';
+  const baseRows = [
+    { label: '熟练', key: 'prof', val: t.prof || 2, min: 0, max: 12 },
+    { label: '速度', key: 'speed', val: t.speed || 30, min: 0, max: 120 },
+    { label: '先攻调整', key: 'initBonus', val: t.initBonus || 0, min: -99, max: 99 },
+  ];
+  baseRows.forEach((b) => {
+    const row = document.createElement('div');
+    row.className = 'base-row';
+    const span = document.createElement('span');
+    span.textContent = b.label;
+    const inp = document.createElement('input');
+    inp.type = 'number';
+    inp.value = b.val;
+    inp.min = b.min;
+    inp.max = b.max;
+    inp.addEventListener('change', () => {
+      const v = clamp(parseInt(inp.value, 10) || 0, b.min, b.max);
+      inp.value = v;
+      t[b.key] = v;
+      refreshDetailHeader(t);
+      sendPatch(tokenId, { [b.key]: v }, false, false);
+    });
+    row.append(span, inp);
+    baseBox.appendChild(row);
+  });
+  const skillBox = $('#detail-skills');
+  skillBox.innerHTML = '';
+  SKILLS.forEach((s) => {
+    const st = (t.skillProfs && t.skillProfs[s.key]) || '';
+    const v = skillValue(t, s);
+    const item = document.createElement('div');
+    item.className = 'skill-btn' + (st ? ' ' + st : '');
+    item.title = `${s.label}（${ABILITY_LABELS[s.attr].split(' ')[0]}）· ${st === 'expert' ? '精通' : st === 'prof' ? '熟练' : '未熟练'}`;
+    item.innerHTML = `<span>${s.label}</span><b>${v >= 0 ? '+' : ''}${v}</b>`;
+    skillBox.appendChild(item);
+  });
+  // 攻击：武器命中/伤害（与主控台自动计算一致）
+  const atkBox = $('#detail-attacks');
+  atkBox.innerHTML = '';
+  const weapons = (t.equipment || []).filter((e) => e.type === 'weapon');
+  if (weapons.length) {
+    weapons.forEach((w) => {
+      const attr = w.attr || 'str';
+      const mod = abilityMod((t.stats || {})[attr]);
+      const hit = (t.prof || 2) + mod;
+      const dmg = mod;
+      const item = document.createElement('div');
+      item.className = 'eq-item';
+      item.innerHTML = `<b>${esc(w.name || '武器')}</b> <span>命中 +${hit} · 伤害 ${esc(w.dice || '1d6')}${dmg >= 0 ? '+' + dmg : dmg}</span>`;
+      atkBox.appendChild(item);
+    });
+  } else atkBox.innerHTML = '<span class="eq-item">无武器</span>';
+  const eqSel = $('#detail-eq-select');
+  eqSel.innerHTML = '';
+  EQUIPMENT_PRESETS.forEach((e, i) => {
+    const o = document.createElement('option');
+    o.value = i;
+    o.textContent = `${e.name}（${e.type === 'armor' ? '护甲 AC' + e.baseAC : e.type === 'shield' ? '盾 +' + e.acBonus : e.dice}）`;
+    eqSel.appendChild(o);
+  });
+  $('#detail-eq-add').onclick = () => {
+    const p = EQUIPMENT_PRESETS[parseInt(eqSel.value, 10) || 0];
+    if (!p) return;
+    t.equipment = t.equipment || [];
+    t.equipment.push({ ...p });
+    sendPatch(tokenId, { equipment: JSON.parse(JSON.stringify(t.equipment)) }, true, true);
+  };
+  const eqBox = $('#detail-eq');
+  eqBox.innerHTML = '';
+  const eq = t.equipment || [];
+  if (!eq.length) eqBox.innerHTML = '<span class="eq-item">无装备</span>';
+  eq.forEach((e, idx) => {
+    const row = document.createElement('div');
+    row.className = 'eq-row';
+    const nameInp = document.createElement('input');
+    nameInp.value = e.name || '';
+    const typeSel = document.createElement('select');
+    [['armor', '护甲'], ['shield', '盾牌'], ['weapon', '武器'], ['other', '其他']].forEach(([v, l]) => {
+      const o = document.createElement('option');
+      o.value = v;
+      o.textContent = l;
+      if (e.type === v) o.selected = true;
+      typeSel.appendChild(o);
+    });
+    const valInp = document.createElement('input');
+    valInp.value = e.type === 'weapon' ? (e.dice || '1d6') : String(e.type === 'armor' ? (e.baseAC ?? 10) : (e.acBonus || 0));
+    const capSel = document.createElement('select');
+    if (e.type === 'armor') {
+      [['null', '敏捷不限'], ['2', '上限+2'], ['0', '不加敏捷']].forEach(([v, l]) => {
+        const o = document.createElement('option');
+        o.value = v;
+        o.textContent = l;
+        if (String(e.dexCap) === v) o.selected = true;
+        capSel.appendChild(o);
+      });
+    }
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'eq-del';
+    del.textContent = '×';
+    del.title = '移除装备';
+    del.addEventListener('click', () => {
+      t.equipment = eq.filter((_, i2) => i2 !== idx);
+      sendPatch(tokenId, { equipment: JSON.parse(JSON.stringify(t.equipment)) }, true, true);
+    });
+    const commit = () => {
+      const it = eq[idx];
+      it.name = nameInp.value.trim() || '未命名';
+      it.type = typeSel.value;
+      if (it.type === 'armor') {
+        it.baseAC = Math.max(1, parseInt(valInp.value, 10) || 10);
+        it.dexCap = capSel.value === 'null' ? null : parseInt(capSel.value, 10);
+      } else if (it.type === 'weapon') {
+        it.dice = valInp.value.trim() || '1d6';
+        if (!it.attr) it.attr = 'str';
+      } else {
+        it.acBonus = parseInt(valInp.value, 10) || 0;
+      }
+      sendPatch(tokenId, { equipment: JSON.parse(JSON.stringify(t.equipment)) }, true, true);
+    };
+    nameInp.addEventListener('change', commit);
+    typeSel.addEventListener('change', commit);
+    valInp.addEventListener('change', commit);
+    capSel.addEventListener('change', commit);
+    row.append(nameInp, typeSel, valInp, capSel, del);
+    eqBox.appendChild(row);
+  });
+  const grid = $('#detail-statuses');
+  grid.innerHTML = '';
+  const statuses = Array.isArray(t.statuses) ? t.statuses : [];
+  STATUS_CATS.forEach((cat) => {
+    const items = STATUSES.filter((s) => s.cat === cat);
+    const head = document.createElement('div');
+    head.className = 'status-cat';
+    head.textContent = cat;
+    grid.appendChild(head);
+    items.forEach((s) => {
+      const toggle = (next) => {
+        setStatusLevel(t, s.key, next);
+        t.statuses = next > 0
+          ? (statuses.includes(s.key) ? statuses : [...statuses, s.key])
+          : statuses.filter((k) => k !== s.key);
+        sendStatus(tokenId, s.key, next > 0, next);
+        openTokenPanel(tokenId);
+      };
+      if (s.stackable) {
+        const lv = statusLevel(t, s.key);
+        const b = document.createElement('button');
+        b.className = 'menu-btn' + (lv ? ' on' : '');
+        b.title = `${s.label} ${lv} 级 · 左键升级，右键降级`;
+        b.innerHTML = s.emoji + '<br>' + s.label + (lv ? ' ×' + lv : '');
+        b.addEventListener('click', () => toggle(lv >= s.max ? 0 : lv + 1));
+        b.addEventListener('contextmenu', (e) => {
+          e.preventDefault();
+          toggle(lv <= 1 ? 0 : lv - 1);
+        });
+        grid.appendChild(b);
+        return;
+      }
+      const b = document.createElement('button');
+      b.className = 'menu-btn' + (statuses.includes(s.key) ? ' on' : '');
+      b.innerHTML = s.emoji + '<br>' + s.label;
+      b.addEventListener('click', () => {
+        const on = !statuses.includes(s.key);
+        t.statuses = on ? [...statuses, s.key] : statuses.filter((k) => k !== s.key);
+        sendStatus(tokenId, s.key, on);
+        openTokenPanel(tokenId);
+      });
+      grid.appendChild(b);
+    });
+  });
+}
+
+/* ---------- 骰子 ---------- */
+function parseExpr(expr) {
+  const m = expr.trim().toLowerCase().match(/^(\d*)d(\d+)([+-]\d+)?$/);
+  if (!m) return null;
+  const count = m[1] ? parseInt(m[1], 10) : 1;
+  const sides = parseInt(m[2], 10);
+  const mod = m[3] ? parseInt(m[3], 10) : 0;
+  if (count < 1 || count > 100 || sides < 2 || sides > 1000) return null;
+  return { count, sides, mod, label: expr.trim() };
+}
+function rollSet(count, sides) { return Array.from({ length: count }, () => 1 + Math.floor(Math.random() * sides)); }
+function addDiceLine(who, expr, detail, total) {
+  const box = $('#dice-log');
+  const div = document.createElement('div');
+  div.className = 'roll-line';
+  div.innerHTML = `<span class="roll-who">${esc(who)}</span><span class="roll-expr">${esc(expr)}</span><span class="roll-detail">${esc(detail)}</span><span class="roll-total">${total}</span>`;
+  box.prepend(div);
+  while (box.children.length > 30) box.lastChild.remove();
+}
+function playDiceFx(sides, label, total, opts) {
+  if (window.playDieAnimation) window.playDieAnimation(sides, label, total, opts);
+}
+function rollAndSend(expr, mode) {
+  const parsed = parseExpr(expr);
+  if (!parsed) { toast('无法识别的骰子表达式，示例：2d6+3'); return; }
+  let chosen = rollSet(parsed.count, parsed.sides);
+  const first = chosen;
+  let note = '';
+  let other = null;
+  let pickedFirst = null;
+  if (mode !== 0 && parsed.sides === 20) {
+    const second = rollSet(parsed.count, parsed.sides);
+    const sumA = first.reduce((a, b) => a + b, 0);
+    const sumB = second.reduce((a, b) => a + b, 0);
+    const pickMax = mode === 1;
+    pickedFirst = pickMax ? sumA >= sumB : sumA <= sumB;
+    chosen = pickedFirst ? first : second;
+    other = pickedFirst ? second : first;
+    note = `（两次 ${sumA} / ${sumB}，取${pickMax ? '大' : '小'}）`;
+  }
+  const sum = chosen.reduce((a, b) => a + b, 0) + parsed.mod;
+  const label = parsed.label + (mode === 1 ? '⚖️优势' : mode === -1 ? '⬇️劣势' : '');
+  const detail = chosen.join(' + ') + (parsed.mod ? (parsed.mod > 0 ? ` + ${parsed.mod}` : ` ${parsed.mod}`) : '') + note;
+  const who = myName || '我';
+  const rid = 'r' + Date.now() + Math.random().toString(36).slice(2, 8);
+  const dicePayload = other ? [chosen[0], other[0]] : chosen.slice();
+  const pickPayload = pickedFirst === null ? undefined : (pickedFirst ? 0 : 1);
+  playDiceFx(parsed.sides, label, sum, { dice: dicePayload, pick: pickPayload, mode });
+  const resEl = $('#dice-result');
+  resEl.className = 'rolling';
+  resEl.textContent = '🎲 掷骰中…';
+  setTimeout(() => { resEl.className = ''; resEl.textContent = `${label} → ${sum}`; }, 600);
+  localRids.add(rid);
+  if (localRids.size > 20) localRids.delete(localRids.values().next().value);
+  addDiceLine(who, label, detail, sum);
+  fetch('/api/action', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ player: myName || '玩家', action: { op: 'roll', rid, name: who, expr: label, detail, total: sum, sides: parsed.sides, dice: dicePayload, pick: pickPayload, mode } }),
+  })
+    .then((r) => r.json())
+    .then((d) => { if (d && d.ok === false) toast('⚠ ' + (d.error || '掷骰同步失败')); })
+    .catch(() => toast('⚠ 掷骰未同步到服务器，其他玩家看不到'));
+}
+
+/* ---------- 指针交互 ---------- */
+const board = $('#board');
+board.addEventListener('pointerdown', (e) => {
+  if (e.button !== 0) return;
+  if (e.target.closest('button')) return;
+  if (!currentMap) return;
+  const w = worldPoint(e);
+  if (doodleTool) {
+    startDoodle(w.x, w.y);
+    drag = { mode: 'doodle' };
+    board.setPointerCapture(e.pointerId);
+    e.preventDefault();
+    return;
+  }
+  const tokenEl = e.target.closest('.token.mine');
+  if (!tokenEl) {
+    drag = { mode: 'pan', startX: e.clientX, startY: e.clientY, ox: view.ox, oy: view.oy };
+    board.setPointerCapture(e.pointerId);
+    e.preventDefault();
+    return;
+  }
+  const riderEl = e.target.closest('.rider');
+  const t = currentMap.tokens.find((x) => x.id === tokenEl.dataset.id);
+  if (!t) return;
+  drag = {
+    mode: 'token',
+    tokenId: t.id,
+    mapId: currentMap.id,
+    el: tokenEl,
+    menuId: riderEl ? riderEl.dataset.id : t.id,
+    startClientX: e.clientX,
+    startClientY: e.clientY,
+    grid: currentMap.gridSize || 50,
+    size: t.size || 1,
+    moved: false,
+    lastSend: 0,
+  };
+  tokenEl.setPointerCapture(e.pointerId);
+  tokenEl.classList.add('dragging');
+  e.preventDefault();
+});
+
+board.addEventListener('pointermove', (e) => {
+  if (!drag || !currentMap) return;
+  if (drag.mode === 'pan') {
+    view.ox = drag.ox + (e.clientX - drag.startX);
+    view.oy = drag.oy + (e.clientY - drag.startY);
+    applyView();
+    return;
+  }
+  if (drag.mode === 'doodle') {
+    const w = worldPoint(e);
+    continueDoodle(w.x, w.y);
+    return;
+  }
+  const p = worldPoint(e);
+  const sp = lastState && lastState.snap === false ? p : snapXY(p.x, p.y, drag.grid, drag.size);
+  const margin = drag.size >= 2 ? drag.grid : drag.grid / 2;
+  const cx = clamp(sp.x, margin, currentMap.mapW - margin);
+  const cy = clamp(sp.y, margin, currentMap.mapH - margin);
+  drag.el.style.left = cx + 'px';
+  drag.el.style.top = cy + 'px';
+  const t = currentMap.tokens.find((x) => x.id === drag.tokenId);
+  if (t) {
+    t.x = cx;
+    t.y = cy;
+    if (t.size >= 2) currentMap.tokens.forEach((r) => { if (r.mountId === t.id) { r.x = cx; r.y = cy; } });
+  }
+  if (Math.hypot(e.clientX - drag.startClientX, e.clientY - drag.startClientY) > 4) drag.moved = true;
+  const now = Date.now();
+  if (drag.moved && now - drag.lastSend >= 250) { drag.lastSend = now; sendMove(drag); }
+});
+
+board.addEventListener('pointerup', (e) => {
+  if (!drag) return;
+  if (drag.mode === 'doodle') { endDoodle(); drag = null; return; }
+  const wasMoved = drag.moved;
+  const menuId = drag.menuId;
+  if (drag.el && drag.el.classList) drag.el.classList.remove('dragging');
+  if (wasMoved) sendMove(drag);
+  drag = null;
+  if (!wasMoved && menuId) openTokenPanel(menuId);
+});
+
+board.addEventListener('pointercancel', () => {
+  if (!drag) return;
+  if (drag.mode === 'doodle') { doodleDraft = null; renderDoodles(); }
+  if (drag.el && drag.el.classList) drag.el.classList.remove('dragging');
+  drag = null;
+});
+
+board.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  zoomAt(e.clientX, e.clientY, Math.exp(-e.deltaY * 0.0012));
+}, { passive: false });
+$('#map-zoom-in').addEventListener('click', () => { const r = board.getBoundingClientRect(); zoomAt(r.left + r.width / 2, r.top + r.height / 2, 1.3); });
+$('#map-zoom-out').addEventListener('click', () => { const r = board.getBoundingClientRect(); zoomAt(r.left + r.width / 2, r.top + r.height / 2, 1 / 1.3); });
+$('#map-fit').addEventListener('click', fit);
+
+$('#detail-close').addEventListener('click', closeTokenPanel);
+
+/* ---------- 涂鸦控件 ---------- */
+document.querySelectorAll('[data-doodle-tool]').forEach((b) => {
+  b.addEventListener('click', () => {
+    doodleTool = doodleTool === b.dataset.doodleTool ? null : b.dataset.doodleTool;
+    document.querySelectorAll('[data-doodle-tool]').forEach((x) => x.classList.toggle('active', x === b && !!doodleTool));
+  });
+});
+document.querySelectorAll('#doodle-colors .doodle-color').forEach((b) => {
+  b.addEventListener('click', () => {
+    doodleColor = b.dataset.color;
+    document.querySelectorAll('#doodle-colors .doodle-color').forEach((x) => x.classList.toggle('active', x === b));
+  });
+});
+document.querySelectorAll('.doodle-widths button').forEach((b) => {
+  b.addEventListener('click', () => {
+    doodleWidth = Number(b.dataset.width);
+    document.querySelectorAll('.doodle-widths button').forEach((x) => x.classList.toggle('active', x === b));
+  });
+});
+$('#doodle-undo').addEventListener('click', () => {
+  const m = currentMap;
+  if (!m || !Array.isArray(m.doodles) || !m.doodles.length) return;
+  m.doodles.pop();
+  renderDoodles();
+  sendDoodles(m);
+});
+$('#doodle-clear').addEventListener('click', () => {
+  const m = currentMap;
+  if (!m) return;
+  m.doodles = [];
+  renderDoodles();
+  sendDoodles(m);
+  toast('已清除涂鸦');
+});
+
+/* ---------- 骰子控件 ---------- */
+document.querySelectorAll('.die-btn[data-die]').forEach((b) => b.addEventListener('click', () => rollAndSend(b.dataset.die, 0)));
+$('#dice-adv').addEventListener('click', () => rollAndSend('d20', 1));
+$('#dice-dis').addEventListener('click', () => rollAndSend('d20', -1));
+$('#dice-roll').addEventListener('click', () => {
+  const expr = $('#dice-expr').value.trim();
+  if (!expr) return;
+  rollAndSend(expr, 0);
+  $('#dice-expr').value = '';
+});
+$('#dice-expr').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#dice-roll').click(); });
+
+/* ---------- 左侧卡片折叠 ---------- */
+document.querySelectorAll('#left-panel .card').forEach((card) => {
+  const head = card.querySelector('h2');
+  if (head) head.addEventListener('click', () => card.classList.toggle('collapsed'));
+});
+
+$('#player-name').addEventListener('change', () => {
+  myName = $('#player-name').value.trim();
+  try { localStorage.setItem('sangduoer-watch-name', myName); } catch (e) { /* 忽略 */ }
+  if (currentMap) renderTokens(currentMap);
+  if (myName) toast('已以「' + myName + '」身份连接，绿色＝你的棋子');
+});
+
+/* ---------- 远端动作 ---------- */
+function applyRemoteAction(a) {
+  if (!a) return;
+  if (a.op === 'roll') {
+    if (a.rid && localRids.has(a.rid)) { localRids.delete(a.rid); return; }
+    playDiceFx(a.sides || 20, a.expr || '', a.total, { dice: a.dice, pick: a.pick, mode: a.mode });
+    addDiceLine(a.name || '玩家', a.expr || '', a.detail || '', a.total);
+    return;
+  }
+  if (a.op === 'doodle') {
+    if (currentMap && a.mapId === currentMap.id && Array.isArray(a.doodles)) {
+      currentMap.doodles = a.doodles;
+      renderDoodles();
+    }
+    return;
+  }
+  if (!lastState || !a.tokenId) return;
+  const m = (lastState.maps || []).find((x) => x.id === (a.mapId || (currentMap && currentMap.id)));
+  if (!m) return;
+  const t = m.tokens.find((x) => x.id === a.tokenId);
+  if (!t) return;
+  if (a.op === 'moveToken') {
+    t.x = a.x;
+    t.y = a.y;
+    if ((t.size || 1) >= 2) m.tokens.forEach((r) => { if (r.mountId === t.id) { r.x = a.x; r.y = a.y; } });
+    if (currentMap && currentMap.id === m.id) {
+      const el = document.querySelector(`.token[data-id="${t.id}"]`);
+      if (el) { el.style.left = t.x + 'px'; el.style.top = t.y + 'px'; }
+    }
+  } else if (a.op === 'setStatus') {
+    const sts = Array.isArray(t.statuses) ? t.statuses : [];
+    t.statuses = sts.filter((k) => k !== a.status);
+    if (a.on) t.statuses.push(a.status);
+    if (currentMap && currentMap.id === m.id) renderTokens(m);
+    if (selectedTokenId === t.id) openTokenPanel(t.id);
+  }
+}
+
+const playerAudio = new Audio();
+let bgmPendingPlay = false;
+let bgmCurrentUrl = '';
+let bgmUnlockBound = false;
+
+function askBgmUnlock() {
+  toast('🔇 浏览器阻止自动播放，点击页面任意处开始听 BGM');
+  if (bgmUnlockBound) return;
+  bgmUnlockBound = true;
+  const unlock = () => {
+    if (bgmPendingPlay) { playerAudio.play().catch(() => {}); bgmPendingPlay = false; }
+    bgmUnlockBound = false;
+    document.removeEventListener('click', unlock);
+  };
+  document.addEventListener('click', unlock);
+}
+
+function applyBgmAction(a) {
+  if (!a) return;
+  if (a.action === 'play') {
+    if (a.url && a.url !== bgmCurrentUrl) {
+      bgmCurrentUrl = a.url;
+      playerAudio.src = a.url;
+      playerAudio.currentTime = a.time || 0;
+      bgmPendingPlay = true;
+      playerAudio.play().then(() => { bgmPendingPlay = false; }).catch(() => askBgmUnlock());
+    } else {
+      if (a.time !== undefined && Math.abs((playerAudio.currentTime || 0) - a.time) > 2) playerAudio.currentTime = a.time;
+      if (playerAudio.paused) {
+        bgmPendingPlay = true;
+        playerAudio.play().then(() => { bgmPendingPlay = false; }).catch(() => askBgmUnlock());
+      }
+    }
+  } else if (a.action === 'pause' || a.action === 'stop') {
+    playerAudio.pause();
+    bgmPendingPlay = false;
+  }
+}
+
+const es = new EventSource('/api/events');
+es.onopen = () => { $('#conn').textContent = '已连接'; $('#conn').classList.add('on'); };
+es.onerror = () => { $('#conn').textContent = '连接中断，重连中…'; $('#conn').classList.remove('on'); };
+es.onmessage = (e) => {
+  try {
+    const ev = JSON.parse(e.data);
+    if (ev.type === 'state') render(ev.state);
+    else if (ev.type === 'action') {
+      if (ev.action && ev.action.op === 'bgm') { applyBgmAction(ev.action); return; }
+      applyRemoteAction(ev.action);
+    }
+  } catch (err) { /* 忽略坏数据 */ }
+};
+window.addEventListener('resize', fit);
+</script>
+</body>
+</html>

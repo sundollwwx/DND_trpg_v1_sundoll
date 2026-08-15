@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>速查卡模板</title>
+<!--
+  速查卡模板（卡片版）使用说明：
+  1. 复制本文件到新团文件夹根目录，重命名为 速查卡·<团名>.html；
+  2. 把 <main> 里每个 <section class="group"> 按你的幕/分组复制增删；
+  3. 每张卡 = 一个 <div class="card" data-title="标题">：
+       - data-title 是点击放大时的大标题；
+       - 卡片内第一行写 图标+名字（.ico + .name）；
+       - 详细内容写在 <div class="full">…</div> 里（未点击就展示）；
+  4. 顶部 <nav> 按钮对应各组的 id，新增分组记得加按钮；
+  5. 布局固定：每行 4 张卡；窄窗口 2 列、手机 1 列；打印 2 列白底。
+  内容要求：速查卡与 剧情·<团名>.html 保持完全一致（同一套台词/数值/分支）。
+-->
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    background: #171a1f;
+    color: #e8e6e1;
+    line-height: 1.6;
+  }
+  header {
+    position: sticky; top: 0; z-index: 10;
+    background: #101318f2;
+    backdrop-filter: blur(8px);
+    padding: 12px 20px 10px;
+    border-bottom: 1px solid #2c313a;
+  }
+  header h1 { font-size: 1.15rem; letter-spacing: 1px; }
+  header h1 small { color: #9aa0ab; font-weight: normal; font-size: 0.8rem; margin-left: 8px; }
+  nav { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+  nav button {
+    background: #222833; color: #c9c5bc;
+    border: 1px solid #3a4150; border-radius: 8px;
+    padding: 5px 12px; font-size: 0.85rem; cursor: pointer;
+    transition: background .15s, color .15s, border-color .15s;
+  }
+  nav button:hover { background: #2c3340; color: #fff; }
+  .toolbar { margin-top: 10px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .tool-btn {
+    background: #222833; color: #c9c5bc;
+    border: 1px solid #3a4150; border-radius: 8px;
+    padding: 4px 11px; font-size: 0.82rem; cursor: pointer;
+  }
+  .tool-btn:hover { background: #2c3340; color: #fff; }
+  .settings-panel {
+    background: #1d222b; border: 1px solid #343a46; border-radius: 10px;
+    padding: 9px 12px; display: flex; gap: 14px; flex-wrap: wrap; align-items: center;
+    font-size: 0.83rem;
+  }
+  .set-row { display: flex; align-items: center; gap: 6px; color: #c9c5bc; }
+  .settings-panel select, .settings-panel button {
+    background: #222833; color: #c9c5bc; border: 1px solid #3a4150;
+    border-radius: 6px; padding: 3px 8px; font-size: 0.82rem; cursor: pointer;
+  }
+  .status { color: #7da05c; font-size: 0.78rem; }
+  body.editing .full, body.editing .name { outline: 1px dashed #f0c15a55; outline-offset: 2px; }
+  main { max-width: 1280px; margin: 0 auto; padding: 18px 16px 60px; }
+  .group { margin-bottom: 30px; scroll-margin-top: 90px; }
+  .group h3 {
+    font-size: 1.1rem; letter-spacing: 2px;
+    padding-bottom: 8px; margin-bottom: 12px;
+    border-bottom: 1px dashed #3a4150;
+  }
+  .group h3 .count { color: #6b7280; font-size: 0.78rem; font-weight: normal; margin-left: 8px; }
+  .cardwall {
+    display: grid;
+    grid-template-columns: repeat(var(--cols, 4), 1fr);
+    gap: 12px;
+  }
+  .card {
+    background: #1f242c;
+    border: 1px solid #2c313a;
+    border-radius: 12px;
+    padding: 12px 14px;
+    cursor: pointer;
+    transition: transform .15s, border-color .15s, background .15s, box-shadow .15s;
+  }
+  .card:hover {
+    border-color: #f0c15a;
+    background: #262d38;
+    transform: translateY(-3px);
+    box-shadow: 0 6px 16px #0008;
+  }
+  .card .ico { font-size: 1.15rem; }
+  .card .name { font-size: 0.95rem; color: #d6d2c8; font-weight: 600; margin-left: 6px; }
+  .full {
+    display: block;
+    margin-top: 8px; padding-top: 8px;
+    border-top: 1px dashed #343a46;
+  }
+  .full p, .full li, .full blockquote, .full .quote-line { font-size: 0.84rem; }
+  .full blockquote { margin-bottom: 4px; }
+  .full table { font-size: 0.78rem; }
+  .full ul { padding-left: 18px; }
+  .full blockquote {
+    background: #272d38; border-left: 3px solid #f0c15a;
+    border-radius: 0 6px 6px 0; padding: 8px 10px;
+    color: #efe9dc;
+  }
+  .full table { width: 100%; border-collapse: collapse; }
+  .full th, .full td { border: 1px solid #343a46; padding: 4px 6px; text-align: left; }
+  .full th { background: #262c36; }
+  .quote-line { margin: 5px 0; padding-left: 12px; border-left: 2px solid #4a5262; }
+  .quote-line .who { color: #f0c15a; font-weight: 600; }
+
+  .backdrop {
+    position: fixed; inset: 0; z-index: 100;
+    background: #000000b8;
+    backdrop-filter: blur(4px);
+    display: none;
+    align-items: center; justify-content: center;
+    padding: 20px;
+  }
+  .backdrop.show { display: flex; }
+  .modal {
+    background: #1f242c;
+    border: 1px solid #3a4150;
+    border-radius: 14px;
+    max-width: 660px; width: 100%;
+    max-height: 86vh;
+    display: flex; flex-direction: column;
+    box-shadow: 0 18px 60px #000c;
+  }
+  .modal-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 18px;
+    border-bottom: 1px solid #2c313a;
+  }
+  .modal-head h2 { font-size: 1.05rem; color: #f0c15a; }
+  .modal-close {
+    background: none; border: none; color: #9aa0ab;
+    font-size: 1.5rem; line-height: 1; cursor: pointer;
+    padding: 2px 8px; border-radius: 6px;
+  }
+  .modal-close:hover { color: #fff; background: #2c3340; }
+  .modal-body { padding: 16px 18px 20px; overflow-y: auto; font-size: 0.98rem; }
+  .modal-body .quote-line .who { color: #f0c15a; font-weight: 600; }
+  .foot { text-align: center; color: #6b7280; font-size: 0.8rem; margin-top: 8px; }
+
+  body.font-s .full p, body.font-s .full li, body.font-s .full blockquote, body.font-s .full .quote-line { font-size: 0.76rem; }
+  body.font-l .full p, body.font-l .full li, body.font-l .full blockquote, body.font-l .full .quote-line { font-size: 0.95rem; }
+  @media (max-width: 1000px) { .cardwall { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 560px)  { .cardwall { grid-template-columns: 1fr; } }
+
+  @media print {
+    body { background: #fff; color: #111; }
+    header { position: static; background: #fff; border-bottom: 2px solid #333; }
+    nav { display: none; }
+    .card { page-break-inside: avoid; cursor: default; }
+    .cardwall { grid-template-columns: repeat(2, 1fr); }
+    .card .ico { display: none; }
+    .full { color: #222; }
+    .full blockquote { background: #f5f5f0; border-left-color: #b8860b; color: #222; }
+    .full th { background: #eee; color: #222; }
+    .backdrop { display: none !important; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🐉 速查卡 · <团名> <small>卡片版 · X 人 · X 级开局</small></h1>
+  <nav>
+    <button data-target="grp-act1">幕 1</button>
+    <button data-target="grp-act2">幕 2</button>
+    <button data-target="grp-act3">幕 3</button>
+    <button data-target="grp-act4">幕 4</button>
+    <button data-target="grp-enemies">敌人属性</button>
+    <button data-target="grp-meta">总览</button>
+  </nav>
+  <div class="toolbar">
+    <button class="tool-btn" id="settings-toggle">⚙️ 调整</button>
+    <div class="settings-panel" id="settings-panel" hidden>
+      <div class="set-row"><label>每行列数</label>
+        <select id="set-cols">
+          <option value="2">2 列</option><option value="3">3 列</option><option value="4" selected>4 列</option>
+        </select>
+      </div>
+      <div class="set-row"><label>字号</label>
+        <select id="set-font">
+          <option value="s">小</option><option value="m" selected>中</option><option value="l">大</option>
+        </select>
+      </div>
+      <div class="set-row"><label><input type="checkbox" id="set-edit"> 编辑模式（点文字直接改）</label></div>
+      <div class="set-row">
+        <button id="set-save">💾 保存修改</button>
+        <button id="set-reset">↩️ 恢复默认</button>
+        <span class="status" id="set-status"></span>
+      </div>
+    </div>
+  </div>
+</header>
+
+<main id="content-root">
+
+  <!-- ===== 示例组：按幕或主题复制整组 ===== -->
+  <section class="group" id="grp-act1">
+    <h3>幕 1 · <场景名> <span class="count">一句话说明</span></h3>
+    <div class="cardwall">
+      <!-- 示例卡：图标+名字+详细内容 -->
+      <div class="card" data-title="示例卡标题">
+        <div class="ico">🎬</div><div class="name">示例卡</div>
+        <div class="full">
+          <p>这里是未点击就展示的详细内容。可放开场白、台词、表格、列表。</p>
+          <blockquote>引用块用于可直接念的台词。</blockquote>
+          <table>
+            <tr><th>单位</th><th>HP</th><th>AC</th></tr>
+            <tr><td>示例敌人</td><td>10</td><td>12</td></tr>
+          </table>
+        </div>
+      </div>
+      <div class="card" data-title="第二张卡">
+        <div class="ico">⚔️</div><div class="name">第二张卡</div>
+        <div class="full">
+          <ul><li>敌人配置 / 站位 / 分支，都放进 .full。</li></ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== 敌人属性组（建议保留） ===== -->
+  <section class="group" id="grp-enemies">
+    <h3>敌人属性 <span class="count">参考值 · 以棋子库为准</span></h3>
+    <div class="cardwall">
+      <div class="card" data-title="敌人属性卡">
+        <div class="ico">👺</div><div class="name">敌人</div>
+        <div class="full">
+          <table>
+            <tr><th>单位</th><th>HP</th><th>AC</th><th>先攻</th></tr>
+            <tr><td>示例</td><td>10</td><td>12</td><td>+1</td></tr>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== 总览组：决策点 / 后日谈 / 检查单 ===== -->
+  <section class="group" id="grp-meta">
+    <h3>总览 <span class="count">决策 · 收尾</span></h3>
+    <div class="cardwall">
+      <div class="card" data-title="决策点速览">
+        <div class="ico">🔀</div><div class="name">决策点</div>
+        <div class="full">
+          <table>
+            <tr><th>幕</th><th>决策</th><th>后果</th></tr>
+            <tr><td>1</td><td>示例决策</td><td>示例后果</td></tr>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="foot">速查卡 · <团名> — 点任意卡片放大阅读，Ctrl/Cmd + P 可打印</div>
+</main>
+
+<div class="backdrop" id="backdrop">
+  <div class="modal">
+    <div class="modal-head">
+      <h2 id="modal-title"></h2>
+      <button class="modal-close" id="modal-close" title="关闭">×</button>
+    </div>
+    <div class="modal-body" id="modal-body"></div>
+  </div>
+</div>
+
+<script>
+  /* ===== 手动调整：设置 / 编辑模式 ===== */
+  const SS_KEY = 'card_settings_' + location.pathname;
+  const EDIT_KEY = 'card_edit_' + location.pathname;
+  const root = document.getElementById('content-root');
+  const toggleBtn = document.getElementById('settings-toggle');
+  const panel = document.getElementById('settings-panel');
+  const colsSel = document.getElementById('set-cols');
+  const fontSel = document.getElementById('set-font');
+  const editChk = document.getElementById('set-edit');
+  const statusEl = document.getElementById('set-status');
+
+  function applyCols(n) { document.documentElement.style.setProperty('--cols', n); }
+  function applyFont(f) {
+    document.body.classList.remove('font-s', 'font-m', 'font-l');
+    document.body.classList.add('font-' + f);
+  }
+  function applyEdit(on) {
+    document.body.classList.toggle('editing', on);
+    root.contentEditable = on ? 'true' : 'false';
+  }
+  function savePrefs() {
+    localStorage.setItem(SS_KEY, JSON.stringify({ cols: colsSel.value, font: fontSel.value, edit: editChk.checked }));
+  }
+  function loadPrefs() {
+    try {
+      const p = JSON.parse(localStorage.getItem(SS_KEY) || '{}');
+      if (p.cols) colsSel.value = p.cols; else colsSel.value = '4';
+      if (p.font) fontSel.value = p.font; else fontSel.value = 'm';
+      editChk.checked = !!p.edit;
+      applyCols(colsSel.value); applyFont(fontSel.value); applyEdit(editChk.checked);
+    } catch (e) { applyCols(4); applyFont('m'); }
+  }
+  function flash(msg) {
+    statusEl.textContent = msg;
+    clearTimeout(flash._t);
+    flash._t = setTimeout(() => { statusEl.textContent = ''; }, 1800);
+  }
+
+  toggleBtn.addEventListener('click', () => { panel.hidden = !panel.hidden; });
+  colsSel.addEventListener('change', () => { applyCols(colsSel.value); savePrefs(); });
+  fontSel.addEventListener('change', () => { applyFont(fontSel.value); savePrefs(); });
+  editChk.addEventListener('change', () => { applyEdit(editChk.checked); savePrefs(); });
+  document.getElementById('set-save').addEventListener('click', () => {
+    localStorage.setItem(EDIT_KEY, root.innerHTML);
+    flash('已保存到本机浏览器');
+  });
+  document.getElementById('set-reset').addEventListener('click', () => {
+    localStorage.removeItem(EDIT_KEY);
+    localStorage.removeItem(SS_KEY);
+    location.reload();
+  });
+
+  /* ===== 卡片点击放大 ===== */
+  const backdrop = document.getElementById('backdrop');
+  const modalTitle = document.getElementById('modal-title');
+  const modalBody = document.getElementById('modal-body');
+
+  function openCard(card) {
+    modalTitle.textContent = card.dataset.title || '';
+    const full = card.querySelector('.full');
+    modalBody.innerHTML = full ? full.innerHTML : '';
+    backdrop.classList.add('show');
+  }
+
+  function closeModal() { backdrop.classList.remove('show'); }
+
+  function bindCards() {
+    document.querySelectorAll('.card').forEach((card) => {
+      card.addEventListener('click', () => openCard(card));
+    });
+  }
+  document.getElementById('modal-close').addEventListener('click', closeModal);
+  backdrop.addEventListener('click', (e) => { if (e.target === backdrop) closeModal(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
+
+  function bindNav() {
+    document.querySelectorAll('nav button').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const el = document.getElementById(btn.dataset.target);
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    });
+  }
+
+  /* ===== 启动：先恢复已保存的编辑内容，再绑定交互 ===== */
+  function init() {
+    loadPrefs();
+    const saved = localStorage.getItem(EDIT_KEY);
+    if (saved) root.innerHTML = saved;
+    bindCards();
+    bindNav();
+  }
+  init();
+</script>
+</body>
+</html>

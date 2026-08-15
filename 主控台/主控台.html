@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>龙与地下城 · 跑团台</title>
+  <link rel="stylesheet" href="style.css?v=20260814k">
+</head>
+<body>
+
+<header id="topbar">
+  <div class="brand">
+    <span class="logo">🐉</span>
+    <span>DND跑团台-<em>桑哆尔</em></span>
+  </div>
+  <div class="controls">
+    <div class="dropdown">
+      <button class="dropdown-btn" data-dropdown="net" id="btn-stream-dd">📡 联机 ▾</button>
+      <div class="dropdown-menu" data-menu="net" hidden>
+        <button data-action="server-check">🔍 检测服务器（在线/离线）</button>
+        <button data-action="server-copy">📋 复制启动命令</button>
+        <button data-action="stream-push">🔄 更新数据（立即推送）</button>
+        <button data-action="stream" id="btn-stream-toggle">📡 开启玩家模式（主机推送）</button>
+        <button data-action="stream-copy">🔗 复制玩家观看地址</button>
+      </div>
+    </div>
+    <div class="dropdown">
+      <button class="dropdown-btn" data-dropdown="map">🗺️ 地图 ▾</button>
+      <div class="dropdown-menu" data-menu="map" hidden>
+        <button data-action="upload">📂 上传地图图片</button>
+        <button data-action="load-folder">📁 从地图文件夹加载（多选）</button>
+        <button data-action="stitch">🧩 拼接地图</button>
+        <button data-action="new-map">➕ 新建空白地图</button>
+        <button data-action="rename-map">✏️ 重命名当前地图</button>
+        <button data-action="delete-map">🗑 删除当前地图</button>
+      </div>
+    </div>
+    <div class="dropdown">
+      <button class="dropdown-btn" data-dropdown="save">💾 存档 ▾</button>
+      <div class="dropdown-menu" data-menu="save" hidden>
+        <button data-action="save">💾 保存</button>
+        <button data-action="backup-all">📦 导出完整备份（全部数据）</button>
+        <button data-action="restore-all">📥 恢复完整备份</button>
+        <button data-action="bind-folder">📌 绑定项目文件夹</button>
+        <button data-action="campaigns">🗂️ 战役管理</button>
+        <button data-action="reset">🗑 清空全部</button>
+      </div>
+    </div>
+    <span class="map-switch" title="切换地图（楼上楼下）">
+      <button id="btn-map-prev">‹</button>
+      <select id="map-select"></select>
+      <button id="btn-map-next">›</button>
+    </span>
+    <label class="toggle"><input type="checkbox" id="grid-toggle" checked> 网格</label>
+    <label class="toggle"><input type="checkbox" id="names-toggle" checked> 名字</label>
+    <label class="toggle" title="高清立绘开关：默认开启并优先读取项目原图；棋子很多、设备较慢时可关闭以使用 128px 缩略图"><input type="checkbox" id="hd-toggle-check"> 高清</label>
+    <label class="toggle" title="打开后点击任意格子可加/去黄色标记框"><input type="checkbox" id="mark-toggle"> 🖍️ 标记</label>
+    <label class="toggle" title="开启迷雾后，未探索的格子会变黑"><input type="checkbox" id="fog-toggle"> 🌫️ 迷雾</label>
+    <label class="toggle"><input type="checkbox" id="snap-toggle" checked> 吸附</label>
+    <button id="btn-fit" title="缩放并居中到整张地图">⛶ 适应窗口</button>
+    <span id="app-version" class="app-version">v1.1</span>
+  </div>
+</header>
+
+<main id="layout">
+  <aside id="left-panel" class="panel">
+    <section class="card">
+      <h2>🎲 骰子</h2>
+      <div class="dice-grid">
+        <button class="die" data-die="d4">d4</button>
+        <button class="die" data-die="d6">d6</button>
+        <button class="die" data-die="d8">d8</button>
+        <button class="die" data-die="d10">d10</button>
+        <button class="die" data-die="d12">d12</button>
+        <button class="die" data-die="d20">d20</button>
+        <button class="die" data-die="d100">d100</button>
+        <button id="btn-adv" title="掷两次 d20 取较大值">⚖️ 优势</button>
+        <button id="btn-dis" title="掷两次 d20 取较小值">⬇ 劣势</button>
+      </div>
+      <div class="custom-roll">
+        <input id="dice-expr" placeholder="如 2d6+3 / 4d8" enterkeyhint="go">
+        <button id="btn-roll" class="primary">掷!</button>
+      </div>
+      <p class="dice-hint">🔒 GM 掷骰仅自己可见，不会广播；玩家在观战页的掷骰会实时广播给所有人。</p>
+      <div id="roll-log"></div>
+    </section>
+
+    <section class="card">
+      <h2>🧙 放置单位</h2>
+      <input id="token-name" placeholder="名称，如：凯尔 · 游侠" maxlength="24">
+      <select id="token-type">
+        <option value="pc">玩家角色</option>
+        <option value="enemy">敌人</option>
+        <option value="npc">中立NPC</option>
+        <option value="ally">友好NPC</option>
+      </select>
+      <div class="row">
+        <input id="token-hp" type="number" placeholder="生命值" min="1" value="10">
+        <input id="token-ac" type="number" placeholder="AC" min="0" value="10">
+        <input id="token-icon" placeholder="图标 🗡️" maxlength="4">
+        <button id="btn-icon-upload" class="small icon-btn" title="上传图片作为头像">🖼️</button>
+        <input type="file" id="file-icon" accept="image/*" hidden>
+      </div>
+      <div class="icon-preview-row" id="token-icon-preview-row" hidden>
+        <img id="token-icon-preview" alt="图标预览">
+        <span class="hint">将作为新单位的头像</span>
+        <button id="btn-icon-clear" class="small">移除图片</button>
+      </div>
+      <div class="row">
+        <select id="token-size" title="占几格">
+          <option value="1">1×1</option>
+          <option value="2">2×2（大型）</option>
+        </select>
+        <button id="btn-place" class="primary">📌 放置</button>
+      </div>
+      <p class="hint">放置后点击棋子可选中，拖动移动；右键可快速标记死亡。</p>
+    </section>
+
+    <section class="card">
+      <h2>✏️ 地图编辑</h2>
+      <div class="tile-grid" id="map-edit-tiles"></div>
+      <div class="btn-row">
+        <button id="btn-map-edit-undo">↩ 撤销</button>
+        <button id="btn-map-edit-exit" class="small">退出画笔</button>
+      </div>
+      <p class="hint">选地块（每个都带名字）后在地图上点击 / 拖动涂抹；「清除」只擦掉编辑器涂的临时格子、恢复原图，不会破坏地图。支持格子地图（图片地图请到「地图工坊」重画）。Esc 退出。</p>
+    </section>
+
+    <section class="card">
+      <h2>🖍️ 战术涂鸦</h2>
+      <div class="tool-grid">
+        <button class="board-tool" data-tool="doodle-pen">✏️ 画笔</button>
+        <button class="board-tool" data-tool="doodle-line">📏 直线</button>
+        <button class="board-tool" data-tool="doodle-arrow">➡️ 箭头</button>
+        <button class="board-tool" data-tool="doodle-circle">⭕ 圆圈</button>
+        <button class="board-tool" data-tool="doodle-select">🖱️ 选择</button>
+      </div>
+      <div class="doodle-opts">
+        <div class="doodle-colors">
+          <button class="doodle-color active" data-color="#ff4d4f" style="background:#ff4d4f"></button>
+          <button class="doodle-color" data-color="#ffd23f" style="background:#ffd23f"></button>
+          <button class="doodle-color" data-color="#4f7cff" style="background:#4f7cff"></button>
+          <button class="doodle-color" data-color="#4cc38a" style="background:#4cc38a"></button>
+          <button class="doodle-color" data-color="#ffffff" style="background:#ffffff"></button>
+        </div>
+        <select id="doodle-width" title="线条粗细">
+          <option value="3">细</option>
+          <option value="6" selected>中</option>
+          <option value="10">粗</option>
+        </select>
+      </div>
+      <div class="btn-row">
+        <button id="btn-doodle-undo">↩ 撤销</button>
+        <button id="btn-doodle-clear">🗑 清除</button>
+      </div>
+      <p class="hint">绘制：选工具后按住拖动；移动：用「选择」点中已画的形状再拖动，Delete 删除；Esc 退出。</p>
+    </section>
+
+    <section class="card">
+      <h2>🌫️ 迷雾</h2>
+      <div class="tool-grid">
+        <button class="board-tool" data-tool="fog-reveal">🔦 揭开</button>
+        <button class="board-tool" data-tool="fog-hide">🌑 遮回</button>
+      </div>
+      <label class="gen-row" style="flex-direction:column;gap:3px;">
+        <span style="font-size:12px;color:var(--muted);">笔刷大小</span>
+        <select id="fog-brush">
+          <option value="1">1×1</option>
+          <option value="3" selected>3×3</option>
+          <option value="5">5×5</option>
+        </select>
+      </label>
+      <div class="btn-row">
+        <button id="btn-fog-hide-all">全部隐藏</button>
+        <button id="btn-fog-show-all">全部显示</button>
+      </div>
+      <p class="hint">先打开顶栏「🌫️ 迷雾」开关，再用「揭开」笔刷让玩家看到地图；Esc 退出。</p>
+    </section>
+
+    <section class="card">
+      <div class="card-head">
+        <h2>🎖️ 棋子库</h2>
+        <button id="btn-lib-sync" class="small" title="从「棋子库」程序读取最新数据">⟳ 同步</button>
+      </div>
+      <div class="row">
+        <input id="lib-search" placeholder="搜索棋子…" maxlength="20">
+        <select id="lib-filter">
+          <option value="all">全部</option>
+          <option value="pc">玩家</option>
+          <option value="enemy">敌人</option>
+          <option value="npc">中立NPC</option>
+          <option value="ally">友好NPC</option>
+        </select>
+      </div>
+      <select id="lib-cat" title="按分类筛选（分类来自棋子库程序）">
+        <option value="all">全部分类</option>
+      </select>
+      <div id="lib-list"></div>
+      <button id="btn-lib-add" class="primary small">＋ 新建预设</button>
+      <div class="row lib-persist">
+        <button id="btn-lib-persist" class="small" title="第一次点这里选择保存位置，之后每次修改棋子库都会自动写入这个文件">📌 永久保存</button>
+        <span id="lib-persist-status" class="lib-persist-status">未固定</span>
+      </div>
+      <div id="lib-editor" hidden>
+        <input id="lib-name" placeholder="名称，如：地精" maxlength="24">
+        <select id="lib-type">
+          <option value="pc">玩家角色</option>
+          <option value="enemy">敌人</option>
+          <option value="npc">中立NPC</option>
+          <option value="ally">友好NPC</option>
+        </select>
+        <select id="lib-class" class="class-select"></select>
+        <select id="lib-subclass" class="class-select sub-select"></select>
+        <div class="row">
+          <select id="lib-cat1" title="一级分类（如：妖精、龙类、巨人）"></select>
+          <select id="lib-cat2" title="二级分类（可留空，如：地精、红龙、巨魔）"></select>
+        </div>
+        <div class="row">
+          <input id="lib-hp" type="number" placeholder="生命值" min="1" value="10">
+          <input id="lib-ac" type="number" placeholder="AC" min="0" value="10">
+          <select id="lib-size" title="占几格">
+            <option value="1">1×1</option>
+            <option value="2">2×2</option>
+          </select>
+        </div>
+        <div class="sheet-stats" id="lib-sheet-stats"></div>
+        <div class="sheet-rows">
+          <label>熟练<input type="number" id="lib-prof" min="0" max="12" value="2"></label>
+          <label>速度<input type="number" id="lib-speed" min="0" max="120" value="30"></label>
+          <label>先攻调整<input type="number" id="lib-initbonus" value="0"></label>
+        </div>
+        <div class="row">
+          <select id="lib-eq-select"></select>
+          <button id="btn-lib-eq-add" class="small primary">＋装备</button>
+        </div>
+        <div class="eq-head"><span>名称</span><span>类型</span><span>数值</span><span>敏捷上限</span><span></span></div>
+        <div id="lib-eq-list"></div>
+        <div class="row">
+          <input id="lib-icon" placeholder="图标 🐺" maxlength="4">
+          <button id="btn-lib-icon" class="small icon-btn" title="上传图片头像">🖼️</button>
+          <input type="file" id="file-lib-icon" accept="image/*" hidden>
+        </div>
+        <div class="icon-preview-row" id="lib-icon-preview-row" hidden>
+          <img id="lib-icon-preview" alt="图标预览">
+          <button id="btn-lib-icon-clear" class="small">移除图片</button>
+        </div>
+        <div class="btn-row">
+          <button id="btn-lib-save" class="primary">💾 保存</button>
+          <button id="btn-lib-cancel">取消</button>
+        </div>
+      </div>
+      <p class="hint">点「放到地图」直接放到当前地图中央；也可以在地图上选中棋子后点右侧「存入棋子库」。</p>
+    </section>
+
+    <section class="card" id="bgm-card">
+      <h2>🎵 BGM</h2>
+      <div class="bgm-tools">
+        <button id="btn-bgm-bind" class="small">📂 绑定音乐文件夹</button>
+        <button id="btn-bgm-pick" class="small">🎵 选择音乐文件</button>
+        <input type="file" id="file-bgm" accept="audio/*" multiple hidden>
+        <span id="bgm-status" class="hint">未绑定 · 可临时选择音乐</span>
+      </div>
+      <div class="bgm-controls">
+        <button id="btn-bgm-prev" class="small" title="上一首">⏮</button>
+        <button id="btn-bgm-play" class="small primary" title="播放/暂停">▶</button>
+        <button id="btn-bgm-next" class="small" title="下一首">⏭</button>
+        <label class="chk" title="单曲循环：开＝当前这首无限循环；关＝顺序播放并循环列表"><input type="checkbox" id="bgm-loop"> 🔁 单曲循环</label>
+        <input type="range" id="bgm-volume" min="0" max="100" value="70" title="音量">
+      </div>
+      <div id="bgm-list"></div>
+    </section>
+
+    <section class="card" id="links-card">
+      <h2>📚 常用网站</h2>
+      <div id="links-list" class="links-list"></div>
+      <div class="links-add">
+        <input id="link-name" placeholder="名称">
+        <input id="link-url" placeholder="https://…">
+        <button id="btn-link-add" class="small primary">＋</button>
+      </div>
+    </section>
+  </aside>
+
+  <section id="center">
+    <section id="board-wrap">
+      <div id="board" tabindex="0">
+        <div id="world">
+          <div id="names-layer"></div>
+          <canvas id="fog-canvas" class="map-layer"></canvas>
+          <canvas id="doodle-canvas" class="map-layer"></canvas>
+        </div>
+        <div id="drop-hint">
+          <div class="drop-icon">🗺️</div>
+          <p>把地图图片拖到这里，<br>或点击左上角「上传地图」</p>
+          <p class="sub">也可以直接 Ctrl/Cmd + V 粘贴截图</p>
+        </div>
+        <div id="zoom-controls">
+          <button id="btn-zoom-in" title="放大">＋</button>
+          <button id="btn-zoom-out" title="缩小">－</button>
+          <button id="btn-zoom-fit" title="适应窗口">⛶</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="init-bar">
+      <div class="init-left">
+        <span class="init-title">⚔️ 先攻</span>
+        <div class="init-bar-add">
+          <input id="init-name" placeholder="名称" maxlength="24">
+          <input id="init-value" type="number" placeholder="数值">
+          <button id="btn-init-add" class="primary small">＋</button>
+        </div>
+        <div class="init-actions">
+          <button id="btn-next-turn" class="primary small">⏭ 下一回合</button>
+          <button id="btn-init-clear" class="small" title="清空先攻">清空</button>
+        </div>
+      </div>
+      <div id="init-list" class="init-bar-list"></div>
+    </section>
+
+  </section>
+
+  <aside id="right-panel" class="panel">
+    <section class="card" id="unit-card">
+      <h2>📋 选中单位</h2>
+      <p id="detail-empty" class="empty">点击地图上的棋子查看详情</p>
+      <div id="detail" hidden>
+        <div class="detail-head">
+          <div class="detail-icon" id="detail-icon">🧙</div>
+          <div class="detail-title">
+            <input id="detail-name" class="name-input" placeholder="名称" maxlength="24">
+            <select id="detail-type-select" class="type-tag type-select" title="类型可随时更改，颜色圆环会同步变化">
+              <option value="pc">玩家角色</option>
+              <option value="enemy">敌人</option>
+              <option value="npc">中立NPC</option>
+              <option value="ally">友好NPC</option>
+            </select>
+            <span class="detail-mini-tags">
+              <span id="detail-ac-tag" class="mini-tag"></span>
+              <span id="detail-init-tag" class="mini-tag"></span>
+            </span>
+          </div>
+        </div>
+        <div class="field sec">
+          <span>生命值</span>
+          <div class="hp-row">
+            <input type="number" id="detail-hp-current" min="0">
+            <span class="slash">/</span>
+            <input type="number" id="detail-hp-max" min="1">
+          </div>
+          <div class="hp-bar"><div id="detail-hp-bar"></div></div>
+          <div class="hp-btns">
+            <button data-hp="-5">受伤 −5</button>
+            <button data-hp="-1">−1</button>
+            <button data-hp="1">＋1</button>
+            <button data-hp="5">治疗 ＋5</button>
+            <button data-hp="full">回满</button>
+          </div>
+          <div id="detail-hitdice" class="hitdice-box"></div>
+        </div>
+      </div>
+
+      <div id="sheet" hidden>
+        <div class="sheet-derived sec">
+          <span class="ac-badge">AC<b id="sheet-ac"></b></span>
+          <span class="init-badge">先攻<b id="sheet-init"></b></span>
+          <span class="lv-badge">等级<b id="sheet-level-tag"></b></span>
+          <span class="spacer"></span>
+          <button id="btn-sheet-init" class="small">设为先攻</button>
+        </div>
+        <div id="sheet-ac-detail" class="sheet-ac-detail"></div>
+        <div class="field sec">
+          <span>豁免（职业自动熟练）</span>
+          <div id="sheet-saves" class="save-grid"></div>
+        </div>
+        <div class="field sec">
+          <span>法术环位</span>
+          <div id="sheet-spells" class="spell-slots-ui"></div>
+        </div>
+        <div class="sheet-stats sec" id="sheet-stats"></div>
+        <div class="sheet-rows sec">
+          <label title="等级决定熟练加值和职业资源上限">等级<input type="number" id="sheet-level" min="1" max="20"></label>
+          <label title="由等级自动决定">熟练<input type="number" id="sheet-prof" min="0" max="12" readonly></label>
+          <label>速度<input type="number" id="sheet-speed" min="0" max="120"></label>
+          <label>先攻调整<input type="number" id="sheet-initbonus"></label>
+        </div>
+        <div class="field sec">
+          <span>技能熟练（点击切换：未熟练 → 熟练 → 精通）</span>
+          <div id="sheet-skills" class="skill-grid"></div>
+        </div>
+        <div class="field sec">
+          <span>状态</span>
+          <div id="sheet-statuses" class="status-grid"></div>
+        </div>
+        <div class="field sec">
+          <span>装备</span>
+          <div class="sheet-add">
+            <select id="sheet-eq-select"></select>
+            <button id="btn-sheet-eq-add" class="small primary">＋</button>
+            <button id="btn-sheet-eq-custom" class="small">自定义…</button>
+          </div>
+          <div id="sheet-eq-summary" class="eq-summary"></div>
+          <div class="eq-head"><span>名称</span><span>类型</span><span>数值</span><span>敏捷上限</span><span></span></div>
+          <div id="sheet-eq-list"></div>
+        </div>
+        <div class="field sec">
+          <span>攻击（命中/伤害自动计算）</span>
+          <div id="sheet-attacks"></div>
+        </div>
+        <div class="field sec">
+          <span>移到其他地图</span>
+          <div class="row">
+            <select id="detail-map-move"></select>
+            <button id="btn-token-move" class="primary small">移动</button>
+            <button id="btn-token-copy" class="small">复制</button>
+          </div>
+        </div>
+        <div class="field row2 sec">
+          <span>图标</span>
+          <input id="detail-icon-input" maxlength="4" placeholder="🗡️">
+        </div>
+        <div class="row2 icon-actions">
+          <button id="btn-detail-icon-upload" class="small">🖼️ 上传图标</button>
+          <button id="btn-detail-icon-remove" class="small danger" hidden>移除图片</button>
+        </div>
+        <div class="field sec">
+          <span>骑乘</span>
+          <div id="mount-box" class="mount-box"></div>
+        </div>
+        <input type="file" id="file-detail-icon" accept="image/*" hidden>
+        <button id="btn-save-to-lib" class="sec">🎖️ 存入棋子库</button>
+        <button id="btn-detail-delete" class="danger">🗑 删除该单位</button>
+        <div class="field sec">
+          <span>职业</span>
+          <select id="detail-class" class="class-select"></select>
+          <select id="detail-subclass" class="class-select sub-select"></select>
+          <p class="hint" style="font-size:11px;line-height:1.5;margin-top:4px;">法术环位类型随职业/子职业自动切换：战士·奥法骑士、游荡者·诡术师拥有正常环位；战斗大师拥有战技骰。</p>
+        </div>
+        <div class="field sec">
+          <span>所属玩家</span>
+          <input id="detail-owner" list="owner-list" placeholder="留空 = GM 控制" maxlength="24">
+          <datalist id="owner-list"></datalist>
+        </div>
+      </div>
+    </section>
+  </aside>
+</main>
+
+<div id="stitch-modal" class="modal-mask" hidden>
+  <div class="modal">
+    <h2>🧩 拼接地图</h2>
+    <p class="hint">选择布局后按顺序放入各张地图，支持图片（PNG/JPG）或地图工坊导出的 .地图.json 文件。拼好的地图会作为一张新地图加入。</p>
+    <div class="stitch-opts">
+      <label>布局
+        <select id="stitch-layout">
+          <option value="lr">左右并排（2 张）</option>
+          <option value="tb">上下叠放（2 张）</option>
+          <option value="grid">2×2 四格（4 张）</option>
+        </select>
+      </label>
+      <label>每格像素 <input id="stitch-grid" type="number" min="20" max="120" value="50"></label>
+    </div>
+    <div id="stitch-slots"></div>
+    <p class="hint">提示：请保证各张地图的「每格像素」一致，否则合并后网格会对不上。</p>
+    <div class="modal-actions">
+      <button id="btn-stitch-cancel">取消</button>
+      <button id="btn-stitch-go" class="primary">🧩 合成并载入</button>
+    </div>
+  </div>
+</div>
+
+<div id="campaign-modal" class="modal-mask" hidden>
+  <div class="modal">
+    <h2>🗂️ 战役管理</h2>
+    <p class="hint" id="campaign-current"></p>
+    <p class="hint" style="font-size:12px;color:var(--muted);line-height:1.6;">战役保存在浏览器战役库；绑定项目文件夹后，每个战役会同步到 <code>主控台/状态/战役/&lt;战役名&gt;/存档.json</code>，打开本窗口时会自动与文件夹双向同步——所以双击打开和服务器地址打开只要绑定同一个文件夹，看到的战役就是同一批。「导出」会下载 JSON 并同时存入 <code>主控台/状态/导出/</code>。</p>
+    <div class="btn-row">
+      <button id="btn-campaign-new" class="primary">＋ 新建战役</button>
+      <button id="btn-campaign-import">📁 导入地图到当前战役</button>
+      <button id="btn-campaign-import-backup">⬆ 导入战役</button>
+    </div>
+    <input type="file" id="file-campaign-import" accept=".json,application/json" hidden>
+    <div id="campaign-list"></div>
+    <div class="modal-actions">
+      <button id="btn-campaign-close">关闭</button>
+    </div>
+  </div>
+</div>
+
+<div id="mount-modal" class="modal-mask" hidden>
+  <div class="modal">
+    <h2>🐎 选择坐骑</h2>
+    <p class="hint">选择当前地图上的大型（2×2）棋子作为坐骑</p>
+    <div id="mount-list" class="mount-list"></div>
+    <div class="modal-actions"><button id="btn-mount-cancel">取消</button></div>
+  </div>
+</div>
+
+<div id="perf-modal" class="modal-mask" hidden>
+  <div class="modal">
+    <h2>📊 性能诊断</h2>
+    <p class="hint" style="font-size:12px;line-height:1.7;">打开后一边拖动地图一边看 FPS；或点「自动拖测 3 秒」让程序自己拖 3 秒并统计。把结果发给我即可定位。</p>
+    <div id="perf-stats" class="perf-stats"></div>
+    <div class="perf-fps"><span id="perf-fps-num">--</span><span class="perf-fps-label">FPS</span></div>
+    <div id="perf-result" class="perf-result"></div>
+    <div class="modal-actions">
+      <button id="btn-perf-run">🎬 自动拖测 3 秒</button>
+      <button id="btn-perf-close">关闭</button>
+    </div>
+  </div>
+</div>
+
+<input type="file" id="file-map" accept="image/*" hidden>
+<input type="file" id="file-map-import" accept=".json,application/json" hidden>
+<input type="file" id="file-map-folder" multiple accept=".json,application/json" hidden>
+<input type="file" id="file-import" accept=".json,application/json" hidden>
+<input type="file" id="file-backup-all" accept=".json,application/json" hidden>
+
+<div id="toast" hidden></div>
+
+<div id="cover" class="cover">
+  <div class="cover-box">
+    <div class="cover-brand">🐉 DND 跑团台 <em>桑哆尔</em></div>
+    <div class="cover-sub">选择战役，开始冒险</div>
+    <div class="cover-actions">
+      <button id="cover-continue" class="cover-btn primary" hidden>⏯ 继续战役</button>
+      <button id="cover-new" class="cover-btn">🆕 新建战役</button>
+      <button id="cover-load" class="cover-btn">📂 载入战役</button>
+      <button id="cover-temp" class="cover-btn">⚡ 临时战役</button>
+    </div>
+    <div class="cover-hint">新建战役 = 空白开始，保存为独立战役；载入战役 = 打开已有战役；临时战役 = 直接开玩、不写入战役存档</div>
+  </div>
+</div>
+
+<script src="../棋子库/棋子库数据.js"></script>
+<script src="../棋子库/立绘清单.js"></script>
+<script src="../three.min.js"></script>
+<script src="../骰子动画.js?v=22"></script>
+<script src="app.js?v=20260815-familiars-complete"></script>
+</body>
+</html>
