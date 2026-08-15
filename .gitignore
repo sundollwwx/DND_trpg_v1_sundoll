@@ -9,10 +9,10 @@ __pycache__/
 # IDE-local settings
 .idea/
 .vscode/
+.tools/
 
 # Runtime and temporary files
 *.log
 *.tmp
 *.temp
 ~$*
-
