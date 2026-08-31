@@ -8,8 +8,8 @@
               在「📡 联机 → 开启玩家模式」开启推送。
   玩家：同一 WiFi 下用浏览器打开 http://<本机IP>:端口/主控台/观战.html
 """
-import os, sys, json, time, socket, threading, re
-from urllib.parse import urlparse, parse_qs
+import os, sys, json, time, socket, threading, re, base64, hashlib
+from urllib.parse import urlparse, parse_qs, unquote_to_bytes
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8090
@@ -22,9 +22,44 @@ LOCK = threading.Lock()
 RECENT_ACTIONS = []   # 玩家动作（带自增 seq），用于主机合并
 NEXT_SEQ = 1
 MAX_RECENT = 500
-PATCH_FIELDS = {'hp', 'hpMax', 'stats', 'prof', 'speed', 'initBonus', 'equipment', 'classResources', 'spellSlots', 'hitDice'}
-ABILITY_KEYS = ('str', 'dex', 'con', 'int', 'wis', 'cha')
+PATCH_FIELDS = {'hp', 'hpMax', 'ac'}
 MUSIC_EXTS = ('.mp3', '.m4a', '.wav', '.ogg', '.flac', '.aac', '.opus', '.webm')
+# 联机媒体只留在服务器内存中。状态里改为内容哈希 URL，浏览器可长期缓存，
+# 不再把 Base64 地图和头像塞进每一条 SSE 消息。
+ASSETS = {}           # {sha256: (mime, bytes)}
+DATA_URL_RE = re.compile(r'^data:([^;,]+)?(;base64)?,(.*)$', re.S)
+
+
+def cache_data_url(value):
+    """把 data URL 放入内存缓存，返回可缓存的同源资源地址。"""
+    if not isinstance(value, str):
+        return value
+    m = DATA_URL_RE.match(value)
+    if not m:
+        return value
+    mime = m.group(1) or 'application/octet-stream'
+    try:
+        raw = base64.b64decode(m.group(3), validate=False) if m.group(2) else unquote_to_bytes(m.group(3))
+    except Exception:
+        return value
+    if not raw:
+        return value
+    key = hashlib.sha256(raw).hexdigest()
+    ASSETS[key] = (mime, raw)
+    return '/api/assets/' + key
+
+
+def cache_stream_media(state):
+    """就地压缩公开状态中的地图与头像；调用方须持有 LOCK。"""
+    for m in (state or {}).get('maps', []) or []:
+        if isinstance(m, dict):
+            m['mapData'] = cache_data_url(m.get('mapData'))
+            for t in m.get('tokens', []) or []:
+                if not isinstance(t, dict):
+                    continue
+                t['iconImg'] = cache_data_url(t.get('iconImg'))
+                t['iconImgHd'] = cache_data_url(t.get('iconImgHd'))
+    return state
 
 
 def clean_music_cache(d):
@@ -43,35 +78,6 @@ def clean_music_cache(d):
                     pass
     except Exception:
         pass
-
-
-def sanitize_equipment(v):
-    out = []
-    for e in v:
-        if not isinstance(e, dict):
-            continue
-        item = {'name': str(e.get('name') or '未命名')[:40]}
-        item['type'] = e.get('type') if e.get('type') in ('armor', 'shield', 'weapon', 'other') else 'other'
-        if item['type'] == 'armor':
-            try:
-                item['baseAC'] = max(1, min(30, int(e.get('baseAC', 10))))
-            except Exception:
-                item['baseAC'] = 10
-            cap = e.get('dexCap')
-            try:
-                item['dexCap'] = None if cap in (None, 'null') else max(0, min(2, int(cap)))
-            except Exception:
-                item['dexCap'] = None
-        elif item['type'] == 'weapon':
-            item['dice'] = str(e.get('dice') or '1d6')[:12]
-            item['attr'] = 'dex' if e.get('attr') == 'dex' else 'str'
-        else:
-            try:
-                item['acBonus'] = max(-9, min(9, int(e.get('acBonus', 0))))
-            except Exception:
-                item['acBonus'] = 0
-        out.append(item)
-    return out
 
 
 def find_token(state, token_id):
@@ -111,15 +117,7 @@ def apply_action(state, action):
         for k, v in patch.items():
             if k not in PATCH_FIELDS:
                 continue
-            if k == 'stats' and isinstance(v, dict):
-                out = {}
-                for a in ABILITY_KEYS:
-                    try:
-                        out[a] = max(1, min(30, int(v.get(a, t.get('stats', {}).get(a, 10)))))
-                    except Exception:
-                        out[a] = t.get('stats', {}).get(a, 10)
-                t[k] = out
-            elif k == 'hp':
+            if k == 'hp':
                 try:
                     t[k] = max(0, min(99999, int(v)))
                 except Exception:
@@ -129,29 +127,11 @@ def apply_action(state, action):
                     t[k] = max(1, min(99999, int(v)))
                 except Exception:
                     pass
-            elif k == 'prof':
+            elif k == 'ac':
                 try:
-                    t[k] = max(0, min(12, int(v)))
+                    t[k] = max(0, min(99, int(v)))
                 except Exception:
                     pass
-            elif k == 'speed':
-                try:
-                    t[k] = max(0, min(120, int(v)))
-                except Exception:
-                    pass
-            elif k == 'initBonus':
-                try:
-                    t[k] = max(-99, min(99, int(v)))
-                except Exception:
-                    pass
-            elif k == 'equipment':
-                if isinstance(v, list):
-                    t[k] = sanitize_equipment(v)
-            elif k in ('classResources', 'spellSlots', 'hitDice'):
-                if isinstance(v, dict):
-                    t[k] = v
-            else:
-                t[k] = v
         return True
     if op == 'moveToken':
         grid = m.get('gridSize', 50)
@@ -166,37 +146,6 @@ def apply_action(state, action):
             if r.get('mountId') == t.get('id'):
                 r['x'] = t['x']
                 r['y'] = t['y']
-        return True
-    if op == 'setStatus':
-        st = action.get('status')
-        if not st:
-            return False
-        statuses = t.get('statuses')
-        if not isinstance(statuses, list):
-            statuses = []
-        statuses = [x for x in statuses if x != st]
-        lv = action.get('level')
-        if lv is not None:
-            try:
-                lv = max(0, min(6, int(lv)))
-            except Exception:
-                lv = None
-        if lv is None:
-            if action.get('on'):
-                statuses.append(st)
-        elif lv > 0:
-            statuses.append(st)
-            levels = t.get('statusLevels')
-            if not isinstance(levels, dict):
-                levels = {}
-            levels[st] = lv
-            t['statusLevels'] = levels
-        else:
-            levels = t.get('statusLevels')
-            if isinstance(levels, dict):
-                levels.pop(st, None)
-                t['statusLevels'] = levels
-        t['statuses'] = statuses
         return True
     return False
 
@@ -258,7 +207,23 @@ class Handler(SimpleHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
-        if self.path == '/api/state':
+        path = urlparse(self.path).path
+        if path.startswith('/api/assets/'):
+            key = path.rsplit('/', 1)[-1]
+            with LOCK:
+                asset = ASSETS.get(key)
+            if not asset:
+                self._send_json({'ok': False, 'error': 'asset not found'}, 404)
+                return
+            mime, raw = asset
+            self.send_response(200)
+            self.send_header('Content-Type', mime)
+            self.send_header('Content-Length', str(len(raw)))
+            self.send_header('Cache-Control', 'public, max-age=31536000, immutable')
+            self._cors()
+            self.end_headers()
+            self.wfile.write(raw)
+        elif self.path == '/api/state':
             with LOCK:
                 self._send_json(STATE if STATE is not None else {})
         elif self.path.startswith('/api/actions'):
@@ -309,7 +274,7 @@ class Handler(SimpleHTTPRequestHandler):
                     seq0 = int(data.pop('_streamSeq', 0) or 0)
                 except Exception:
                     seq0 = 0
-                STATE = data
+                STATE = cache_stream_media(data)
                 # 主机快照没包含的玩家动作，重新应用回去（动作都是幂等的）
                 for act in RECENT_ACTIONS:
                     if act.get('seq', 0) > seq0:
@@ -440,6 +405,13 @@ class Handler(SimpleHTTPRequestHandler):
 
 class Server(ThreadingHTTPServer):
     daemon_threads = True
+
+    def handle_error(self, request, client_address):
+        # 浏览器刷新/关页会正常中断 SSE 长连接；不把这种预期断开打印成异常栈。
+        exc_type = sys.exc_info()[0]
+        if exc_type and issubclass(exc_type, (BrokenPipeError, ConnectionResetError)):
+            return
+        super().handle_error(request, client_address)
 
 if __name__ == '__main__':
     os.chdir(ROOT)

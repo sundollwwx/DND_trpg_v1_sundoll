@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>龙与地下城 · 跑团台</title>
+  <title>桑哆尔 · 跑团台</title>
   <link rel="stylesheet" href="style.css?v=20260814k">
 </head>
 <body>
@@ -11,7 +11,7 @@
 <header id="topbar">
   <div class="brand">
     <span class="logo">🐉</span>
-    <span>DND跑团台-<em>桑哆尔</em></span>
+    <span>跑团台-<em>桑哆尔</em></span>
   </div>
   <div class="controls">
     <div class="dropdown">
@@ -74,14 +74,12 @@
         <button class="die" data-die="d12">d12</button>
         <button class="die" data-die="d20">d20</button>
         <button class="die" data-die="d100">d100</button>
-        <button id="btn-adv" title="掷两次 d20 取较大值">⚖️ 优势</button>
-        <button id="btn-dis" title="掷两次 d20 取较小值">⬇ 劣势</button>
       </div>
       <div class="custom-roll">
         <input id="dice-expr" placeholder="如 2d6+3 / 4d8" enterkeyhint="go">
         <button id="btn-roll" class="primary">掷!</button>
       </div>
-      <p class="dice-hint">🔒 GM 掷骰仅自己可见，不会广播；玩家在观战页的掷骰会实时广播给所有人。</p>
+      <p class="dice-hint">🔒 GM 掷骰仅自己可见；玩家在观战页的掷骰会实时广播给所有人。</p>
       <div id="roll-log"></div>
     </section>
 
@@ -209,8 +207,6 @@
           <option value="npc">中立NPC</option>
           <option value="ally">友好NPC</option>
         </select>
-        <select id="lib-class" class="class-select"></select>
-        <select id="lib-subclass" class="class-select sub-select"></select>
         <div class="row">
           <select id="lib-cat1" title="一级分类（如：妖精、龙类、巨人）"></select>
           <select id="lib-cat2" title="二级分类（可留空，如：地精、红龙、巨魔）"></select>
@@ -223,18 +219,6 @@
             <option value="2">2×2</option>
           </select>
         </div>
-        <div class="sheet-stats" id="lib-sheet-stats"></div>
-        <div class="sheet-rows">
-          <label>熟练<input type="number" id="lib-prof" min="0" max="12" value="2"></label>
-          <label>速度<input type="number" id="lib-speed" min="0" max="120" value="30"></label>
-          <label>先攻调整<input type="number" id="lib-initbonus" value="0"></label>
-        </div>
-        <div class="row">
-          <select id="lib-eq-select"></select>
-          <button id="btn-lib-eq-add" class="small primary">＋装备</button>
-        </div>
-        <div class="eq-head"><span>名称</span><span>类型</span><span>数值</span><span>敏捷上限</span><span></span></div>
-        <div id="lib-eq-list"></div>
         <div class="row">
           <input id="lib-icon" placeholder="图标 🐺" maxlength="4">
           <button id="btn-lib-icon" class="small icon-btn" title="上传图片头像">🖼️</button>
@@ -302,22 +286,6 @@
       </div>
     </section>
 
-    <section id="init-bar">
-      <div class="init-left">
-        <span class="init-title">⚔️ 先攻</span>
-        <div class="init-bar-add">
-          <input id="init-name" placeholder="名称" maxlength="24">
-          <input id="init-value" type="number" placeholder="数值">
-          <button id="btn-init-add" class="primary small">＋</button>
-        </div>
-        <div class="init-actions">
-          <button id="btn-next-turn" class="primary small">⏭ 下一回合</button>
-          <button id="btn-init-clear" class="small" title="清空先攻">清空</button>
-        </div>
-      </div>
-      <div id="init-list" class="init-bar-list"></div>
-    </section>
-
   </section>
 
   <aside id="right-panel" class="panel">
@@ -335,10 +303,6 @@
               <option value="npc">中立NPC</option>
               <option value="ally">友好NPC</option>
             </select>
-            <span class="detail-mini-tags">
-              <span id="detail-ac-tag" class="mini-tag"></span>
-              <span id="detail-init-tag" class="mini-tag"></span>
-            </span>
           </div>
         </div>
         <div class="field sec">
@@ -356,92 +320,28 @@
             <button data-hp="5">治疗 ＋5</button>
             <button data-hp="full">回满</button>
           </div>
-          <div id="detail-hitdice" class="hitdice-box"></div>
+          <label class="field row2"><span>AC</span><input id="detail-ac-input" type="number" min="0" max="99"></label>
+          <div class="field sec">
+            <span>移到其他地图</span>
+            <div class="row">
+              <select id="detail-map-move"></select>
+              <button id="btn-token-move" class="primary small">移动</button>
+              <button id="btn-token-copy" class="small">复制</button>
+            </div>
+          </div>
+          <div class="field row2 sec"><span>图标</span><input id="detail-icon-input" maxlength="4" placeholder="🗡️"></div>
+          <div class="row2 icon-actions">
+            <button id="btn-detail-icon-upload" class="small">🖼️ 上传图标</button>
+            <button id="btn-detail-icon-remove" class="small danger" hidden>移除图片</button>
+          </div>
+          <div class="field sec"><span>骑乘</span><div id="mount-box" class="mount-box"></div></div>
+          <div class="field sec"><span>所属玩家</span><input id="detail-owner" list="owner-list" placeholder="留空 = GM 控制" maxlength="24"><datalist id="owner-list"></datalist></div>
+          <input type="file" id="file-detail-icon" accept="image/*" hidden>
+          <button id="btn-save-to-lib" class="sec">🎖️ 存入棋子库</button>
+          <button id="btn-detail-delete" class="danger">🗑 删除该单位</button>
         </div>
       </div>
 
-      <div id="sheet" hidden>
-        <div class="sheet-derived sec">
-          <span class="ac-badge">AC<b id="sheet-ac"></b></span>
-          <span class="init-badge">先攻<b id="sheet-init"></b></span>
-          <span class="lv-badge">等级<b id="sheet-level-tag"></b></span>
-          <span class="spacer"></span>
-          <button id="btn-sheet-init" class="small">设为先攻</button>
-        </div>
-        <div id="sheet-ac-detail" class="sheet-ac-detail"></div>
-        <div class="field sec">
-          <span>豁免（职业自动熟练）</span>
-          <div id="sheet-saves" class="save-grid"></div>
-        </div>
-        <div class="field sec">
-          <span>法术环位</span>
-          <div id="sheet-spells" class="spell-slots-ui"></div>
-        </div>
-        <div class="sheet-stats sec" id="sheet-stats"></div>
-        <div class="sheet-rows sec">
-          <label title="等级决定熟练加值和职业资源上限">等级<input type="number" id="sheet-level" min="1" max="20"></label>
-          <label title="由等级自动决定">熟练<input type="number" id="sheet-prof" min="0" max="12" readonly></label>
-          <label>速度<input type="number" id="sheet-speed" min="0" max="120"></label>
-          <label>先攻调整<input type="number" id="sheet-initbonus"></label>
-        </div>
-        <div class="field sec">
-          <span>技能熟练（点击切换：未熟练 → 熟练 → 精通）</span>
-          <div id="sheet-skills" class="skill-grid"></div>
-        </div>
-        <div class="field sec">
-          <span>状态</span>
-          <div id="sheet-statuses" class="status-grid"></div>
-        </div>
-        <div class="field sec">
-          <span>装备</span>
-          <div class="sheet-add">
-            <select id="sheet-eq-select"></select>
-            <button id="btn-sheet-eq-add" class="small primary">＋</button>
-            <button id="btn-sheet-eq-custom" class="small">自定义…</button>
-          </div>
-          <div id="sheet-eq-summary" class="eq-summary"></div>
-          <div class="eq-head"><span>名称</span><span>类型</span><span>数值</span><span>敏捷上限</span><span></span></div>
-          <div id="sheet-eq-list"></div>
-        </div>
-        <div class="field sec">
-          <span>攻击（命中/伤害自动计算）</span>
-          <div id="sheet-attacks"></div>
-        </div>
-        <div class="field sec">
-          <span>移到其他地图</span>
-          <div class="row">
-            <select id="detail-map-move"></select>
-            <button id="btn-token-move" class="primary small">移动</button>
-            <button id="btn-token-copy" class="small">复制</button>
-          </div>
-        </div>
-        <div class="field row2 sec">
-          <span>图标</span>
-          <input id="detail-icon-input" maxlength="4" placeholder="🗡️">
-        </div>
-        <div class="row2 icon-actions">
-          <button id="btn-detail-icon-upload" class="small">🖼️ 上传图标</button>
-          <button id="btn-detail-icon-remove" class="small danger" hidden>移除图片</button>
-        </div>
-        <div class="field sec">
-          <span>骑乘</span>
-          <div id="mount-box" class="mount-box"></div>
-        </div>
-        <input type="file" id="file-detail-icon" accept="image/*" hidden>
-        <button id="btn-save-to-lib" class="sec">🎖️ 存入棋子库</button>
-        <button id="btn-detail-delete" class="danger">🗑 删除该单位</button>
-        <div class="field sec">
-          <span>职业</span>
-          <select id="detail-class" class="class-select"></select>
-          <select id="detail-subclass" class="class-select sub-select"></select>
-          <p class="hint" style="font-size:11px;line-height:1.5;margin-top:4px;">法术环位类型随职业/子职业自动切换：战士·奥法骑士、游荡者·诡术师拥有正常环位；战斗大师拥有战技骰。</p>
-        </div>
-        <div class="field sec">
-          <span>所属玩家</span>
-          <input id="detail-owner" list="owner-list" placeholder="留空 = GM 控制" maxlength="24">
-          <datalist id="owner-list"></datalist>
-        </div>
-      </div>
     </section>
   </aside>
 </main>
@@ -520,7 +420,7 @@
 
 <div id="cover" class="cover">
   <div class="cover-box">
-    <div class="cover-brand">🐉 DND 跑团台 <em>桑哆尔</em></div>
+    <div class="cover-brand">🐉 桑哆尔跑团台</div>
     <div class="cover-sub">选择战役，开始冒险</div>
     <div class="cover-actions">
       <button id="cover-continue" class="cover-btn primary" hidden>⏯ 继续战役</button>
@@ -536,6 +436,6 @@
 <script src="../棋子库/立绘清单.js"></script>
 <script src="../three.min.js"></script>
 <script src="../骰子动画.js?v=22"></script>
-<script src="app.js?v=20260815-familiars-complete"></script>
+<script src="app.js?v=20260901-lightweight"></script>
 </body>
 </html>

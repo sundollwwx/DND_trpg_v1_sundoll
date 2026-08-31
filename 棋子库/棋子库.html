@@ -204,8 +204,6 @@ main { flex:1; display:flex; min-height:0; }
       <option value="npc">中立NPC</option>
       <option value="ally">友好NPC</option>
     </select>
-    <select id="ed-class" title="职业：法术环位类型与职业资源会自动跟随职业"></select>
-    <select id="ed-subclass" title="子职业：奥法骑士/诡术师会带来正常环位，战斗大师带来战技骰"></select>
     <div class="row">
       <select id="ed-cat1" title="一级分类（如：妖精、龙类、巨人）"></select>
       <select id="ed-cat2" title="二级分类（可留空，如：地精、红龙、巨魔）"></select>
@@ -218,27 +216,6 @@ main { flex:1; display:flex; min-height:0; }
         <option value="2">2×2</option>
       </select>
     </div>
-    <div class="row">
-      <input id="ed-str" type="number" placeholder="STR" min="1" max="30" value="10">
-      <input id="ed-dex" type="number" placeholder="DEX" min="1" max="30" value="10">
-      <input id="ed-con" type="number" placeholder="CON" min="1" max="30" value="10">
-    </div>
-    <div class="row">
-      <input id="ed-int" type="number" placeholder="INT" min="1" max="30" value="10">
-      <input id="ed-wis" type="number" placeholder="WIS" min="1" max="30" value="10">
-      <input id="ed-cha" type="number" placeholder="CHA" min="1" max="30" value="10">
-    </div>
-    <div class="row">
-      <input id="ed-prof" type="number" placeholder="熟练" min="0" max="12" value="2">
-      <input id="ed-speed" type="number" placeholder="速度" min="0" max="120" value="30">
-      <input id="ed-initbonus" type="number" placeholder="先攻调整" value="0">
-    </div>
-    <div class="row">
-      <select id="lib-eq-select"></select>
-      <button id="btn-lib-eq-add" class="small primary">＋装备</button>
-    </div>
-    <div class="eq-head"><span>名称</span><span>类型</span><span>数值</span><span>敏捷上限</span><span></span></div>
-    <div id="lib-eq-list"></div>
     <div class="row">
       <input id="ed-icon" placeholder="图标 🐺" maxlength="4">
       <button id="btn-icon" class="small" title="上传图片头像">🖼️</button>
@@ -328,58 +305,6 @@ const AVATAR_SOURCE_MAP = window.__PORTRAIT_PATHS__ || {
   '吉斯洋基武者':'立绘/异怪/吉斯洋基武者.png',
   '吉斯洋基骑士':'立绘/异怪/吉斯洋基骑士.png'
 };
-const CLASS_META = {
-  '无职业': { slotType: 'none', resources: [], subclasses: [], saveProfs: [], skillCount: 0, hitDie: 8 },
-  '野蛮人': { slotType: 'none', resources: [{ key: '狂暴次数', max: 2 }], subclasses: ['狂战士', '图腾战士', '世界树之魂'], saveProfs: ['str', 'con'], skillCount: 2, hitDie: 12 },
-  '战士':   { slotType: 'none', resources: [], subclasses: ['勇士', '战斗大师', '奥法骑士', '灵能武士', '武士'], saveProfs: ['str', 'con'], skillCount: 2, hitDie: 10 },
-  '武僧':   { slotType: 'none', resources: [{ key: '气点', max: 5 }], subclasses: ['四象宗', '暗影宗', '醉拳宗'], saveProfs: ['str', 'dex'], skillCount: 2, hitDie: 8 },
-  '游荡者': { slotType: 'none', resources: [], subclasses: ['刺客', '诡术师', '魂刃', '神偷'], saveProfs: ['dex', 'int'], skillCount: 4, hitDie: 8 },
-  '诗人':   { slotType: 'normal', resources: [{ key: '激励骰', max: 4 }], subclasses: ['学识学院', '英勇学院', '剑舞学院', '低语学院'], saveProfs: ['dex', 'cha'], skillCount: 3, hitDie: 8 },
-  '牧师':   { slotType: 'normal', resources: [{ key: '引导神力', max: 2 }], subclasses: ['生命领域', '光明领域', '战争领域', '知识领域', '自然领域', '风暴领域', '诡术领域'], saveProfs: ['int', 'wis'], skillCount: 2, hitDie: 8 },
-  '德鲁伊': { slotType: 'normal', resources: [{ key: '引导神力', max: 2 }], subclasses: ['月之结社', '大地结社', '星界结社', '野火结社'], saveProfs: ['int', 'wis'], skillCount: 2, hitDie: 8 },
-  '游侠':   { slotType: 'normal', resources: [], subclasses: ['猎人', '兽王', '幽域行者', '林地漫游者'], saveProfs: ['dex', 'wis'], skillCount: 3, hitDie: 10 },
-  '圣武士': { slotType: 'normal', resources: [{ key: '圣疗点数', max: 5 }, { key: '引导神力', max: 2 }], subclasses: ['奉献誓约', '守护誓约', '复仇誓约', '征服誓约'], saveProfs: ['wis', 'cha'], skillCount: 2, hitDie: 10 },
-  '法师':   { slotType: 'normal', resources: [{ key: '奥术恢复', max: 1 }], subclasses: ['防护学派', '咒法学派', '预言学派', '附魔学派', '塑能学派', '幻术学派', '死灵学派', '变化学派'], saveProfs: ['int', 'wis'], skillCount: 2, hitDie: 6 },
-  '术士':   { slotType: 'sorcerer', resources: [], subclasses: ['龙脉血统', '狂野魔法', '灵能之魂', '神圣之魂'], saveProfs: ['con', 'cha'], skillCount: 2, hitDie: 6 },
-  '咒术师': { slotType: 'warlock', resources: [], subclasses: ['大妖精宗主', '邪魔宗主', '上古邪物宗主', '天界宗主'], saveProfs: ['int', 'cha'], skillCount: 2, hitDie: 8 },
-};
-
-const SUBCLASS_META = {
-  '奥法骑士': { slotType: 'normal' },
-  '诡术师': { slotType: 'normal' },
-  '战斗大师': { resources: [{ key: '战技骰', max: 4 }] },
-};
-
-function classDef(cn) {
-  return CLASS_META[cn] || CLASS_META['无职业'];
-}
-
-function subclassMeta(sub) {
-  return (sub && SUBCLASS_META[sub]) ? SUBCLASS_META[sub] : null;
-}
-
-const ABILITY_KEYS = ['str', 'dex', 'con', 'int', 'wis', 'cha'];
-const EQUIPMENT_PRESETS = [
-  { name: '皮甲', type: 'armor', baseAC: 11, dexCap: null },
-  { name: '镶嵌皮甲', type: 'armor', baseAC: 12, dexCap: null },
-  { name: '链甲衫', type: 'armor', baseAC: 13, dexCap: 2 },
-  { name: '鳞甲', type: 'armor', baseAC: 14, dexCap: 2 },
-  { name: '胸甲', type: 'armor', baseAC: 14, dexCap: 2 },
-  { name: '半身板甲', type: 'armor', baseAC: 15, dexCap: 2 },
-  { name: '环甲', type: 'armor', baseAC: 14, dexCap: 0 },
-  { name: '链甲', type: 'armor', baseAC: 16, dexCap: 0 },
-  { name: '板甲', type: 'armor', baseAC: 18, dexCap: 0 },
-  { name: '盾牌', type: 'shield', acBonus: 2 },
-  { name: '匕首', type: 'weapon', dice: '1d4', attr: 'dex' },
-  { name: '短剑', type: 'weapon', dice: '1d6', attr: 'dex' },
-  { name: '长剑', type: 'weapon', dice: '1d8', attr: 'str' },
-  { name: '巨剑', type: 'weapon', dice: '2d6', attr: 'str' },
-  { name: '战斧', type: 'weapon', dice: '1d8', attr: 'str' },
-  { name: '短弓', type: 'weapon', dice: '1d6', attr: 'dex' },
-  { name: '长弓', type: 'weapon', dice: '1d8', attr: 'dex' },
-  { name: '轻弩', type: 'weapon', dice: '1d8', attr: 'dex' },
-  { name: '木杖', type: 'weapon', dice: '1d6', attr: 'str' },
-];
 const $ = (sel) => document.querySelector(sel);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => (
   { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
@@ -391,7 +316,6 @@ let filterType = 'all';
 let searchText = '';
 let editorId = null;
 let avatar = null;
-let libEqDraft = [];
 let uid = 1;
 
 /* ==================== 高清头像（IndexedDB 存储） ==================== */
@@ -611,23 +535,13 @@ function canonicalPortraitPath(value) {
 }
 
 function normalize(p) {
-  const stats = p.stats && typeof p.stats === 'object' ? p.stats : {};
-  // 已有项目原图时只保存路径和轻量缩略图，避免 512px data URL 重复挤爆 localStorage。
+  // 预设与地图单位共用极简字段：显示信息、尺寸、HP 和 AC。
   const portraitPath = canonicalPortraitPath(AVATAR_SOURCE_MAP[p.name] || p.iconImgPath);
-  ABILITY_KEYS.forEach((k) => { if (typeof stats[k] !== 'number') stats[k] = 10; });
   return {
     id: p.id || 'l' + (uid++),
     name: p.name || '未命名',
     type: ['pc', 'enemy', 'npc', 'ally'].includes(p.type) ? p.type : 'npc',
     category: (p.category || '').trim() || '其他',
-    className: typeof p.className === 'string' && CLASS_META[p.className] ? p.className : '无职业',
-    subClassName: typeof p.subClassName === 'string' && classDef(p.className).subclasses.includes(p.subClassName) ? p.subClassName : '',
-    classResources: p.classResources && typeof p.classResources === 'object' ? { ...p.classResources } : {},
-    spellSlots: p.spellSlots && typeof p.spellSlots === 'object' ? JSON.parse(JSON.stringify(p.spellSlots)) : null,
-    level: typeof p.level === 'number' ? Math.max(1, Math.min(20, p.level)) : 1,
-    saveBonuses: p.saveBonuses && typeof p.saveBonuses === 'object' ? { ...p.saveBonuses } : {},
-    skillProfs: p.skillProfs && typeof p.skillProfs === 'object' ? { ...p.skillProfs } : {},
-    hitDice: p.hitDice && typeof p.hitDice === 'object' ? { ...p.hitDice } : null,
     icon: p.icon || '',
     iconImg: p.iconImg || null,
     iconImgHd: portraitPath ? null : (p.iconImgHd || null),
@@ -635,12 +549,7 @@ function normalize(p) {
     iconImgId: p.iconImgId || null,
     size: p.size === 2 ? 2 : 1,
     hpMax: Math.max(1, parseInt(p.hpMax, 10) || 10),
-    ac: typeof p.ac === 'number' ? p.ac : 10,
-    stats,
-    prof: typeof p.prof === 'number' ? p.prof : 2,
-    speed: typeof p.speed === 'number' ? p.speed : 30,
-    initBonus: typeof p.initBonus === 'number' ? p.initBonus : 0,
-    equipment: Array.isArray(p.equipment) ? p.equipment.map((e) => ({ ...e })) : [],
+    ac: Math.max(0, Math.min(99, parseInt(p.ac, 10) || 10)),
   };
 }
 
@@ -927,13 +836,9 @@ function renderGrid() {
     tags.innerHTML =
       `<span class="tag type-${p.type}">${meta.label}</span>` +
       `<span class="tag cat">${esc(p.category)}</span>` +
-      (p.className && p.className !== '无职业' ? `<span class="tag cls">${esc(p.className)}</span>` : '') +
       `<span class="tag">${p.size === 2 ? '2×2' : '1×1'}</span>` +
       `<span class="tag">HP ${p.hpMax}</span>` +
-      `<span class="tag">AC ${typeof p.ac === 'number' ? p.ac : 10}</span>` +
-      (p.stats && ABILITY_KEYS.some((k) => p.stats[k] !== 10)
-        ? `<span class="tag">STR${p.stats.str} DEX${p.stats.dex} CON${p.stats.con} INT${p.stats.int} WIS${p.stats.wis} CHA${p.stats.cha}</span>`
-        : '');
+      `<span class="tag">AC ${typeof p.ac === 'number' ? p.ac : 10}</span>`;
 
     const actions = document.createElement('div');
     actions.className = 'actions';
@@ -1043,77 +948,32 @@ function syncIconPreview() {
   }
 }
 
-function populateClassSelect() {
-  const sel = $('#ed-class');
-  if (!sel) return;
-  sel.innerHTML = '';
-  Object.keys(CLASS_META).forEach((name) => {
-    const o = document.createElement('option');
-    o.value = name;
-    o.textContent = name;
-    sel.appendChild(o);
-  });
-  populateSubclassOptions($('#ed-subclass'), '无职业');
-}
-
-function populateSubclassOptions(sel, className) {
-  if (!sel) return;
-  sel.innerHTML = '';
-  const none = document.createElement('option');
-  none.value = '';
-  none.textContent = '无子职业';
-  sel.appendChild(none);
-  classDef(className).subclasses.forEach((name) => {
-    const o = document.createElement('option');
-    o.value = name;
-    o.textContent = name;
-    sel.appendChild(o);
-  });
-}
-
 function openEditor(id) {
   editorId = id;
   avatar = null;
-  libEqDraft = [];
   $('#editor-modal').hidden = false;
   $('#editor-title').textContent = id === 'new' ? '＋ 新建预设' : '✎ 编辑预设';
   if (id === 'new') {
     $('#ed-name').value = '';
     $('#ed-type').value = 'enemy';
-    $('#ed-class').value = '无职业';
-    populateSubclassOptions($('#ed-subclass'), '无职业');
-    $('#ed-subclass').value = '';
     edCatPrev = '';
     $('#ed-cat1').value = '其他';
     fillCat2();
     $('#ed-hp').value = 10;
     $('#ed-ac').value = 10;
     $('#ed-size').value = '1';
-    $('#ed-prof').value = 2;
-    $('#ed-speed').value = 30;
-    $('#ed-initbonus').value = 0;
-    ABILITY_KEYS.forEach((k) => { $('#ed-' + k).value = 10; });
     $('#ed-icon').value = '';
   } else {
     const p = presets.find((x) => x.id === id);
     if (!p) { closeEditor(); return; }
     $('#ed-name').value = p.name;
     $('#ed-type').value = p.type;
-    $('#ed-class').value = (p.className && CLASS_META[p.className]) ? p.className : '无职业';
-    populateSubclassOptions($('#ed-subclass'), $('#ed-class').value);
-    $('#ed-subclass').value = (p.subClassName && classDef($('#ed-class').value).subclasses.includes(p.subClassName)) ? p.subClassName : '';
     const parts = catParts(p.category);
     if (parts[0] && [...$('#ed-cat1').options].some((o) => o.value === parts[0])) $('#ed-cat1').value = parts[0];
     fillCat2(p.category);
     $('#ed-hp').value = p.hpMax;
     $('#ed-ac').value = typeof p.ac === 'number' ? p.ac : 10;
     $('#ed-size').value = String(p.size);
-    $('#ed-prof').value = typeof p.prof === 'number' ? p.prof : 2;
-    $('#ed-speed').value = typeof p.speed === 'number' ? p.speed : 30;
-    $('#ed-initbonus').value = typeof p.initBonus === 'number' ? p.initBonus : 0;
-    const stats = p.stats && typeof p.stats === 'object' ? p.stats : {};
-    ABILITY_KEYS.forEach((k) => { $('#ed-' + k).value = typeof stats[k] === 'number' ? stats[k] : 10; });
-    libEqDraft = Array.isArray(p.equipment) ? p.equipment.map((e) => ({ ...e })) : [];
     $('#ed-icon').value = p.icon || '';
     const editPath = canonicalPortraitPath(AVATAR_SOURCE_MAP[p.name] || p.iconImgPath);
     avatar = p.iconImg || p.iconImgHd || editPath || p.iconImgId
@@ -1121,7 +981,6 @@ function openEditor(id) {
       : null;
   }
   syncIconPreview();
-  renderLibEqList();
 }
 
 function closeEditor() {
@@ -1131,22 +990,11 @@ function closeEditor() {
 }
 
 function saveEditor() {
-  const stats = {};
-  ABILITY_KEYS.forEach((k) => { stats[k] = Math.max(1, Math.min(30, parseInt($('#ed-' + k).value, 10) || 10)); });
-  const existing = presets.find((x) => x.id === editorId);
   const preset = {
     id: editorId === 'new' ? 'l' + (uid++) : editorId,
     name: $('#ed-name').value.trim() || '未命名',
     type: $('#ed-type').value,
     category: readCatSelects(),
-    className: $('#ed-class').value,
-    subClassName: $('#ed-subclass').value,
-    classResources: existing && existing.classResources ? JSON.parse(JSON.stringify(existing.classResources)) : {},
-    spellSlots: existing && existing.spellSlots ? JSON.parse(JSON.stringify(existing.spellSlots)) : null,
-    level: existing && typeof existing.level === 'number' ? existing.level : 1,
-    saveBonuses: existing && existing.saveBonuses ? { ...existing.saveBonuses } : {},
-    skillProfs: existing && existing.skillProfs ? { ...existing.skillProfs } : {},
-    hitDice: existing && existing.hitDice ? { ...existing.hitDice } : null,
     icon: $('#ed-icon').value.trim(),
     iconImg: avatar ? avatar.iconImg : null,
     iconImgHd: avatar ? avatar.iconImgHd : null,
@@ -1155,11 +1003,6 @@ function saveEditor() {
     size: parseInt($('#ed-size').value, 10) === 2 ? 2 : 1,
     hpMax: Math.max(1, parseInt($('#ed-hp').value, 10) || 10),
     ac: Math.max(0, parseInt($('#ed-ac').value, 10) || 10),
-    stats,
-    prof: Math.max(0, parseInt($('#ed-prof').value, 10) || 2),
-    speed: Math.max(0, parseInt($('#ed-speed').value, 10) || 30),
-    initBonus: parseInt($('#ed-initbonus').value, 10) || 0,
-    equipment: libEqDraft.map((e) => ({ ...e })),
   };
   if (editorId === 'new') presets.push(preset);
   else {
@@ -1170,60 +1013,6 @@ function saveEditor() {
   closeEditor();
   renderAll();
   toast(`已保存「${preset.name}」`);
-}
-
-function initLibEqSelect() {
-  const sel = $('#lib-eq-select');
-  sel.innerHTML = '';
-  EQUIPMENT_PRESETS.forEach((e, i) => {
-    const opt = document.createElement('option');
-    opt.value = i;
-    opt.textContent = `${e.name}（${e.type === 'armor' ? 'AC' + e.baseAC : e.type === 'shield' ? '盾 +' + e.acBonus : e.dice}）`;
-    sel.appendChild(opt);
-  });
-}
-
-function renderLibEqList() {
-  const box = $('#lib-eq-list');
-  box.innerHTML = '';
-  if (!libEqDraft.length) {
-    const d = document.createElement('div');
-    d.className = 'eq-empty';
-    d.textContent = '暂无装备';
-    box.appendChild(d);
-    return;
-  }
-  libEqDraft.forEach((e, i) => {
-    const row = document.createElement('div');
-    row.className = 'eq-row';
-    row.dataset.idx = i;
-    const name = `<input class="eq-name" value="${esc(e.name)}" data-f="name">`;
-    const type = `<select class="eq-type" data-f="type">
-      <option value="armor"${e.type === 'armor' ? ' selected' : ''}>护甲</option>
-      <option value="shield"${e.type === 'shield' ? ' selected' : ''}>盾牌</option>
-      <option value="weapon"${e.type === 'weapon' ? ' selected' : ''}>武器</option>
-      <option value="other"${e.type === 'other' ? ' selected' : ''}>其他</option></select>`;
-    let extra = '';
-    if (e.type === 'armor') {
-      extra =
-        `<input class="eq-num" type="number" value="${e.baseAC}" data-f="baseAC" title="基础AC">` +
-        `<select class="eq-cap" data-f="dexCap" title="敏捷上限">
-          <option value="null"${e.dexCap === null ? ' selected' : ''}>敏捷不限</option>
-          <option value="2"${e.dexCap === 2 ? ' selected' : ''}>上限+2</option>
-          <option value="0"${e.dexCap === 0 ? ' selected' : ''}>不加敏捷</option></select>`;
-    } else if (e.type === 'shield' || e.type === 'other') {
-      extra = `<input class="eq-num" type="number" value="${e.acBonus || 0}" data-f="acBonus" title="AC加成">`;
-    } else if (e.type === 'weapon') {
-      extra =
-        `<input class="eq-dice" value="${esc(e.dice || '1d6')}" data-f="dice" title="伤害骰">` +
-        `<select class="eq-attr" data-f="attr" title="属性">
-          <option value="str"${(e.attr || 'str') === 'str' ? ' selected' : ''}>力量</option>
-          <option value="dex"${e.attr === 'dex' ? ' selected' : ''}>敏捷</option></select>`;
-    }
-    row.innerHTML =
-      name + type + extra + `<button class="eq-del" title="移除">×</button>`;
-    box.appendChild(row);
-  });
 }
 
 function exportLib() {
@@ -1321,11 +1110,10 @@ function portraitPromptFor(p) {
   const style = $('#portrait-style').value;
   const notes = $('#portrait-notes').value.trim();
   const role = TYPE_META[p.type] ? TYPE_META[p.type].label : '角色';
-  const profession = p.className && p.className !== '无职业' ? `，职业为${p.className}` : '';
   return [
-    '用途：D&D 虚拟桌面棋子立绘。',
-    `主体：${p.name}，${p.category || '奇幻生物'}，${role}${profession}。${notes ? '外观要求：' + notes + '。' : ''}`,
-    `风格：${style}，西幻史诗桌面规则书式厚涂写实，高细节，单角色全身，正面或轻微四分之三视角。`,
+    '用途：跑团地图棋子立绘。',
+    `主体：${p.name}，${p.category || '奇幻生物'}，${role}。${notes ? '外观要求：' + notes + '。' : ''}`,
+    `风格：${style}，西幻史诗厚涂写实，高细节，单角色全身，正面或轻微四分之三视角。`,
     '构图：1:1 正方形；中央圆形区域约占画布 86%；角色、四肢、翅膀和装备完整收在圆内，并保留安全边距。',
     '背景：圆内只使用暖色旧羊皮纸纹理；圆形以外必须是纯白色，不得延伸场景。',
     '限制：不要文字、彩色外环、边框、UI、签名、水印，不要裁切头顶、武器或脚部，不要出现额外角色或卡通风格。'
@@ -1513,10 +1301,6 @@ $('#file-hd-dir').addEventListener('change', (e) => {
 $('#editor-modal').addEventListener('click', (e) => { if (e.target === $('#editor-modal')) closeEditor(); });
 $('#lib-search').addEventListener('input', (e) => { searchText = e.target.value; renderGrid(); });
 $('#lib-type').addEventListener('change', (e) => { filterType = e.target.value; renderGrid(); });
-$('#ed-class').addEventListener('change', (e) => {
-  populateSubclassOptions($('#ed-subclass'), e.target.value);
-  $('#ed-subclass').value = '';
-});
 $('#btn-icon').addEventListener('click', () => $('#file-icon').click());
 $('#file-icon').addEventListener('change', (e) => {
   const f = e.target.files[0];
@@ -1533,38 +1317,6 @@ $('#file-icon').addEventListener('change', (e) => {
 });
 $('#btn-icon-clear').addEventListener('click', () => { avatar = null; syncIconPreview(); });
 
-$('#lib-eq-list').addEventListener('change', (e) => {
-  const row = e.target.closest('.eq-row');
-  if (!row) return;
-  const it = libEqDraft[parseInt(row.dataset.idx, 10)];
-  if (!it) return;
-  const f = e.target.dataset.f;
-  if (f === 'baseAC') it.baseAC = parseInt(e.target.value, 10) || 10;
-  else if (f === 'acBonus') it.acBonus = parseInt(e.target.value, 10) || 0;
-  else if (f === 'dexCap') it.dexCap = e.target.value === 'null' ? null : parseInt(e.target.value, 10);
-  else if (f === 'dice') it.dice = e.target.value;
-  else if (f === 'name') it.name = e.target.value;
-  else if (f === 'attr') it.attr = e.target.value;
-  else if (f === 'type') {
-    it.type = e.target.value;
-    if (it.type === 'weapon') { if (!it.dice) { it.dice = '1d6'; it.attr = 'str'; } }
-    else if (it.type === 'armor') { if (typeof it.baseAC !== 'number') { it.baseAC = 10; it.dexCap = null; } }
-    else if (typeof it.acBonus !== 'number') it.acBonus = 0;
-    renderLibEqList();
-  }
-  else it[f] = e.target.value;
-});
-$('#lib-eq-list').addEventListener('click', (e) => {
-  const del = e.target.closest('.eq-del');
-  if (!del) return;
-  libEqDraft.splice(parseInt(del.closest('.eq-row').dataset.idx, 10), 1);
-  renderLibEqList();
-});
-$('#btn-lib-eq-add').addEventListener('click', () => {
-  const p = EQUIPMENT_PRESETS[parseInt($('#lib-eq-select').value, 10) || 0];
-  if (p) { libEqDraft.push({ ...p }); renderLibEqList(); }
-});
-
 $('#btn-export').addEventListener('click', exportLib);
 $('#btn-import').addEventListener('click', () => $('#file-import').click());
 $('#file-import').addEventListener('change', (e) => {
@@ -1574,9 +1326,7 @@ $('#file-import').addEventListener('change', (e) => {
 
 presets = loadLibrary();
 populateCatSelects();
-populateClassSelect();
 presets.forEach((p) => { const n = parseInt(String(p.id).replace(/\D/g, ''), 10) || 0; uid = Math.max(uid, n + 1); });
-initLibEqSelect();
 initLibPersistStatus();
 renderAll();
 </script>

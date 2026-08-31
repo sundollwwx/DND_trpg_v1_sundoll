@@ -4,88 +4,13 @@
 
 const STORAGE_KEY = 'dnd-board-state-v1';
 const LIBRARY_KEY = 'dnd-board-library-v1';
-const APP_VERSION = 'v1.2';
+const APP_VERSION = 'v1.3';
 
 const TYPE_META = {
   pc:    { label: '玩家角色', ring: '#5b8cff', glow: 'rgba(91,140,255,.45)', defaultIcon: '🧙' },
   enemy: { label: '敌人',     ring: '#ef476f', glow: 'rgba(239,71,111,.45)', defaultIcon: '👹' },
   npc:   { label: '中立NPC',   ring: '#f4a261', glow: 'rgba(244,162,97,.45)', defaultIcon: '🧑‍🌾' },
   ally:  { label: '友好NPC',   ring: '#2ecc71', glow: 'rgba(46,204,113,.45)', defaultIcon: '🧑‍🤝‍🧑' },
-};
-
-// 状态：官方名称以《玩家手册2024》为准（目盲/受擒/麻痹/隐形/力竭等），
-// cat 用于状态栏的轻分类：感官 / 心智 / 控制 / 消耗 / 标记
-const STATUSES = [
-  { key: 'blinded',       label: '目盲', emoji: '🙈', color: '#9aa0a8', cat: '感官' },
-  { key: 'deafened',      label: '耳聋', emoji: '🙉', color: '#9aa0a8', cat: '感官' },
-  { key: 'invisible',     label: '隐形', emoji: '👻', color: '#c8d0e0', cat: '感官' },
-  { key: 'charmed',       label: '魅惑', emoji: '💘', color: '#ff7ab8', cat: '心智' },
-  { key: 'frightened',    label: '恐慌', emoji: '😨', color: '#8e7cc3', cat: '心智' },
-  { key: 'stunned',       label: '震慑', emoji: '💢', color: '#ff7a18', cat: '心智' },
-  { key: 'incapacitated', label: '失能', emoji: '🚫', color: '#6d7686', cat: '心智' },
-  { key: 'taunt',         label: '嘲讽', emoji: '😤', color: '#ff8a5c', cat: '心智' },
-  { key: 'paralyze',      label: '麻痹', emoji: '⚡', color: '#ffd23f', cat: '控制' },
-  { key: 'uncon',         label: '昏迷', emoji: '💫', color: '#8d99ae', cat: '控制' },
-  { key: 'petrified',     label: '石化', emoji: '🗿', color: '#8d8d96', cat: '控制' },
-  { key: 'restrain',      label: '束缚', emoji: '🔗', color: '#4cc9f0', cat: '控制' },
-  { key: 'grappled',      label: '受擒', emoji: '🤝', color: '#c9a84f', cat: '控制' },
-  { key: 'prone',         label: '倒地', emoji: '🙃', color: '#b388ff', cat: '控制' },
-  { key: 'poison',        label: '中毒', emoji: '☠️', color: '#3fa34d', cat: '消耗' },
-  { key: 'exhaust',       label: '力竭', emoji: '🥵', color: '#e76f51', cat: '消耗', stackable: true, max: 6 },
-  { key: 'burn',          label: '燃烧', emoji: '🔥', color: '#ff7a18', cat: '消耗' },
-  { key: 'bleed',         label: '流血', emoji: '🩸', color: '#e63946', cat: '消耗' },
-  { key: 'concentrate',   label: '专注', emoji: '✨', color: '#b388ff', cat: '标记' },
-  { key: 'rage',          label: '狂暴', emoji: '😡', color: '#ef476f', cat: '标记' },
-  { key: 'dead',          label: '死亡', emoji: '💀', color: '#2b2d42', cat: '标记' },
-];
-
-const STATUS_CATS = ['感官', '心智', '控制', '消耗', '标记'];
-const SKILLS = [
-  { key: 'athletics',    label: '运动', attr: 'str' },
-  { key: 'acrobatics',   label: '杂技', attr: 'dex' },
-  { key: 'sleight',      label: '巧手', attr: 'dex' },
-  { key: 'stealth',      label: '隐匿', attr: 'dex' },
-  { key: 'arcana',       label: '奥秘', attr: 'int' },
-  { key: 'history',      label: '历史', attr: 'int' },
-  { key: 'investigation', label: '调查', attr: 'int' },
-  { key: 'nature',       label: '自然', attr: 'int' },
-  { key: 'religion',     label: '宗教', attr: 'int' },
-  { key: 'animal',       label: '驯兽', attr: 'wis' },
-  { key: 'insight',      label: '洞察', attr: 'wis' },
-  { key: 'medicine',     label: '医药', attr: 'wis' },
-  { key: 'perception',   label: '察觉', attr: 'wis' },
-  { key: 'survival',     label: '生存', attr: 'wis' },
-  { key: 'deception',    label: '欺瞒', attr: 'cha' },
-  { key: 'intimidation', label: '威吓', attr: 'cha' },
-  { key: 'performance',  label: '表演', attr: 'cha' },
-  { key: 'persuasion',   label: '说服', attr: 'cha' },
-];
-const PROF_BY_LEVEL = { 1:2, 2:2, 3:2, 4:2, 5:3, 6:3, 7:3, 8:3, 9:4, 10:4, 11:4, 12:4, 13:5, 14:5, 15:5, 16:5, 17:6, 18:6, 19:6, 20:6 };
-
-// 可叠加状态（如力竭）的等级存取
-function statusLevel(t, key) {
-  return (t.statusLevels && typeof t.statusLevels[key] === 'number') ? t.statusLevels[key] : 0;
-}
-
-function setStatusLevel(t, key, level) {
-  if (!t.statusLevels || typeof t.statusLevels !== 'object') t.statusLevels = {};
-  if (level <= 0) delete t.statusLevels[key];
-  else t.statusLevels[key] = Math.min(level, 6);
-}
-
-function statusTitle(s, level) {
-  if (!s.stackable || level <= 0) return s.label;
-  let tip = s.label + ' ' + level + ' 级';
-  if (s.key === 'exhaust') {
-    tip += `（D20 检定 -${level * 2}，速度 -${level * 5} 尺${level >= 6 ? '，死亡' : ''}）`;
-  }
-  return tip;
-}
-
-const ABILITY_KEYS = ['str', 'dex', 'con', 'int', 'wis', 'cha'];
-const ABILITY_LABELS = {
-  str: '力量 STR', dex: '敏捷 DEX', con: '体质 CON',
-  int: '智力 INT', wis: '感知 WIS', cha: '魅力 CHA',
 };
 
 // 两级分类树：一级＝生物类型，二级＝族群，与《怪物图鉴2025》结构一致
@@ -118,29 +43,6 @@ const LIB_CATEGORY_TREE = {
 function catParts(c) {
   return String(c || '').split('/').map((s) => s.trim()).filter(Boolean);
 }
-
-// 内置常用装备字典（护甲/盾牌/武器），不够用时可以自定义
-const EQUIPMENT_PRESETS = [
-  { name: '皮甲', type: 'armor', baseAC: 11, dexCap: null },
-  { name: '镶嵌皮甲', type: 'armor', baseAC: 12, dexCap: null },
-  { name: '链甲衫', type: 'armor', baseAC: 13, dexCap: 2 },
-  { name: '鳞甲', type: 'armor', baseAC: 14, dexCap: 2 },
-  { name: '胸甲', type: 'armor', baseAC: 14, dexCap: 2 },
-  { name: '半身板甲', type: 'armor', baseAC: 15, dexCap: 2 },
-  { name: '环甲', type: 'armor', baseAC: 14, dexCap: 0 },
-  { name: '链甲', type: 'armor', baseAC: 16, dexCap: 0 },
-  { name: '板甲', type: 'armor', baseAC: 18, dexCap: 0 },
-  { name: '盾牌', type: 'shield', acBonus: 2 },
-  { name: '匕首', type: 'weapon', dice: '1d4', attr: 'dex' },
-  { name: '短剑', type: 'weapon', dice: '1d6', attr: 'dex' },
-  { name: '长剑', type: 'weapon', dice: '1d8', attr: 'str' },
-  { name: '巨剑', type: 'weapon', dice: '2d6', attr: 'str' },
-  { name: '战斧', type: 'weapon', dice: '1d8', attr: 'str' },
-  { name: '短弓', type: 'weapon', dice: '1d6', attr: 'dex' },
-  { name: '长弓', type: 'weapon', dice: '1d8', attr: 'dex' },
-  { name: '轻弩', type: 'weapon', dice: '1d8', attr: 'dex' },
-  { name: '木杖', type: 'weapon', dice: '1d6', attr: 'str' },
-];
 
 const INTERACT_TYPES = {
   door: {
@@ -210,9 +112,6 @@ const state = {
   campaignId: null,
   campaignName: '默认战役',
   library: [],
-  init: [],
-  initCurrent: null,
-  round: 1,
   selectedId: null,
 };
 
@@ -898,7 +797,7 @@ function updateCoverContinue() {
   btn.hidden = false;
 }
 
-// 全新战役：空白开始（不继承上次的地图/棋子/先攻）
+// 全新战役：空白开始（不继承上次的地图/棋子）
 function newCampaignState(name, id) {
   return {
     maps: [],
@@ -911,9 +810,6 @@ function newCampaignState(name, id) {
     campaignId: id,
     campaignName: name,
     library: Array.isArray(state.library) ? state.library.map(normalizeLibPreset) : [],
-    init: [],
-    initCurrent: null,
-    round: 1,
     selectedId: null,
   };
 }
@@ -1027,9 +923,6 @@ function importMapFile(f) {
             id: 't' + (uid++),
             x: Number(raw.x) || 0,
             y: Number(raw.y) || 0,
-            statuses: [],
-            statusLevels: {},
-            hidden: false,
             owner: '',
             groupKey: raw.name || '',
           });
@@ -1595,281 +1488,33 @@ function hpColor(pct) {
   return '#e74c5e';
 }
 
-/* ==================== 人物卡（属性 / 装备 / 联动） ==================== */
-
-function defaultSheet() {
-  return {
-    stats: { str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 },
-    prof: 2,
-    speed: 30,
-    initBonus: 0,
-    equipment: [],
-    className: '无职业',
-    classResources: {},
-    level: 1,
-    saveBonuses: {},
-    skillProfs: {},
-    hitDice: { die: 8, max: 1, used: 0 },
-    spellSlots: defaultSpellSlots(),
-  };
-}
-
-const CLASS_META = {
-  '无职业': { slotType: 'none', resources: [], subclasses: [], saveProfs: [], skillCount: 0, hitDie: 8 },
-  '野蛮人': { slotType: 'none', resources: [{ key: '狂暴次数', max: 2 }], subclasses: ['狂战士', '图腾战士', '世界树之魂'], saveProfs: ['str', 'con'], skillCount: 2, hitDie: 12 },
-  '战士':   { slotType: 'none', resources: [], subclasses: ['勇士', '战斗大师', '奥法骑士', '灵能武士', '武士'], saveProfs: ['str', 'con'], skillCount: 2, hitDie: 10 },
-  '武僧':   { slotType: 'none', resources: [{ key: '气点', max: 5 }], subclasses: ['四象宗', '暗影宗', '醉拳宗'], saveProfs: ['str', 'dex'], skillCount: 2, hitDie: 8 },
-  '游荡者': { slotType: 'none', resources: [], subclasses: ['刺客', '诡术师', '魂刃', '神偷'], saveProfs: ['dex', 'int'], skillCount: 4, hitDie: 8 },
-  '诗人':   { slotType: 'normal', resources: [{ key: '激励骰', max: 4 }], subclasses: ['学识学院', '英勇学院', '剑舞学院', '低语学院'], saveProfs: ['dex', 'cha'], skillCount: 3, hitDie: 8 },
-  '牧师':   { slotType: 'normal', resources: [{ key: '引导神力', max: 2 }], subclasses: ['生命领域', '光明领域', '战争领域', '知识领域', '自然领域', '风暴领域', '诡术领域'], saveProfs: ['int', 'wis'], skillCount: 2, hitDie: 8 },
-  '德鲁伊': { slotType: 'normal', resources: [{ key: '引导神力', max: 2 }], subclasses: ['月之结社', '大地结社', '星界结社', '野火结社'], saveProfs: ['int', 'wis'], skillCount: 2, hitDie: 8 },
-  '游侠':   { slotType: 'normal', resources: [], subclasses: ['猎人', '兽王', '幽域行者', '林地漫游者'], saveProfs: ['dex', 'wis'], skillCount: 3, hitDie: 10 },
-  '圣武士': { slotType: 'normal', resources: [{ key: '圣疗点数', max: 5 }, { key: '引导神力', max: 2 }], subclasses: ['奉献誓约', '守护誓约', '复仇誓约', '征服誓约'], saveProfs: ['wis', 'cha'], skillCount: 2, hitDie: 10 },
-  '法师':   { slotType: 'normal', resources: [{ key: '奥术恢复', max: 1 }], subclasses: ['防护学派', '咒法学派', '预言学派', '附魔学派', '塑能学派', '幻术学派', '死灵学派', '变化学派'], saveProfs: ['int', 'wis'], skillCount: 2, hitDie: 6 },
-  '术士':   { slotType: 'sorcerer', resources: [], subclasses: ['龙脉血统', '狂野魔法', '灵能之魂', '神圣之魂'], saveProfs: ['con', 'cha'], skillCount: 2, hitDie: 6 },
-  '咒术师': { slotType: 'warlock', resources: [], subclasses: ['大妖精宗主', '邪魔宗主', '上古邪物宗主', '天界宗主'], saveProfs: ['int', 'cha'], skillCount: 2, hitDie: 8 },
-};
-
-const SUBCLASS_META = {
-  '奥法骑士': { slotType: 'normal' },
-  '诡术师': { slotType: 'normal' },
-  '战斗大师': { resources: [{ key: '战技骰', max: 4 }] },
-};
-
-function classDef(t) {
-  return CLASS_META[t.className] || CLASS_META['无职业'];
-}
-
-function subclassDef(t) {
-  return (t.subClassName && SUBCLASS_META[t.subClassName]) ? SUBCLASS_META[t.subClassName] : null;
-}
-
-function effectiveSlotType(t) {
-  const sub = subclassDef(t);
-  if (sub && sub.slotType) return sub.slotType;
-  return classDef(t).slotType;
-}
-
-function classResourceDefs(t) {
-  const defs = classDef(t).resources.slice();
-  const sub = subclassDef(t);
-  if (sub && sub.resources) sub.resources.forEach((r) => defs.push(r));
-  return defs;
-}
-
-function applyClassSlotType(t) {
-  if (t.className && t.className !== '无职业') t.spellSlots.type = effectiveSlotType(t);
-}
-
-function profByLevel(lv) {
-  return PROF_BY_LEVEL[Math.max(1, Math.min(20, parseInt(lv, 10) || 1))];
-}
-
-function autoResourceMaxes(t) {
-  const lv = Math.max(1, Math.min(20, parseInt(t.level, 10) || 1));
-  const out = {};
-  const cls = t.className;
-  if (cls === '野蛮人') out['狂暴次数'] = lv >= 17 ? 6 : lv >= 12 ? 5 : lv >= 6 ? 4 : lv >= 3 ? 3 : 2;
-  if (cls === '武僧') out['气点'] = 4 + lv;
-  if (cls === '诗人') out['激励骰'] = lv >= 17 ? 8 : lv >= 13 ? 7 : lv >= 9 ? 6 : lv >= 5 ? 5 : 4;
-  if (cls === '牧师' || cls === '德鲁伊' || cls === '圣武士') out['引导神力'] = lv >= 17 ? 5 : lv >= 11 ? 4 : lv >= 6 ? 3 : 2;
-  if (cls === '圣武士') out['圣疗点数'] = 5 * lv;
-  if (cls === '法师') out['奥术恢复'] = 1;
-  if (t.subClassName === '战斗大师') out['战技骰'] = lv >= 18 ? 8 : lv >= 15 ? 7 : lv >= 10 ? 6 : lv >= 7 ? 5 : 4;
-  return out;
-}
-
-function applyLevel(t) {
-  t.level = clamp(parseInt(t.level, 10) || 1, 1, 20);
-  t.prof = profByLevel(t.level);
-  const maxes = autoResourceMaxes(t);
-  Object.keys(maxes).forEach((k) => {
-    const cur = t.classResources[k] || (t.classResources[k] = { used: 0, max: maxes[k] });
-    cur.max = maxes[k];
-    if (cur.used > cur.max) cur.used = cur.max;
-  });
-  if (t.className === '咒术师' && t.spellSlots && t.spellSlots.warlock) {
-    const w = t.spellSlots.warlock;
-    w.level = t.level >= 9 ? 5 : t.level >= 7 ? 4 : t.level >= 5 ? 3 : t.level >= 3 ? 2 : 1;
-    w.max = t.level >= 17 ? 4 : t.level >= 11 ? 3 : t.level >= 3 ? 2 : 1;
-    if (w.used > w.max) w.used = w.max;
-  }
-  if (t.className === '术士' && t.spellSlots && t.spellSlots.sorcerer) {
-    const p = t.spellSlots.sorcerer.points;
-    p.max = t.level;
-    if (p.used > p.max) p.used = p.max;
-  }
-  if (!t.hitDice || typeof t.hitDice !== 'object') t.hitDice = { die: classDef(t).hitDie, max: t.level, used: 0 };
-  t.hitDice.die = classDef(t).hitDie;
-  t.hitDice.max = t.level;
-  if (t.hitDice.used > t.hitDice.max) t.hitDice.used = t.hitDice.max;
-}
-
-function saveValue(t, key) {
-  return abilityMod(t.stats[key]) +
-    ((classDef(t).saveProfs || []).includes(key) ? (t.prof || 2) : 0) +
-    ((t.saveBonuses && t.saveBonuses[key]) || 0);
-}
-
-function skillValue(t, s) {
-  const st = (t.skillProfs && t.skillProfs[s.key]) || '';
-  const mult = st === 'expert' ? 2 : st === 'prof' ? 1 : 0;
-  return abilityMod(t.stats[s.attr]) + mult * (t.prof || 2);
-}
-
-function defaultSpellSlots() {
-  return {
-    type: 'normal',
-    normal: Array.from({ length: 9 }, (_, i) => ({ level: i + 1, used: 0, max: 0 })),
-    none: { used: 0, max: 0 },
-    sorcerer: {
-      points: { used: 0, max: 0 },
-      slots: Array.from({ length: 9 }, (_, i) => ({ level: i + 1, used: 0, max: 0 })),
-    },
-    warlock: { level: 1, used: 0, max: 0 },
-  };
-}
-
-function normalizeSpellSlots(t) {
-  const d = defaultSpellSlots();
-  const old = t.spellSlots;
-  const num = (v) => Math.max(0, Math.min(99, Number(v) || 0));
-  const lvNum = (v) => Math.max(1, Math.min(9, parseInt(v, 10) || 1));
-  const copyRows = (src, dst) => {
-    (src || []).forEach((r, i) => {
-      if (r && i < dst.length) {
-        dst[i].used = num(r.used);
-        dst[i].max = Math.min(20, num(r.max));
-      }
-    });
-  };
-  let hasType = false;
-  if (Array.isArray(old)) {
-    // 旧格式：Lv1~9 数组 → 归入「正常环位」
-    copyRows(old, d.normal);
-  } else if (old && typeof old === 'object') {
-    hasType = ['normal', 'none', 'sorcerer', 'warlock'].includes(old.type);
-    if (hasType) d.type = old.type;
-    copyRows(old.normal, d.normal);
-    if (old.none) {
-      const n = Array.isArray(old.none) ? old.none[0] : old.none;
-      if (n) { d.none.used = num(n.used); d.none.max = Math.min(20, num(n.max)); }
-    }
-    if (old.sorcerer && typeof old.sorcerer === 'object') {
-      if (old.sorcerer.points) {
-        d.sorcerer.points.used = num(old.sorcerer.points.used);
-        d.sorcerer.points.max = Math.min(99, num(old.sorcerer.points.max));
-      }
-      copyRows(old.sorcerer.slots, d.sorcerer.slots);
-    }
-    if (Array.isArray(old.warlock)) {
-      // 旧版咒术师多行 → 取等级最高的一行（升级即取代低级）
-      let pick = null;
-      old.warlock.forEach((r, i) => {
-        if (r && (r.max > 0 || r.used > 0) && (!pick || i > pick.level - 1)) {
-          pick = { level: i + 1, used: r.used, max: r.max };
-        }
-      });
-      if (pick) {
-        d.warlock.level = pick.level;
-        d.warlock.used = num(pick.used);
-        d.warlock.max = Math.min(20, num(pick.max));
-      }
-    } else if (old.warlock && typeof old.warlock === 'object') {
-      d.warlock.level = lvNum(old.warlock.level);
-      d.warlock.used = num(old.warlock.used);
-      d.warlock.max = Math.min(20, num(old.warlock.max));
-    }
-    if (!hasType) {
-      // 旧版“四类同时展开”的数据 → 自动推断角色用哪一类
-      if (d.none.max > 0 || d.none.used > 0) d.type = 'none';
-      else if (d.sorcerer.points.max > 0 || d.sorcerer.points.used > 0 || d.sorcerer.slots.some((r) => r.max > 0 || r.used > 0)) d.type = 'sorcerer';
-      else if (d.warlock.max > 0 || d.warlock.used > 0) d.type = 'warlock';
-    }
-  }
-  t.spellSlots = d;
-}
+/* ==================== 棋子数据 ==================== */
 
 function normalizeSheet(t) {
-  if (!t.stats || typeof t.stats !== 'object') t.stats = { str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 };
-  ABILITY_KEYS.forEach((k) => { if (typeof t.stats[k] !== 'number') t.stats[k] = 10; });
-  if (typeof t.prof !== 'number') t.prof = 2;
-  if (typeof t.speed !== 'number') t.speed = 30;
-  if (typeof t.initBonus !== 'number') t.initBonus = 0;
-  if (!Array.isArray(t.equipment)) t.equipment = [];
-  if (typeof t.owner !== 'string') t.owner = '';
-  if (typeof t.className !== 'string' || !t.className) t.className = '无职业';
-  if (typeof t.subClassName !== 'string') t.subClassName = '';
-  if (typeof t.level !== 'number') t.level = 1;
-  if (!t.saveBonuses || typeof t.saveBonuses !== 'object') t.saveBonuses = {};
-  if (!t.skillProfs || typeof t.skillProfs !== 'object') t.skillProfs = {};
-  if (!t.hitDice || typeof t.hitDice !== 'object') t.hitDice = { die: 8, max: t.level || 1, used: 0 };
-  const cls = classDef(t);
-  if (t.subClassName && !cls.subclasses.includes(t.subClassName)) t.subClassName = '';
-  if (!t.classResources || typeof t.classResources !== 'object') t.classResources = {};
-  classResourceDefs(t).forEach((r) => {
-    const cur = t.classResources[r.key];
-    if (!cur || typeof cur !== 'object') t.classResources[r.key] = { used: 0, max: r.max };
-  });
-  normalizeSpellSlots(t);
-  if (typeof t.level === 'number') applyLevel(t);
-  applyClassSlotType(t);
-}
-
-function abilityMod(v) {
-  return Math.floor((v - 10) / 2);
-}
-
-function modText(v) {
-  const m = abilityMod(v);
-  return (m >= 0 ? '+' : '') + m;
-}
-
-function modClass(v) {
-  const m = abilityMod(v);
-  return m > 0 ? 'mod-pos' : m < 0 ? 'mod-neg' : 'mod-zero';
-}
-
-// AC：无甲 = 10+敏捷；轻甲不设上限；中甲上限+2；重甲不加敏捷；盾牌/其他 +acBonus
-function computeTokenAC(t) {
-  normalizeSheet(t);
-  const dexMod = abilityMod(t.stats.dex);
-  const armor = t.equipment.find((e) => e.type === 'armor');
-  const base = armor ? armor.baseAC : 10;
-  let dexPart = 0;
-  if (!armor) dexPart = dexMod;
-  else if (armor.dexCap === 0) dexPart = 0;
-  else if (armor.dexCap === 2) dexPart = Math.min(2, Math.max(0, dexMod));
-  else dexPart = Math.max(0, dexMod);
-  let ac = base + dexPart;
-  t.equipment.forEach((e) => {
-    if (e.type === 'shield' || e.type === 'other') ac += (e.acBonus || 0);
-  });
-  return ac;
-}
-
-// 配置了人物卡（属性/装备）→ 自动计算 AC；纯怪物保留预设 AC
-function computeEffectiveAC(t) {
-  normalizeSheet(t);
-  const hasSheet = t.equipment.length > 0 || ABILITY_KEYS.some((k) => t.stats[k] !== 10);
-  return hasSheet ? computeTokenAC(t) : t.ac;
-}
-
-function computeTokenInit(t) {
-  normalizeSheet(t);
-  return abilityMod(t.stats.dex) + (t.initBonus || 0);
-}
-
-function weaponAttrMod(t, w) {
-  return w.attr === 'dex' ? abilityMod(t.stats.dex) : abilityMod(t.stats.str);
-}
-
-function weaponToHit(t, w) {
-  return (t.prof || 0) + weaponAttrMod(t, w) + (w.bonus || 0);
-}
-
-function weaponDamageMod(t, w) {
-  return weaponAttrMod(t, w) + (w.bonus || 0);
+  const hpMax = Math.max(1, Math.min(99999, parseInt(t.hpMax, 10) || 10));
+  const hp = Math.max(0, Math.min(99999, Number.isFinite(parseInt(t.hp, 10)) ? parseInt(t.hp, 10) : hpMax));
+  const keep = {
+    id: String(t.id || 't' + (uid++)),
+    name: String(t.name || '无名单位').slice(0, 24),
+    type: TYPE_META[t.type] ? t.type : 'npc',
+    icon: String(t.icon || '').slice(0, 4),
+    iconImg: t.iconImg || null,
+    iconImgHd: t.iconImgHd || null,
+    iconImgPath: t.iconImgPath || null,
+    iconImgId: t.iconImgId || null,
+    size: t.size >= 2 ? 2 : 1,
+    hp,
+    hpMax,
+    ac: Math.max(0, Math.min(99, parseInt(t.ac, 10) || 10)),
+    x: Number.isFinite(Number(t.x)) ? Number(t.x) : 0,
+    y: Number.isFinite(Number(t.y)) ? Number(t.y) : 0,
+    owner: typeof t.owner === 'string' ? t.owner.slice(0, 24) : '',
+    mountId: t.mountId ? String(t.mountId) : null,
+    groupKey: t.groupKey ? String(t.groupKey) : null,
+  };
+  Object.keys(t).forEach((key) => { delete t[key]; });
+  Object.assign(t, keep);
+  return t;
 }
 
 function createTokenEl(t) {
@@ -1904,22 +1549,7 @@ function createTokenEl(t) {
     circle.textContent = t.icon || meta.defaultIcon;
   }
 
-  const badges = document.createElement('div');
-  badges.className = 'badges';
-  (t.statuses || []).forEach((k) => {
-    const s = STATUSES.find((x) => x.key === k);
-    if (!s) return;
-    const lv = s.stackable ? statusLevel(t, k) : 0;
-    const b = document.createElement('span');
-    b.className = 'badge';
-    b.title = statusTitle(s, lv);
-    b.textContent = s.emoji + (lv > 1 ? '×' + lv : '');
-    b.style.background = s.color;
-    badges.appendChild(b);
-  });
-
   el.appendChild(circle);
-  el.appendChild(badges);
 
   // 骑乘：坐骑上叠加骑手小圆 + 🐎 标记
   if (m && t.size >= 2) {
@@ -1955,10 +1585,6 @@ function createTokenEl(t) {
   }
 
   if (t.id === state.selectedId) el.classList.add('selected');
-  if (state.initCurrent) {
-    const entry = state.init.find((i) => i.id === state.initCurrent);
-    if (entry && entry.tokenId === t.id) el.classList.add('in-turn');
-  }
   return el;
 }
 
@@ -2303,7 +1929,6 @@ function transferToken(id, targetId, copy) {
 /* ==================== 右侧详情 ==================== */
 
 function updateDetail() {
-  // 单位详情
   const t = state.selectedId ? findToken(state.selectedId) : null;
   $('#detail-empty').hidden = !!t;
   $('#detail').hidden = !t;
@@ -2313,11 +1938,6 @@ function updateDetail() {
   }
   if (t.id !== lastSelId) $('#unit-card').classList.remove('collapsed');
   lastSelId = t.id;
-  const effAc = computeEffectiveAC(t);
-  const effInit = computeTokenInit(t);
-  $('#detail-ac-tag').textContent = 'AC ' + effAc;
-  $('#detail-init-tag').textContent = '先攻 ' + (effInit >= 0 ? '+' : '') + effInit;
-
   const meta = TYPE_META[t.type] || TYPE_META.npc;
   const iconEl = $('#detail-icon');
   if (t.iconImg || t.iconImgHd || t.iconImgPath || t.iconImgId) {
@@ -2331,13 +1951,6 @@ function updateDetail() {
   }
   $('#btn-detail-icon-remove').hidden = !(t.iconImg || t.iconImgHd || t.iconImgPath || t.iconImgId);
   $('#detail-name').value = t.name;
-  const classSel = $('#detail-class');
-  if (classSel) classSel.value = t.className || '无职业';
-  const subSel = $('#detail-subclass');
-  if (subSel) {
-    populateSubclassSelect(subSel, t.className || '无职业');
-    subSel.value = t.subClassName || '';
-  }
   const ownerInput = $('#detail-owner');
   if (ownerInput) ownerInput.value = t.owner || '';
   const dl = $('#owner-list');
@@ -2361,12 +1974,12 @@ function updateDetail() {
   }
   $('#detail-hp-current').value = t.hp;
   $('#detail-hp-max').value = t.hpMax;
+  $('#detail-ac-input').value = t.ac;
   $('#detail-icon-input').value = t.icon || '';
 
   const pct = t.hpMax > 0 ? clamp((t.hp / t.hpMax) * 100, 0, 100) : 0;
   $('#detail-hp-bar').style.width = pct + '%';
   $('#detail-hp-bar').style.background = hpColor(pct);
-  renderSheetHitDice(t);
   renderMountBox(t);
 
   // 移到其他地图的下拉框（不含当前地图）
@@ -2381,753 +1994,6 @@ function updateDetail() {
     sel.appendChild(opt);
   });
   if ([...sel.options].some((o) => o.value === prev)) sel.value = prev;
-
-  renderSheet();
-}
-
-/* ==================== 人物卡 ==================== */
-
-function renderSheet() {
-  const t = state.selectedId ? findToken(state.selectedId) : null;
-  $('#sheet').hidden = !t;
-  if (!t) return;
-  normalizeSheet(t);
-
-  const statsBox = $('#sheet-stats');
-  statsBox.innerHTML = '';
-  ABILITY_KEYS.forEach((k) => {
-    const cell = document.createElement('div');
-    cell.className = 'sheet-stat';
-    cell.innerHTML =
-      `<span class="sheet-stat-label">${ABILITY_LABELS[k]}</span>` +
-      `<input type="number" data-stat="${k}" value="${t.stats[k]}" min="1" max="30">` +
-      `<b class="sheet-stat-mod ${modClass(t.stats[k])}" data-mod="${k}">${modText(t.stats[k])}</b>`;
-    statsBox.appendChild(cell);
-  });
-
-  $('#sheet-prof').value = t.prof;
-  $('#sheet-speed').value = t.speed;
-  $('#sheet-initbonus').value = t.initBonus;
-  const levelInput = $('#sheet-level');
-  if (levelInput) levelInput.value = t.level || 1;
-  const lvTag = $('#sheet-level-tag');
-  if (lvTag) lvTag.textContent = t.level || 1;
-  const profInput = $('#sheet-prof');
-  if (profInput) profInput.readOnly = true;
-
-  renderSaves(t);
-  renderSheetStatuses(t);
-  renderSheetSpells(t);
-  renderSkills(t);
-
-  const sel = $('#sheet-eq-select');
-  sel.innerHTML = '';
-  EQUIPMENT_PRESETS.forEach((e, i) => {
-    const opt = document.createElement('option');
-    opt.value = i;
-    opt.textContent = `${e.name}（${e.type === 'armor' ? '护甲 AC' + e.baseAC : e.type === 'shield' ? '盾 +' + e.acBonus : e.dice}）`;
-    sel.appendChild(opt);
-  });
-
-  renderSheetEqList(t);
-  updateSheet();
-}
-
-// 状态栏：普通状态用开关，可叠加状态（如力竭）用「点击循环等级」的药丸
-function renderSheetStatuses(t) {
-  const statusBox = $('#sheet-statuses');
-  statusBox.innerHTML = '';
-  STATUS_CATS.forEach((cat) => {
-    const items = STATUSES.filter((s) => (s.cat || '标记') === cat);
-    if (!items.length) return;
-    const head = document.createElement('div');
-    head.className = 'status-cat';
-    head.textContent = cat;
-    statusBox.appendChild(head);
-    items.forEach((s) => {
-      if (s.stackable) {
-        const lv = statusLevel(t, s.key);
-        const pill = document.createElement('label');
-        pill.className = 'status-pill' + (lv ? ' on' : '');
-        pill.dataset.status = s.key;
-        pill.title = statusTitle(s, lv) + ' · 左键升级，右键降级';
-        const text = document.createElement('span');
-        text.textContent = s.emoji + ' ' + s.label + (lv ? '×' + lv : '');
-        pill.appendChild(text);
-        statusBox.appendChild(pill);
-        return;
-      }
-      const label = document.createElement('label');
-      const cb = document.createElement('input');
-      cb.type = 'checkbox';
-      cb.checked = (t.statuses || []).includes(s.key);
-      cb.dataset.status = s.key;
-      label.appendChild(cb);
-      label.appendChild(document.createTextNode(s.emoji + ' ' + s.label));
-      statusBox.appendChild(label);
-    });
-  });
-}
-
-function renderSaves(t) {
-  const box = $('#sheet-saves');
-  if (!box) return;
-  box.innerHTML = '';
-  ABILITY_KEYS.forEach((k) => {
-    const v = saveValue(t, k);
-    const trained = (classDef(t).saveProfs || []).includes(k);
-    const cell = document.createElement('div');
-    cell.className = 'save-cell' + (trained ? ' trained' : '');
-    cell.title = (ABILITY_LABELS[k].split(' ')[0]) + '豁免' + (trained ? '（职业熟练）' : '');
-    cell.innerHTML = `<span>${ABILITY_LABELS[k].split(' ')[0]}</span><b>${v >= 0 ? '+' : ''}${v}</b>`;
-    box.appendChild(cell);
-  });
-}
-
-function renderSkills(t) {
-  const box = $('#sheet-skills');
-  if (!box) return;
-  box.innerHTML = '';
-  SKILLS.forEach((s) => {
-    const st = (t.skillProfs && t.skillProfs[s.key]) || '';
-    const v = skillValue(t, s);
-    const b = document.createElement('button');
-    b.type = 'button';
-    b.className = 'skill-btn' + (st ? ' ' + st : '');
-    b.dataset.skill = s.key;
-    b.title = `${s.label}（${ABILITY_LABELS[s.attr].split(' ')[0]}）· ${st === 'expert' ? '精通' : st === 'prof' ? '熟练' : '未熟练'}`;
-    b.innerHTML = `<span>${s.label}</span><b>${v >= 0 ? '+' : ''}${v}</b>`;
-    box.appendChild(b);
-  });
-}
-
-function renderSheetHitDice(t) {
-  const box = $('#detail-hitdice');
-  if (!box) return;
-  const hd = t.hitDice || { die: classDef(t).hitDie, max: t.level || 1, used: 0 };
-  const max = Math.max(0, hd.max || 0);
-  const rem = Math.max(0, max - (hd.used || 0));
-  box.innerHTML = '';
-  const label = document.createElement('span');
-  label.className = 'hd-label';
-  label.textContent = `生命骰 d${hd.die || 8}`;
-  const cells = document.createElement('span');
-  cells.className = 'slot-cells';
-  for (let i = 0; i < max; i++) {
-    const c = document.createElement('button');
-    c.type = 'button';
-    c.className = 'slot-cell' + (i >= rem ? ' used' : '');
-    c.title = '点击切换已用生命骰';
-    cells.appendChild(c);
-  }
-  const count = document.createElement('span');
-  count.className = 'slot-count';
-  count.textContent = `${rem}/${max}`;
-  const roll = document.createElement('button');
-  roll.type = 'button';
-  roll.className = 'small hd-roll';
-  roll.textContent = '🎲 掷1颗';
-  roll.title = `掷 d${hd.die || 8} + 体质调整，恢复生命并消耗 1 颗`;
-  roll.addEventListener('click', () => rollHitDie(t));
-  const full = document.createElement('button');
-  full.type = 'button';
-  full.className = 'small hd-full';
-  full.textContent = '恢复全部';
-  full.title = '长休后恢复所有生命骰';
-  full.addEventListener('click', () => {
-    hd.used = 0;
-    renderSheetHitDice(t);
-    scheduleAutosave();
-    toast('生命骰已全部恢复');
-  });
-  box.append(label, cells, count, roll, full);
-}
-
-function rollHitDie(t) {
-  const hd = t.hitDice || { die: classDef(t).hitDie, max: t.level || 1, used: 0 };
-  const rem = Math.max(0, (hd.max || 0) - (hd.used || 0));
-  if (rem <= 0) { toast('没有剩余生命骰，长休后才能恢复'); return; }
-  const die = hd.die || 8;
-  const roll = 1 + Math.floor(Math.random() * die);
-  const con = Math.max(0, abilityMod(t.stats.con));
-  const heal = roll + con;
-  t.hp = Math.min(t.hpMax || t.hp, (t.hp || 0) + heal);
-  hd.used = Math.min(hd.max || 0, (hd.used || 0) + 1);
-  updateDetail();
-  renderTokens();
-  scheduleAutosave();
-  toast(`生命骰掷出 ${roll} + 体质 ${con}，恢复 ${heal} 点生命`);
-}
-
-const SLOT_TYPES = [
-  { key: 'normal', title: '正常环位' },
-  { key: 'none', title: '无环位' },
-  { key: 'sorcerer', title: '术士环位' },
-  { key: 'warlock', title: '咒术师环位' },
-];
-
-function slotTypeLabel(type) {
-  if (type === 'normal') return '正常环位';
-  if (type === 'sorcerer') return '术士环位（术法点）';
-  if (type === 'warlock') return '咒术师契约环位';
-  return '无环位';
-}
-
-function renderSheetSpells(t) {
-  const box = $('#sheet-spells');
-  if (!box) return;
-  normalizeSpellSlots(t);
-  applyClassSlotType(t);
-  box.innerHTML = '';
-  const hasClass = !!(t.className && t.className !== '无职业');
-  if (hasClass) {
-    const hint = document.createElement('div');
-    hint.className = 'slot-type-hint';
-    const sub = subclassDef(t);
-    hint.textContent = '环位类型：' + slotTypeLabel(effectiveSlotType(t)) +
-      (sub && sub.slotType ? '（' + t.subClassName + '）' : '');
-    box.appendChild(hint);
-  } else {
-    const picker = document.createElement('div');
-    picker.className = 'slot-type-picker';
-    SLOT_TYPES.forEach((s) => {
-      const b = document.createElement('button');
-      b.type = 'button';
-      b.className = 'slot-type-btn' + (t.spellSlots.type === s.key ? ' active' : '');
-      b.dataset.slotType = s.key;
-      b.textContent = s.title;
-      b.addEventListener('click', () => {
-        t.spellSlots.type = s.key;
-        scheduleAutosave();
-        renderSheetSpells(t);
-      });
-      picker.appendChild(b);
-    });
-    box.appendChild(picker);
-  }
-  const body = document.createElement('div');
-  body.className = 'spell-body';
-  box.appendChild(body);
-  const type = t.spellSlots.type;
-  if (type === 'normal') renderSlotRows(body, 'normal', t.spellSlots.normal, '正常环位', t, false);
-  else if (type === 'none') renderSlotRows(body, 'none', [t.spellSlots.none], '无环位', t, true);
-  else if (type === 'sorcerer') {
-    const sec = document.createElement('div');
-    sec.className = 'spell-sec';
-    const head = document.createElement('div');
-    head.className = 'spell-sec-head';
-    head.textContent = '术士环位';
-    sec.appendChild(head);
-    const pts = t.spellSlots.sorcerer.points;
-    if (pts.max > 0 || pts.used > 0) {
-      sec.appendChild(slotRowEl('sorcerer', 'points', pts, '术法点'));
-    } else {
-      const addPts = document.createElement('button');
-      addPts.className = 'spell-add-lv';
-      addPts.textContent = '＋开启术法点';
-      addPts.addEventListener('click', () => {
-        pts.max = 1;
-        scheduleAutosave();
-        renderSheetSpells(t);
-      });
-      sec.appendChild(addPts);
-    }
-    renderSlotRows(sec, 'sorcerer', t.spellSlots.sorcerer.slots, '术士环位', t, false);
-    body.appendChild(sec);
-  } else if (type === 'warlock') {
-    renderWarlockRow(body, t);
-  }
-  if (box.querySelector('.slot-cell')) {
-    const legend = document.createElement('div');
-    legend.className = 'slot-legend';
-    legend.innerHTML = '<span class="slot-cell"></span> 剩余 <span class="slot-cell used"></span> 已用';
-    box.appendChild(legend);
-  }
-  renderClassResources(box, t);
-}
-
-function renderClassResources(box, t) {
-  const defs = classResourceDefs(t);
-  if (!defs.length) return;
-  const sec = document.createElement('div');
-  sec.className = 'spell-sec class-resource-sec';
-  const head = document.createElement('div');
-  head.className = 'spell-sec-head';
-  const title = document.createElement('span');
-  title.textContent = '职业资源';
-  head.appendChild(title);
-  sec.appendChild(head);
-  defs.forEach((r) => {
-    const cur = t.classResources[r.key] || { used: 0, max: r.max };
-    sec.appendChild(classResourceRowEl(t, r.key, cur));
-  });
-  box.appendChild(sec);
-}
-
-function classResourceRowEl(t, key, cur) {
-  const el = document.createElement('div');
-  el.className = 'slot-row res-row';
-  el.dataset.res = key;
-  const lv = document.createElement('span');
-  lv.className = 'slot-lv';
-  lv.textContent = key;
-  const cells = document.createElement('div');
-  cells.className = 'slot-cells';
-  const max = Math.max(0, cur.max || 0);
-  const rem = Math.max(0, max - (cur.used || 0));
-  for (let i = 0; i < max; i++) {
-    const c = document.createElement('button');
-    c.type = 'button';
-    c.className = 'slot-cell' + (i >= rem ? ' used' : '');
-    c.title = '点击切换已用数量';
-    cells.appendChild(c);
-  }
-  const count = document.createElement('span');
-  count.className = 'slot-count';
-  count.textContent = `${rem}/${max}`;
-  const minus = document.createElement('button');
-  minus.type = 'button';
-  minus.className = 'slot-minus';
-  minus.textContent = '−';
-  minus.title = '减少数量';
-  const plus = document.createElement('button');
-  plus.type = 'button';
-  plus.className = 'slot-plus';
-  plus.textContent = '＋';
-  plus.title = '增加数量';
-  el.append(lv, cells, count, minus, plus);
-  return el;
-}
-
-function renderSlotRows(box, sec, rows, title, t, isNone) {
-  if (!isNone) {
-    const add = document.createElement('button');
-    add.className = 'spell-add-lv';
-    add.textContent = '＋新增一级';
-    add.addEventListener('click', () => {
-      const row = rows.find((r) => r.max === 0 && r.used === 0);
-      if (row) { row.max = 1; scheduleAutosave(); renderSheetSpells(t); }
-      else toast('所有环位级别都已开启');
-    });
-    box.appendChild(add);
-  }
-  if (isNone) {
-    const row = rows[0];
-    if (row.max > 0 || row.used > 0) box.appendChild(slotRowEl(sec, '0', row, '无环位'));
-    else {
-      const empty = document.createElement('div');
-      empty.className = 'spell-sec-empty';
-      empty.textContent = (t.className && t.className !== '无职业') ? '该职业无法术环位' : '未开启（点上方类型选择后这里可加数量）';
-      box.appendChild(empty);
-    }
-    return;
-  }
-  rows.forEach((row) => {
-    if (row.max > 0 || row.used > 0) box.appendChild(slotRowEl(sec, row.level, row, 'Lv' + row.level));
-  });
-  if (!box.querySelector('.slot-row')) {
-    const empty = document.createElement('div');
-    empty.className = 'spell-sec-empty';
-    empty.textContent = '未开启，点「＋新增一级」开启';
-    box.appendChild(empty);
-  }
-}
-
-function renderWarlockRow(box, t) {
-  const sec = document.createElement('div');
-  sec.className = 'spell-sec';
-  const head = document.createElement('div');
-  head.className = 'spell-sec-head';
-  head.textContent = '咒术师环位';
-  sec.appendChild(head);
-  const row = t.spellSlots.warlock;
-  const el = document.createElement('div');
-  el.className = 'slot-row';
-  el.dataset.sec = 'warlock';
-  el.dataset.level = 'warlock';
-  const lv = document.createElement('span');
-  lv.className = 'slot-lv';
-  lv.textContent = '契约';
-  const lvSel = document.createElement('select');
-  lvSel.className = 'slot-level';
-  for (let i = 1; i <= 9; i++) {
-    const o = document.createElement('option');
-    o.value = i;
-    o.textContent = 'Lv' + i;
-    if (i === row.level) o.selected = true;
-    lvSel.appendChild(o);
-  }
-  lvSel.addEventListener('change', () => {
-    row.level = parseInt(lvSel.value, 10);
-    scheduleAutosave();
-    renderSheetSpells(t);
-  });
-  lv.appendChild(lvSel);
-  const cells = document.createElement('div');
-  cells.className = 'slot-cells';
-  const rem = Math.max(0, row.max - (row.used || 0));
-  for (let i = 0; i < row.max; i++) {
-    const c = document.createElement('button');
-    c.type = 'button';
-    c.className = 'slot-cell' + (i >= rem ? ' used' : '');
-    c.title = '点击切换已用数量';
-    cells.appendChild(c);
-  }
-  const count = document.createElement('span');
-  count.className = 'slot-count';
-  count.textContent = `${rem}/${row.max}`;
-  const minus = document.createElement('button');
-  minus.type = 'button';
-  minus.className = 'slot-minus';
-  minus.textContent = '−';
-  const plus = document.createElement('button');
-  plus.type = 'button';
-  plus.className = 'slot-plus';
-  plus.textContent = '＋';
-  el.append(lv, cells, count, minus, plus);
-  sec.appendChild(el);
-  box.appendChild(sec);
-}
-
-function slotRowEl(sec, level, row, label) {
-  const el = document.createElement('div');
-  el.className = 'slot-row';
-  el.dataset.sec = sec;
-  el.dataset.level = String(level);
-  const lv = document.createElement('span');
-  lv.className = 'slot-lv';
-  lv.textContent = label;
-  const cells = document.createElement('div');
-  cells.className = 'slot-cells';
-  const max = row.max || 0;
-  const rem = Math.max(0, max - (row.used || 0));
-  for (let i = 0; i < max; i++) {
-    const c = document.createElement('button');
-    c.type = 'button';
-    c.className = 'slot-cell' + (i >= rem ? ' used' : '');
-    c.title = '点击切换已用数量';
-    cells.appendChild(c);
-  }
-  const count = document.createElement('span');
-  count.className = 'slot-count';
-  count.textContent = `${rem}/${max}`;
-  const minus = document.createElement('button');
-  minus.type = 'button';
-  minus.className = 'slot-minus';
-  minus.textContent = '−';
-  minus.title = '减少环位';
-  const plus = document.createElement('button');
-  plus.type = 'button';
-  plus.className = 'slot-plus';
-  plus.textContent = '＋';
-  plus.title = '增加环位';
-  el.append(lv, cells, count, minus, plus);
-  return el;
-}
-
-function findSpellRow(t, sec, level) {
-  if (sec === 'normal') return t.spellSlots.normal.find((r) => String(r.level) === level);
-  if (sec === 'none') return t.spellSlots.none;
-  if (sec === 'sorcerer') {
-    return level === 'points' ? t.spellSlots.sorcerer.points
-      : t.spellSlots.sorcerer.slots.find((r) => String(r.level) === level);
-  }
-  if (sec === 'warlock') return t.spellSlots.warlock;
-  return null;
-}
-
-$('#sheet-spells').addEventListener('click', (e) => {
-  const rowEl = e.target.closest('.slot-row');
-  if (!rowEl) return;
-  const t = state.selectedId ? findToken(state.selectedId) : null;
-  if (!t) return;
-  if (rowEl.classList.contains('res-row')) {
-    const key = rowEl.dataset.res;
-    const def = classResourceDefs(t).find((x) => x.key === key);
-    if (!def) return;
-    const cur = t.classResources[key] || (t.classResources[key] = { used: 0, max: def.max });
-    if (e.target.classList.contains('slot-cell')) {
-      const idx = [...rowEl.querySelectorAll('.slot-cell')].indexOf(e.target);
-      const rem = Math.max(0, (cur.max || 0) - (cur.used || 0));
-      cur.used = idx < rem ? (cur.max || 0) - idx : (cur.max || 0) - (idx + 1);
-    } else if (e.target.classList.contains('slot-plus')) {
-      cur.max = Math.min(20, (cur.max || 0) + 1);
-    } else if (e.target.classList.contains('slot-minus')) {
-      cur.max = Math.max(0, (cur.max || 0) - 1);
-      if (cur.used > cur.max) cur.used = cur.max;
-    }
-    scheduleAutosave();
-    renderSheetSpells(t);
-    return;
-  }
-  const row = findSpellRow(t, rowEl.dataset.sec, rowEl.dataset.level);
-  if (!row) return;
-  if (e.target.classList.contains('slot-cell')) {
-    const idx = [...rowEl.querySelectorAll('.slot-cell')].indexOf(e.target);
-    const rem = Math.max(0, (row.max || 0) - (row.used || 0));
-    row.used = idx < rem ? (row.max || 0) - idx : (row.max || 0) - (idx + 1);
-    scheduleAutosave();
-    renderSheetSpells(t);
-  } else if (e.target.classList.contains('slot-plus')) {
-    row.max = Math.min(20, row.max + 1);
-    scheduleAutosave();
-    renderSheetSpells(t);
-  } else if (e.target.classList.contains('slot-minus')) {
-    row.max = Math.max(0, row.max - 1);
-    if (row.used > row.max) row.used = row.max;
-    scheduleAutosave();
-    renderSheetSpells(t);
-  }
-});
-
-function renderSheetEqList(t) {
-  renderEqRows($('#sheet-eq-list'), t.equipment);
-}
-
-// 装备行编辑器和棋子库编辑器共用同一份渲染，保证两边完全一致
-function renderEqRows(box, list) {
-  box.innerHTML = '';
-  if (!list.length) {
-    const d = document.createElement('div');
-    d.className = 'eq-empty';
-    d.textContent = '暂无装备';
-    box.appendChild(d);
-    return;
-  }
-  list.forEach((e, i) => {
-    const row = document.createElement('div');
-    row.className = 'eq-row';
-    row.dataset.idx = i;
-    const name = `<input class="eq-name" value="${esc(e.name)}" data-f="name">`;
-    const type = `<select class="eq-type" data-f="type">
-      <option value="armor"${e.type === 'armor' ? ' selected' : ''}>护甲</option>
-      <option value="shield"${e.type === 'shield' ? ' selected' : ''}>盾牌</option>
-      <option value="weapon"${e.type === 'weapon' ? ' selected' : ''}>武器</option>
-      <option value="other"${e.type === 'other' ? ' selected' : ''}>其他</option></select>`;
-    let extra = '';
-    if (e.type === 'armor') {
-      extra =
-        `<input class="eq-num" type="number" value="${e.baseAC}" data-f="baseAC" title="基础AC">` +
-        `<select class="eq-cap" data-f="dexCap" title="敏捷上限">
-          <option value="null"${e.dexCap === null ? ' selected' : ''}>敏捷不限</option>
-          <option value="2"${e.dexCap === 2 ? ' selected' : ''}>上限+2</option>
-          <option value="0"${e.dexCap === 0 ? ' selected' : ''}>不加敏捷</option></select>`;
-    } else if (e.type === 'shield' || e.type === 'other') {
-      extra = `<input class="eq-num" type="number" value="${e.acBonus || 0}" data-f="acBonus" title="AC加成">`;
-    } else if (e.type === 'weapon') {
-      extra =
-        `<input class="eq-dice" value="${esc(e.dice || '1d6')}" data-f="dice" title="伤害骰">` +
-        `<select class="eq-attr" data-f="attr" title="属性">
-          <option value="str"${(e.attr || 'str') === 'str' ? ' selected' : ''}>力量</option>
-          <option value="dex"${e.attr === 'dex' ? ' selected' : ''}>敏捷</option></select>`;
-    }
-    row.innerHTML = name + type + extra + `<button class="eq-del" title="移除">×</button>`;
-    box.appendChild(row);
-  });
-}
-
-// 编辑一行装备；返回 true 表示需要重绘整行
-function applyEqRowChange(list, row, target) {
-  const it = list[parseInt(row.dataset.idx, 10)];
-  if (!it) return false;
-  const f = target.dataset.f;
-  if (f === 'baseAC') it.baseAC = parseInt(target.value, 10) || 10;
-  else if (f === 'acBonus') it.acBonus = parseInt(target.value, 10) || 0;
-  else if (f === 'dexCap') it.dexCap = target.value === 'null' ? null : parseInt(target.value, 10);
-  else if (f === 'dice') it.dice = target.value;
-  else if (f === 'name') it.name = target.value;
-  else if (f === 'attr') it.attr = target.value;
-  else if (f === 'type') {
-    it.type = target.value;
-    if (it.type === 'weapon') { if (!it.dice) { it.dice = '1d6'; it.attr = 'str'; } }
-    else if (it.type === 'armor') { if (typeof it.baseAC !== 'number') { it.baseAC = 10; it.dexCap = null; } }
-    else if (typeof it.acBonus !== 'number') it.acBonus = 0;
-    return true;
-  }
-  else it[f] = target.value;
-  return false;
-}
-
-function eqSummaryText(t) {
-  const parts = [];
-  const armor = t.equipment.find((e) => e.type === 'armor');
-  if (armor) {
-    const dexText = armor.dexCap === 0 ? '不加敏捷' : armor.dexCap === 2 ? '敏捷≤2' : '敏捷不限';
-    parts.push(`${armor.name} ${armor.baseAC}（${dexText}）`);
-  }
-  t.equipment.forEach((e) => {
-    if (e.type === 'shield' || e.type === 'other') parts.push(`${e.name} +${e.acBonus || 0}`);
-  });
-  let text = parts.length ? parts.join(' · ') : '无护甲（AC = 10 + 敏捷）';
-  const weapons = t.equipment.filter((e) => e.type === 'weapon');
-  if (weapons.length) text += ' · 武器：' + weapons.map((w) => w.name).join('、');
-  return text;
-}
-
-function acBreakdownText(t) {
-  const dexMod = abilityMod(t.stats.dex);
-  const armor = t.equipment.find((e) => e.type === 'armor');
-  const parts = [];
-  parts.push(!armor ? '10' : `${armor.name} ${armor.baseAC}`);
-  if (!armor || armor.dexCap !== 0) {
-    parts.push(`敏捷${dexMod >= 0 ? '+' : ''}${dexMod}${armor && armor.dexCap === 2 ? '(≤2)' : ''}`);
-  }
-  t.equipment.forEach((e) => {
-    if (e.type === 'shield' || e.type === 'other') parts.push(`${e.name} +${e.acBonus || 0}`);
-  });
-  return parts.join(' + ');
-}
-
-function updateSheet() {
-  const t = state.selectedId ? findToken(state.selectedId) : null;
-  if (!t) return;
-  normalizeSheet(t);
-  ABILITY_KEYS.forEach((k) => {
-    const m = document.querySelector(`.sheet-stat-mod[data-mod="${k}"]`);
-    if (m) {
-      m.textContent = modText(t.stats[k]);
-      m.className = `sheet-stat-mod ${modClass(t.stats[k])}`;
-    }
-  });
-  const computed = computeTokenAC(t);
-  const effective = computeEffectiveAC(t);
-  const init = computeTokenInit(t);
-  $('#sheet-ac').textContent = effective;
-  $('#sheet-init').textContent = (init >= 0 ? '+' : '') + init;
-  $('#sheet-eq-summary').textContent = eqSummaryText(t);
-  $('#sheet-ac-detail').textContent = acBreakdownText(t);
-  if ((t.equipment.length > 0 || ABILITY_KEYS.some((k) => t.stats[k] !== 10)) && t.ac !== computed) {
-    t.ac = computed;
-    renderTokens();
-  }
-  renderSheetAttacks(t);
-}
-
-function renderSheetAttacks(t) {
-  const box = $('#sheet-attacks');
-  box.innerHTML = '';
-  const weapons = t.equipment.filter((e) => e.type === 'weapon');
-  if (!weapons.length) {
-    const d = document.createElement('div');
-    d.className = 'atk-empty';
-    d.textContent = '装备武器后自动显示';
-    box.appendChild(d);
-    return;
-  }
-  weapons.forEach((w, i) => {
-    const hit = weaponToHit(t, w);
-    const dmg = weaponDamageMod(t, w);
-    const row = document.createElement('div');
-    row.className = 'atk-row';
-    row.innerHTML =
-      `<span class="atk-name">${esc(w.name)}</span>` +
-      `<span class="atk-hit">命中 ${hit >= 0 ? '+' : ''}${hit}</span>` +
-      `<span class="atk-dmg">${esc(w.dice)}${dmg >= 0 ? '+' + dmg : dmg}</span>` +
-      `<button class="small atk-roll" data-idx="${i}">🎲 掷</button>`;
-    box.appendChild(row);
-  });
-}
-
-function sheetSetInit() {
-  const t = state.selectedId ? findToken(state.selectedId) : null;
-  if (!t) return;
-  const v = computeTokenInit(t);
-  const entry = state.init.find((i) => i.tokenId === t.id);
-  if (entry) {
-    entry.value = v;
-    updateInitList();
-    toast(`已更新「${t.name}」先攻为 ${v}`);
-  } else {
-    const id = addInit(t.name, v, t.id);
-    setCurrentInit(id);
-    toast(`已添加「${t.name}」先攻 ${v}`);
-  }
-  scheduleAutosave();
-}
-
-function renderStatusCheckboxes() {
-  const t = state.selectedId ? findToken(state.selectedId) : null;
-  if (!t) return;
-  $('#detail-statuses').querySelectorAll('input').forEach((cb) => {
-    cb.checked = (t.statuses || []).includes(cb.dataset.status);
-  });
-}
-
-/* ==================== 先攻 ==================== */
-
-function getSortedInit() {
-  return [...state.init].sort((a, b) => b.value - a.value || String(a.name).localeCompare(String(b.name), 'zh'));
-}
-
-function setCurrentInit(id) {
-  state.initCurrent = id;
-  updateInitList();
-  renderTokens();
-}
-
-function updateInitList() {
-  const box = $('#init-list');
-  box.innerHTML = '';
-  const sorted = getSortedInit();
-  if (!sorted.length) {
-    const d = document.createElement('div');
-    d.className = 'init-empty';
-    d.textContent = '暂无参与者，在左侧输入名称和数值添加';
-    box.appendChild(d);
-    return;
-  }
-  sorted.forEach((e) => {
-    const chip = document.createElement('div');
-    chip.className = 'init-chip' + (e.id === state.initCurrent ? ' current' : '');
-    chip.dataset.id = e.id;
-    const dot = document.createElement('span');
-    dot.className = 'init-dot';
-    dot.style.background = initTypeColor(e);
-    chip.innerHTML = `<span class="init-chip-name">${esc(e.name)}</span><span class="init-chip-val">${e.value}</span><button class="init-chip-del" title="移除">×</button>`;
-    chip.prepend(dot);
-    chip.querySelector('.init-chip-del').addEventListener('click', (ev) => {
-      ev.stopPropagation();
-      removeInit(e.id);
-    });
-    chip.addEventListener('click', () => { setCurrentInit(e.id); });
-    box.appendChild(chip);
-  });
-}
-
-// 先攻条里与棋子关联的颜色圆点
-function initTypeColor(e) {
-  if (!e.tokenId) return '#9aa3b2';
-  const t = state.maps.flatMap((m) => m.tokens).find((tk) => tk.id === e.tokenId);
-  return t ? (TYPE_META[t.type] || TYPE_META.npc).ring : '#9aa3b2';
-}
-
-function addInit(name, value, tokenId) {
-  const id = 'i' + (uid++);
-  state.init.push({ id, name, value, tokenId: tokenId || null });
-  updateInitList();
-  scheduleAutosave();
-  return id;
-}
-
-function removeInit(id) {
-  state.init = state.init.filter((e) => e.id !== id);
-  if (state.initCurrent === id) state.initCurrent = null;
-  updateInitList();
-  renderTokens();
-  scheduleAutosave();
-}
-
-function nextTurn() {
-  const sorted = getSortedInit();
-  if (!sorted.length) {
-    toast('先攻列表是空的，先添加参与者吧');
-    return;
-  }
-  const idx = Math.max(0, sorted.findIndex((e) => e.id === state.initCurrent));
-  if (idx + 1 >= sorted.length) state.round++; // 绕回第一人，进入下一回合
-  const next = sorted[(idx + 1) % sorted.length];
-  setCurrentInit(next.id);
-  toast(`第 ${state.round} 回合：${next.name}`);
 }
 
 /* ==================== 骰子 ==================== */
@@ -3146,39 +2012,19 @@ function rollSet(count, sides) {
   return Array.from({ length: count }, () => 1 + Math.floor(Math.random() * sides));
 }
 
-function doRoll(expr, mode) {
+function doRoll(expr) {
   const parsed = parseExpr(expr);
   if (!parsed) {
     toast('无法识别的骰子表达式，示例：2d6+3');
     return;
   }
 
-  let chosen = rollSet(parsed.count, parsed.sides);
-  const first = chosen;
-  let note = '';
-  let other = null;
-  let pickedFirst = null;
-  if (mode !== 0 && parsed.sides === 20) {
-    const second = rollSet(parsed.count, parsed.sides);
-    const sumA = first.reduce((a, b) => a + b, 0);
-    const sumB = second.reduce((a, b) => a + b, 0);
-    const pickMax = mode === 1;
-    pickedFirst = pickMax ? sumA >= sumB : sumA <= sumB;
-    chosen = pickedFirst ? first : second;
-    other = pickedFirst ? second : first;
-    note = `（两次 ${sumA} / ${sumB}，取${pickMax ? '大' : '小'}）`;
-  }
-
+  const chosen = rollSet(parsed.count, parsed.sides);
   const sum = chosen.reduce((a, b) => a + b, 0) + parsed.mod;
-  const label = parsed.label + (mode === 1 ? '⚖️优势' : mode === -1 ? '⬇️劣势' : '');
-  const detail = chosen.join(' + ') + (parsed.mod ? (parsed.mod > 0 ? ` + ${parsed.mod}` : ` ${parsed.mod}`) : '') + note;
+  const label = parsed.label;
+  const detail = chosen.join(' + ') + (parsed.mod ? (parsed.mod > 0 ? ` + ${parsed.mod}` : ` ${parsed.mod}`) : '');
   // DM 自己的骰子动画：只在本机显示，不广播
-  const dicePayload = other ? [chosen[0], other[0]] : chosen.slice();
-  playDiceFx(parsed.sides, label, sum, {
-    dice: dicePayload,
-    pick: pickedFirst === null ? undefined : (pickedFirst ? 0 : 1),
-    mode,
-  });
+  playDiceFx(parsed.sides, label, sum, { dice: chosen.slice() });
   addLogLine(label, detail, sum);
 }
 
@@ -3198,8 +2044,8 @@ function playDiceFx(sides, label, total, opts) {
 
 /* ==================== 持久化 ==================== */
 
-function scheduleAutosave() {
-  streamDirty = true;
+function scheduleAutosave(markStream = true) {
+  if (markStream) streamDirty = true;
   clearTimeout(autosaveTimer);
   autosaveTimer = setTimeout(saveNow, 600);
   clearTimeout(campaignSaveTimer);
@@ -3239,9 +2085,6 @@ function applySavedState(s) {
     state.fogOn = !!s.fogOn;
     state.campaignId = s.campaignId || null;
     state.campaignName = s.campaignName || '默认战役';
-    state.init = Array.isArray(s.init) ? s.init : [];
-    state.initCurrent = s.initCurrent || null;
-    state.round = s.round || 1;
     state.selectedId = null;
     if (!loadLibrary().length && Array.isArray(s.library) && s.library.length) {
       // 旧版本：棋子库曾存在主存档里，迁移到共享存储
@@ -3255,13 +2098,6 @@ function applySavedState(s) {
         t.iconImgPath = mappedPath;
         t.iconImgHd = null;
       }
-      t.statuses = Array.isArray(t.statuses) ? t.statuses : [];
-      t.statusLevels = t.statusLevels && typeof t.statusLevels === 'object' ? { ...t.statusLevels } : {};
-      Object.keys(t.statusLevels).forEach((k) => {
-        const lv = parseInt(t.statusLevels[k], 10);
-        if (!(lv >= 1 && lv <= 6)) delete t.statusLevels[k];
-        else t.statusLevels[k] = lv;
-      });
       if (typeof t.size !== 'number') t.size = 1;
       if (typeof t.hp !== 'number') t.hp = t.hpMax || 10;
       if (typeof t.ac !== 'number') t.ac = 10;
@@ -3310,7 +2146,6 @@ function applySavedState(s) {
 
     const ids = state.maps.flatMap((m) => [m.id, ...m.tokens.map((t) => t.id)])
       .map((id) => parseInt(String(id).replace(/\D/g, ''), 10) || 0)
-      .concat(state.init.map((i) => parseInt(String(i.id).replace(/\D/g, ''), 10) || 0))
       .concat(state.library.map((p) => parseInt(String(p.id).replace(/\D/g, ''), 10) || 0));
     uid = Math.max(1, ...ids) + 1;
     renumberAllMaps();
@@ -3330,7 +2165,6 @@ function applyAllState() {
   renderLibrary();
   syncMapSelect();
   applyActiveMap();
-  updateInitList();
 }
 
 function applyActiveMap() {
@@ -3390,10 +2224,6 @@ function importState(file) {
 
 async function exportFullBackup() {
   const campaigns = await campaignList();
-  const initTime = {};
-  Object.keys(localStorage).forEach((k) => {
-    if (k.indexOf('sangduoer-init-time') === 0) initTime[k] = localStorage.getItem(k);
-  });
   let links = null;
   try { links = JSON.parse(localStorage.getItem('sangduoer-links-v1')); } catch (e) { /* 忽略 */ }
   const data = {
@@ -3402,7 +2232,6 @@ async function exportFullBackup() {
     savedAt: Date.now(),
     state,
     library: loadLibrary(),
-    initTime,
     links,
     campaigns,
   };
@@ -3412,7 +2241,7 @@ async function exportFullBackup() {
   a.download = '桑哆尔完整备份.json';
   a.click();
   URL.revokeObjectURL(a.href);
-  toast('已导出完整备份（主控台 / 战役 / 棋子库 / 先攻计时 / 常用网站）');
+  toast('已导出完整备份（主控台 / 战役 / 棋子库 / 常用网站）');
 }
 
 function importFullBackup(file) {
@@ -3422,7 +2251,7 @@ function importFullBackup(file) {
       try {
         const d = JSON.parse(reader.result);
         if (!d || !d.state || !Array.isArray(d.campaigns)) throw new Error('bad');
-        if (!confirm('用备份替换当前全部数据（主控台状态、战役、棋子库、先攻计时、常用网站）？')) return;
+        if (!confirm('用备份替换当前全部数据（主控台状态、战役、棋子库、常用网站）？')) return;
         if (!applySavedState(d.state)) throw new Error('state');
         // 战役
         const db = await new Promise((res, rej) => {
@@ -3439,12 +2268,7 @@ function importFullBackup(file) {
         });
         // 棋子库
         if (Array.isArray(d.library)) saveLibrary(d.library);
-        // 先攻计时 / 常用网站
-        if (d.initTime && typeof d.initTime === 'object') {
-          Object.keys(d.initTime).forEach((k) => {
-            try { localStorage.setItem(k, d.initTime[k]); } catch (e) { /* 忽略 */ }
-          });
-        }
+        // 常用网站
         if (d.links) {
           try { localStorage.setItem('sangduoer-links-v1', JSON.stringify(d.links)); } catch (e) { /* 忽略 */ }
         }
@@ -3460,7 +2284,7 @@ function importFullBackup(file) {
 }
 
 function resetAll() {
-  if (!confirm('确定清空所有数据（地图、棋子、先攻列表）？')) return;
+  if (!confirm('确定清空所有数据（地图和棋子）？')) return;
   localStorage.removeItem(STORAGE_KEY);
   location.reload();
 }
@@ -3477,39 +2301,7 @@ function toast(msg) {
 
 /* ==================== 事件 ==================== */
 
-function populateClassSelects() {
-  const sels = [$('#detail-class'), $('#lib-class')].filter(Boolean);
-  sels.forEach((sel) => {
-    sel.innerHTML = '';
-    Object.keys(CLASS_META).forEach((name) => {
-      const o = document.createElement('option');
-      o.value = name;
-      o.textContent = name;
-      sel.appendChild(o);
-    });
-  });
-  [$('#detail-subclass'), $('#lib-subclass')].filter(Boolean).forEach((sel) => {
-    populateSubclassSelect(sel, '无职业');
-  });
-}
-
-function populateSubclassSelect(sel, className) {
-  if (!sel) return;
-  sel.innerHTML = '';
-  const none = document.createElement('option');
-  none.value = '';
-  none.textContent = '无子职业';
-  sel.appendChild(none);
-  (CLASS_META[className] || CLASS_META['无职业']).subclasses.forEach((name) => {
-    const o = document.createElement('option');
-    o.value = name;
-    o.textContent = name;
-    sel.appendChild(o);
-  });
-}
-
 function bindEvents() {
-  populateClassSelects();
   // 地图
   $('#file-map').addEventListener('change', (e) => {
     if (e.target.files[0]) loadMapFromFile(e.target.files[0]);
@@ -3554,9 +2346,6 @@ function bindEvents() {
     state.activeMapId = null;
     state.campaignId = id;
     state.campaignName = name.trim();
-    state.init = [];
-    state.initCurrent = null;
-    state.round = 1;
     state.selectedId = null;
     state.snap = true;
     state.showGrid = true;
@@ -3789,21 +2578,13 @@ function bindEvents() {
   board.addEventListener('pointerup', endDrag);
   board.addEventListener('pointercancel', endDrag);
 
-  // 右键：快速标记死亡 / 取消
+  // 右键仍保留给地图格子的反向切换；棋子本身不再带规则状态。
   board.addEventListener('contextmenu', (e) => {
     e.preventDefault();
     const tokenEl = e.target.closest('.token');
     if (tokenEl) {
       const t = findToken(tokenEl.dataset.id);
-      if (!t) return;
-      if ((t.statuses || []).includes('dead')) {
-        t.statuses = t.statuses.filter((k) => k !== 'dead');
-      } else {
-        t.statuses = [...(t.statuses || []), 'dead'];
-      }
-      selectToken(t.id);
-      renderTokens();
-      scheduleAutosave();
+      if (t) selectToken(t.id);
       return;
     }
     const m = activeMap();
@@ -3937,36 +2718,6 @@ function bindEvents() {
     scheduleAutosave();
     toast('类型已改为：' + ((TYPE_META[t.type] || {}).label || t.type));
   });
-  $('#detail-class').addEventListener('change', (e) => {
-    const t = state.selectedId && findToken(state.selectedId);
-    if (!t) return;
-    t.className = e.target.value;
-    t.subClassName = '';
-    const subSel = $('#detail-subclass');
-    if (subSel) {
-      populateSubclassSelect(subSel, t.className);
-      subSel.value = '';
-    }
-    normalizeSheet(t);
-    applyLevel(t);
-    renderSheet();
-    updateDetail();
-    renderTokens();
-    scheduleAutosave();
-    toast('职业已设为：' + t.className);
-  });
-  $('#detail-subclass').addEventListener('change', (e) => {
-    const t = state.selectedId && findToken(state.selectedId);
-    if (!t) return;
-    t.subClassName = e.target.value;
-    normalizeSheet(t);
-    applyLevel(t);
-    renderSheet();
-    updateDetail();
-    renderTokens();
-    scheduleAutosave();
-    toast(e.target.value ? `子职业已设为：${t.className} · ${t.subClassName}` : '已清除子职业');
-  });
   $('#detail-owner').addEventListener('change', (e) => {
     const t = state.selectedId && findToken(state.selectedId);
     if (!t) return;
@@ -3991,6 +2742,12 @@ function bindEvents() {
     renderTokens();
     scheduleAutosave();
   });
+  $('#detail-ac-input').addEventListener('input', (e) => {
+    const t = state.selectedId && findToken(state.selectedId);
+    if (!t) return;
+    t.ac = clamp(parseInt(e.target.value, 10) || 0, 0, 99);
+    scheduleAutosave();
+  });
   $('#detail-icon-input').addEventListener('input', (e) => {
     const t = state.selectedId && findToken(state.selectedId);
     if (!t) return;
@@ -4011,76 +2768,6 @@ function bindEvents() {
       scheduleAutosave();
     });
   });
-  $('#detail-hitdice').addEventListener('click', (e) => {
-    const cell = e.target.closest('.slot-cell');
-    const t = state.selectedId && findToken(state.selectedId);
-    if (!cell || !t) return;
-    const hd = t.hitDice || { die: classDef(t).hitDie, max: t.level || 1, used: 0 };
-    const max = hd.max || 0;
-    const rem = Math.max(0, max - (hd.used || 0));
-    const idx = [...cell.parentElement.querySelectorAll('.slot-cell')].indexOf(cell);
-    hd.used = idx < rem ? max - idx : max - (idx + 1);
-    renderSheetHitDice(t);
-    scheduleAutosave();
-  });
-  $('#sheet-statuses').addEventListener('change', (e) => {
-    const t = state.selectedId && findToken(state.selectedId);
-    if (!t || !e.target.dataset.status) return;
-    const key = e.target.dataset.status;
-    t.statuses = t.statuses || [];
-    if (e.target.checked && !t.statuses.includes(key)) t.statuses.push(key);
-    if (!e.target.checked) t.statuses = t.statuses.filter((k) => k !== key);
-    renderTokens();
-    scheduleAutosave();
-  });
-  $('#sheet-statuses').addEventListener('click', (e) => {
-    const pill = e.target.closest('.status-pill');
-    if (!pill) return;
-    const t = state.selectedId && findToken(state.selectedId);
-    if (!t) return;
-    const key = pill.dataset.status;
-    const s = STATUSES.find((x) => x.key === key);
-    if (!s || !s.stackable) return;
-    const cur = statusLevel(t, key);
-    const next = cur >= s.max ? 0 : cur + 1;
-    setStatusLevel(t, key, next);
-    if (next === 0) t.statuses = (t.statuses || []).filter((k) => k !== key);
-    else if (!(t.statuses || []).includes(key)) { t.statuses = t.statuses || []; t.statuses.push(key); }
-    renderSheetStatuses(t);
-    renderTokens();
-    updateDetail();
-    scheduleAutosave();
-  });
-  $('#sheet-statuses').addEventListener('contextmenu', (e) => {
-    const pill = e.target.closest('.status-pill');
-    if (!pill) return;
-    e.preventDefault();
-    const t = state.selectedId && findToken(state.selectedId);
-    if (!t) return;
-    const key = pill.dataset.status;
-    const s = STATUSES.find((x) => x.key === key);
-    if (!s || !s.stackable) return;
-    const cur = statusLevel(t, key);
-    const next = cur <= 1 ? 0 : cur - 1; // 右键降级：1 级再降即清除（相当于长休后降级）
-    setStatusLevel(t, key, next);
-    if (next === 0) t.statuses = (t.statuses || []).filter((k) => k !== key);
-    else if (!(t.statuses || []).includes(key)) { t.statuses = t.statuses || []; t.statuses.push(key); }
-    renderSheetStatuses(t);
-    renderTokens();
-    updateDetail();
-    scheduleAutosave();
-  });
-  $('#sheet-skills').addEventListener('click', (e) => {
-    const btn = e.target.closest('.skill-btn');
-    const t = state.selectedId && findToken(state.selectedId);
-    if (!btn || !t) return;
-    const key = btn.dataset.skill;
-    t.skillProfs = t.skillProfs || {};
-    const cur = t.skillProfs[key] || '';
-    t.skillProfs[key] = cur === '' ? 'prof' : cur === 'prof' ? 'expert' : '';
-    renderSkills(t);
-    scheduleAutosave();
-  });
   $('#btn-detail-delete').addEventListener('click', () => {
     const t = state.selectedId && findToken(state.selectedId);
     if (!t) return;
@@ -4095,101 +2782,10 @@ function bindEvents() {
     transferToken(state.selectedId, $('#detail-map-move').value, true);
   });
 
-  // 人物卡
-  $('#sheet-stats').addEventListener('change', (e) => {
-    const t = state.selectedId && findToken(state.selectedId);
-    if (!t || !e.target.dataset.stat) return;
-    t.stats[e.target.dataset.stat] = clamp(parseInt(e.target.value, 10) || 10, 1, 30);
-    updateSheet();
-    scheduleAutosave();
-  });
-  $('#sheet-prof').addEventListener('change', (e) => {
-    const t = state.selectedId && findToken(state.selectedId);
-    if (!t) return;
-    t.prof = clamp(parseInt(e.target.value, 10) || 2, 0, 12);
-    updateSheet();
-    scheduleAutosave();
-  });
-  $('#sheet-level').addEventListener('change', (e) => {
-    const t = state.selectedId && findToken(state.selectedId);
-    if (!t) return;
-    t.level = clamp(parseInt(e.target.value, 10) || 1, 1, 20);
-    applyLevel(t);
-    renderSheet();
-    updateSheet();
-    renderTokens();
-    scheduleAutosave();
-    toast(`等级已设为 ${t.level}，熟练 +${t.prof}`);
-  });
-  $('#sheet-speed').addEventListener('change', (e) => {
-    const t = state.selectedId && findToken(state.selectedId);
-    if (!t) return;
-    t.speed = clamp(parseInt(e.target.value, 10) || 30, 0, 120);
-    scheduleAutosave();
-  });
-  $('#sheet-initbonus').addEventListener('change', (e) => {
-    const t = state.selectedId && findToken(state.selectedId);
-    if (!t) return;
-    t.initBonus = parseInt(e.target.value, 10) || 0;
-    updateSheet();
-    scheduleAutosave();
-  });
-  $('#btn-sheet-eq-add').addEventListener('click', () => {
-    const t = state.selectedId && findToken(state.selectedId);
-    if (!t) return;
-    const p = EQUIPMENT_PRESETS[parseInt($('#sheet-eq-select').value, 10) || 0];
-    if (p) t.equipment.push({ ...p });
-    renderSheet();
-    scheduleAutosave();
-  });
-  $('#btn-sheet-eq-custom').addEventListener('click', () => {
-    const t = state.selectedId && findToken(state.selectedId);
-    if (!t) return;
-    const name = prompt('新装备名称', '新装备');
-    if (name === null || !name.trim()) return;
-    t.equipment.push({ name: name.trim(), type: 'other', acBonus: 0, baseAC: 10, dexCap: null, dice: '1d6', attr: 'str' });
-    renderSheet();
-    scheduleAutosave();
-  });
-  $('#sheet-eq-list').addEventListener('change', (e) => {
-    const t = state.selectedId && findToken(state.selectedId);
-    const row = e.target.closest('.eq-row');
-    if (!t || !row) return;
-    if (applyEqRowChange(t.equipment, row, e.target)) renderSheetEqList(t);
-    updateSheet();
-    scheduleAutosave();
-  });
-  $('#sheet-eq-list').addEventListener('click', (e) => {
-    const t = state.selectedId && findToken(state.selectedId);
-    const del = e.target.closest('.eq-del');
-    if (!t || !del) return;
-    const row = del.closest('.eq-row');
-    t.equipment.splice(parseInt(row.dataset.idx, 10), 1);
-    renderSheet();
-    scheduleAutosave();
-  });
-  $('#btn-sheet-init').addEventListener('click', sheetSetInit);
-  $('#sheet-attacks').addEventListener('click', (e) => {
-    const btn = e.target.closest('.atk-roll');
-    const t = state.selectedId && findToken(state.selectedId);
-    if (!btn || !t) return;
-    const w = t.equipment.filter((x) => x.type === 'weapon')[parseInt(btn.dataset.idx, 10)];
-    if (!w) return;
-    const dmg = weaponDamageMod(t, w);
-    doRoll(`${w.dice}${dmg >= 0 ? '+' + dmg : dmg}`, 0);
-  });
-
   // 棋子库
   $('#lib-search').addEventListener('input', (e) => { libSearch = e.target.value; renderLibrary(); });
   $('#lib-filter').addEventListener('change', (e) => { libFilter = e.target.value; renderLibrary(); });
   $('#lib-cat').addEventListener('change', (e) => { libCategory = e.target.value; renderLibrary(); });
-  $('#lib-class').addEventListener('change', (e) => {
-    const sel = $('#lib-subclass');
-    if (sel) {
-      populateSubclassSelect(sel, e.target.value);
-      sel.value = '';
-    }
-  });
   $('#btn-lib-add').addEventListener('click', () => openLibEditor('new'));
   $('#btn-lib-save').addEventListener('click', saveLibEditor);
   $('#btn-lib-cancel').addEventListener('click', closeLibEditor);
@@ -4212,24 +2808,6 @@ function bindEvents() {
     libAvatar = null;
     syncLibIconPreview();
   });
-  $('#lib-sheet-stats').addEventListener('change', (e) => {
-    if (e.target.dataset.stat) updateLibStatMods();
-  });
-  $('#btn-lib-eq-add').addEventListener('click', () => {
-    const p = EQUIPMENT_PRESETS[parseInt($('#lib-eq-select').value, 10) || 0];
-    if (p) { libEqDraft.push({ ...p }); renderLibEqList(); }
-  });
-  $('#lib-eq-list').addEventListener('change', (e) => {
-    const row = e.target.closest('.eq-row');
-    if (!row) return;
-    if (applyEqRowChange(libEqDraft, row, e.target)) renderLibEqList();
-  });
-  $('#lib-eq-list').addEventListener('click', (e) => {
-    const del = e.target.closest('.eq-del');
-    if (!del) return;
-    libEqDraft.splice(parseInt(del.closest('.eq-row').dataset.idx, 10), 1);
-    renderLibEqList();
-  });
   $('#btn-save-to-lib').addEventListener('click', () => {
     const t = state.selectedId && findToken(state.selectedId);
     if (!t) return;
@@ -4238,14 +2816,6 @@ function bindEvents() {
       name: t.name,
       type: t.type,
       category: '其他',
-      className: t.className || '无职业',
-      subClassName: t.subClassName || '',
-      classResources: t.classResources && typeof t.classResources === 'object' ? JSON.parse(JSON.stringify(t.classResources)) : {},
-      spellSlots: t.spellSlots ? JSON.parse(JSON.stringify(t.spellSlots)) : defaultSpellSlots(),
-      level: typeof t.level === 'number' ? t.level : 1,
-      saveBonuses: t.saveBonuses && typeof t.saveBonuses === 'object' ? { ...t.saveBonuses } : {},
-      skillProfs: t.skillProfs && typeof t.skillProfs === 'object' ? { ...t.skillProfs } : {},
-      hitDice: t.hitDice && typeof t.hitDice === 'object' ? { ...t.hitDice } : { die: 8, max: t.level || 1, used: 0 },
       icon: t.icon || '',
       iconImg: t.iconImg || null,
       iconImgHd: (AVATAR_SOURCE_MAP[t.name] || t.iconImgPath) ? null : (t.iconImgHd || null),
@@ -4254,11 +2824,6 @@ function bindEvents() {
       size: t.size || 1,
       hpMax: t.hpMax || 10,
       ac: typeof t.ac === 'number' ? t.ac : 10,
-      stats: t.stats && typeof t.stats === 'object' ? { ...t.stats } : { str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 },
-      prof: typeof t.prof === 'number' ? t.prof : 2,
-      speed: typeof t.speed === 'number' ? t.speed : 30,
-      initBonus: typeof t.initBonus === 'number' ? t.initBonus : 0,
-      equipment: Array.isArray(t.equipment) ? t.equipment.map((e) => ({ ...e })) : [],
     });
     renderLibrary();
     saveLibrary();
@@ -4319,35 +2884,10 @@ function bindEvents() {
     });
   });
 
-  // 先攻
-  $('#btn-init-add').addEventListener('click', () => {
-    let name = $('#init-name').value.trim();
-    const sel = state.selectedId && findToken(state.selectedId);
-    if (!name && sel) name = sel.name;
-    if (!name) name = '无名氏';
-    const v = parseInt($('#init-value').value, 10);
-    if (isNaN(v)) { toast('请填写先攻数值'); return; }
-    const id = addInit(name, v, sel ? sel.id : null);
-    setCurrentInit(id);
-    $('#init-name').value = '';
-    $('#init-value').value = '';
-  });
-  $('#btn-next-turn').addEventListener('click', nextTurn);
-  $('#btn-init-clear').addEventListener('click', () => {
-    state.init = [];
-    state.initCurrent = null;
-    state.round = 1;
-    updateInitList();
-    renderTokens();
-    scheduleAutosave();
-  });
-
   // 骰子
   document.querySelectorAll('.die').forEach((btn) => {
     btn.addEventListener('click', () => doRoll(btn.dataset.die, 0));
   });
-  $('#btn-adv').addEventListener('click', () => doRoll('d20', 1));
-  $('#btn-dis').addEventListener('click', () => doRoll('d20', -1));
   $('#btn-roll').addEventListener('click', () => {
     const expr = $('#dice-expr').value.trim();
     if (!expr) return;
@@ -4461,17 +3001,8 @@ function placeToken() {
     hpMax,
     hp: hpMax,
     ac,
-    stats: { str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 },
-    prof: 2,
-    speed: 30,
-    initBonus: 0,
-    equipment: [],
-    spellSlots: defaultSpellSlots(),
     x: clamp(finalX, margin, m.mapW - margin),
     y: clamp(finalY, margin, m.mapH - margin),
-    statuses: [],
-    statusLevels: {},
-    hidden: false,
     owner: '',
     groupKey: splitGroupName(name).base,
   };
@@ -4754,8 +3285,17 @@ $('#bgm-volume').addEventListener('input', (e) => {
 /* ==================== 简易联机（主机推送观战） ==================== */
 
 function buildStreamPayload() {
-  const p = { ...state };
-  delete p.library;
+  // 玩家只需要当前地图；其余楼层和棋子库不应占用联机带宽。
+  const m = activeMap();
+  const p = {
+    maps: m ? [m] : [],
+    activeMapId: state.activeMapId,
+    snap: state.snap,
+    showGrid: state.showGrid,
+    showNames: state.showNames,
+    fogOn: state.fogOn,
+    campaignName: state.campaignName,
+  };
   p._links = (userLinks || []).map((l) => ({ name: l.name, url: l.url }));
   if (bgmServerUrl && bgmIndex >= 0 && bgmList[bgmIndex]) {
     p._bgm = {
@@ -4769,7 +3309,7 @@ function buildStreamPayload() {
   return p;
 }
 
-// 玩家动作到达主机：原地应用并触发下一次推送
+// 玩家动作到达主机：服务器已立即广播，不再回声式发送整张状态。
 function applyRemoteAction(a) {
   if (!a) return;
   if (a.op === 'roll') {
@@ -4786,7 +3326,7 @@ function applyRemoteAction(a) {
     if (mm && Array.isArray(a.doodles)) {
       mm.doodles = a.doodles.map((s) => ({ ...s }));
       renderDoodles();
-      scheduleAutosave();
+      scheduleAutosave(false);
     }
     return;
   }
@@ -4807,42 +3347,15 @@ function applyRemoteAction(a) {
     }
     syncLabelsFor(t);
     if (state.selectedId === t.id) updateDetail();
-  } else if (a.op === 'setStatus') {
-    if (!Array.isArray(t.statuses)) t.statuses = [];
-    t.statuses = t.statuses.filter((k) => k !== a.status);
-    if (a.level !== undefined && a.level !== null) {
-      setStatusLevel(t, a.status, parseInt(a.level, 10) || 0);
-      if (a.level > 0) t.statuses.push(a.status);
-    } else if (a.on) {
-      t.statuses.push(a.status);
-    }
-    renderTokens();
-    if (state.selectedId === t.id) {
-      updateDetail();
-      renderStatusCheckboxes();
-    }
   } else if (a.op === 'patchToken') {
     const p = a.patch || {};
-    const allowed = ['hp', 'hpMax', 'stats', 'prof', 'speed', 'initBonus', 'equipment', 'classResources', 'spellSlots', 'hitDice'];
+    const allowed = ['hp', 'hpMax', 'ac'];
     allowed.forEach((k) => { if (k in p) t[k] = p[k]; });
     normalizeSheet(t);
     renderTokens();
-    if (state.selectedId === t.id) {
-      const ae = document.activeElement;
-      const editing = ae && (($('#sheet') && $('#sheet').contains(ae)) || ($('#detail') && $('#detail').contains(ae)));
-      if (editing) {
-        updateSheet();
-        renderSaves(t);
-        renderSkills(t);
-        renderSheetSpells(t);
-        renderSheetHitDice(t);
-      } else {
-        updateDetail();
-        renderSheet();
-      }
-    }
+    if (state.selectedId === t.id) updateDetail();
   }
-  scheduleAutosave();
+  scheduleAutosave(false);
 }
 
 async function mergePlayerStateFromServer() {
@@ -4860,9 +3373,7 @@ async function mergePlayerStateFromServer() {
       if (rs && (rs.owner || '').trim()) {
         t.x = rs.x;
         t.y = rs.y;
-        t.statuses = Array.isArray(rs.statuses) ? [...rs.statuses] : [];
-        if (rs.statusLevels && typeof rs.statusLevels === 'object') t.statusLevels = { ...rs.statusLevels };
-        ['hp', 'hpMax', 'stats', 'prof', 'speed', 'initBonus', 'equipment', 'classResources', 'spellSlots', 'hitDice'].forEach((k) => {
+        ['hp', 'hpMax', 'ac'].forEach((k) => {
           if (k in rs) t[k] = rs[k];
         });
         if (t.size >= 2) syncRiderData(t);
@@ -4871,7 +3382,7 @@ async function mergePlayerStateFromServer() {
     }));
     if (changed) {
       renderTokens();
-      scheduleAutosave();
+      scheduleAutosave(false);
     }
   } catch (e) { /* 服务器暂不可用，SSE 重连后会自动再拉 */ }
 }
@@ -4928,8 +3439,8 @@ async function streamPush() {
 function streamTick() {
   if (!streamOn) return;
   const now = Date.now();
-  // 有改动就尽快推；没改动时每 2.5 秒保活一次，兜底漏推的改动
-  if (!streamDirty && now - streamLastPushAt < 2500) return;
+  // SSE 自身每 10 秒已有极小 ping；不再空闲时重复推送完整状态。
+  if (!streamDirty) return;
   if (now - streamLastPushAt < 300) return;
   streamDirty = false;
   streamPush();
@@ -4947,7 +3458,7 @@ async function copyStreamUrl() {
     toast('请先开启玩家模式');
     return;
   }
-  const url = `http://${streamInfo.ip}:${streamInfo.port || 8090}/主控台/观战.html?v=23`;
+  const url = `http://${streamInfo.ip}:${streamInfo.port || 8090}/主控台/观战.html?v=24`;
   try {
     await navigator.clipboard.writeText(url);
     toast('已复制玩家观看地址：' + url);
@@ -4965,7 +3476,7 @@ async function serverCheck() {
     clearTimeout(t);
     const info = await res.json();
     const ip = (info.ips || []).find((x) => x !== '127.0.0.1') || 'localhost';
-    toast(`✅ 服务器在线：玩家打开 http://${ip}:${info.port || 8090}/主控台/观战.html?v=23`);
+    toast(`✅ 服务器在线：玩家打开 http://${ip}:${info.port || 8090}/主控台/观战.html?v=24`);
   } catch (e) {
     toast('❌ 服务器未启动：请双击项目里的「启动桑哆尔」一键启动');
   }
@@ -5017,7 +3528,7 @@ async function toggleStream() {
     const ip = (info.ips || []).find((x) => x !== '127.0.0.1') || 'localhost';
     streamInfo = { ip, port: info.port || 8090 };
     updateStreamUi();
-    toast(`📡 玩家模式已开启：改动最快约0.3秒推送，玩家打开 http://${ip}:${info.port || 8090}/主控台/观战.html?v=23`);
+    toast(`📡 玩家模式已开启：改动最快约0.3秒推送，玩家打开 http://${ip}:${info.port || 8090}/主控台/观战.html?v=24`);
   } catch (e) {
     toast('📡 服务器未启动：请双击项目里的「启动桑哆尔」一键启动，再点一次开启');
   }
@@ -5042,7 +3553,7 @@ async function restoreStreamFromStorage() {
     const ip = (info.ips || []).find((x) => x !== '127.0.0.1') || 'localhost';
     streamInfo = { ip, port: info.port || 8090 };
     updateStreamUi();
-    toast(`📡 已自动恢复玩家模式：玩家打开 http://${ip}:${info.port || 8090}/主控台/观战.html?v=23`);
+    toast(`📡 已自动恢复玩家模式：玩家打开 http://${ip}:${info.port || 8090}/主控台/观战.html?v=24`);
   } catch (e) {
     updateStreamUi();
     toast('📡 已自动恢复玩家模式：正在等待联机服务器启动，启动后会自动推送');
@@ -5139,21 +3650,13 @@ function canonicalPortraitPath(value) {
 }
 
 function normalizeLibPreset(p) {
-  // 清理旧版高清修复写入的重复 data URL；有项目文件时以原图路径为准。
+  // 棋子库与地图单位保持同一套极简字段。
   const portraitPath = canonicalPortraitPath(AVATAR_SOURCE_MAP[p.name] || p.iconImgPath);
   return {
     id: p.id || 'l' + (uid++),
     name: p.name || '未命名',
     type: ['pc', 'enemy', 'npc', 'ally'].includes(p.type) ? p.type : 'npc',
     category: (p.category || '').trim() || '其他',
-    className: typeof p.className === 'string' && CLASS_META[p.className] ? p.className : '无职业',
-    subClassName: typeof p.subClassName === 'string' ? p.subClassName : '',
-    classResources: p.classResources && typeof p.classResources === 'object' ? { ...p.classResources } : {},
-    spellSlots: p.spellSlots && typeof p.spellSlots === 'object' ? JSON.parse(JSON.stringify(p.spellSlots)) : null,
-    level: typeof p.level === 'number' ? Math.max(1, Math.min(20, p.level)) : 1,
-    saveBonuses: p.saveBonuses && typeof p.saveBonuses === 'object' ? { ...p.saveBonuses } : {},
-    skillProfs: p.skillProfs && typeof p.skillProfs === 'object' ? { ...p.skillProfs } : {},
-    hitDice: p.hitDice && typeof p.hitDice === 'object' ? { ...p.hitDice } : null,
     icon: p.icon || '',
     iconImg: p.iconImg || null,
     iconImgHd: portraitPath ? null : (p.iconImgHd || null),
@@ -5161,12 +3664,7 @@ function normalizeLibPreset(p) {
     iconImgId: p.iconImgId || null,
     size: p.size === 2 ? 2 : 1,
     hpMax: Math.max(1, parseInt(p.hpMax, 10) || 10),
-    ac: typeof p.ac === 'number' ? p.ac : 10,
-    stats: p.stats && typeof p.stats === 'object' ? { ...p.stats } : { str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 },
-    prof: typeof p.prof === 'number' ? p.prof : 2,
-    speed: typeof p.speed === 'number' ? p.speed : 30,
-    initBonus: typeof p.initBonus === 'number' ? p.initBonus : 0,
-    equipment: Array.isArray(p.equipment) ? p.equipment.map((e) => ({ ...e })) : [],
+    ac: Math.max(0, Math.min(99, Number.isFinite(parseInt(p.ac, 10)) ? parseInt(p.ac, 10) : 10)),
   };
 }
 
@@ -5559,7 +4057,7 @@ function renderLibrary() {
 
     const catTag = document.createElement('span');
     catTag.className = 'lib-cat';
-    catTag.textContent = `${p.category || '其他'}${p.className && p.className !== '无职业' ? ' · ' + p.className : ''} · AC ${typeof p.ac === 'number' ? p.ac : 10}`;
+    catTag.textContent = `${p.category || '其他'} · HP ${p.hpMax || 10} · AC ${typeof p.ac === 'number' ? p.ac : 10}`;
     info.append(name, catTag);
 
     const place = document.createElement('button');
@@ -5616,24 +4114,8 @@ function placePresetOnMap(id) {
     hpMax: p.hpMax,
     hp: p.hpMax,
     ac: typeof p.ac === 'number' ? p.ac : 10,
-    stats: p.stats && typeof p.stats === 'object' ? { ...p.stats } : { str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 },
-    prof: typeof p.prof === 'number' ? p.prof : 2,
-    speed: typeof p.speed === 'number' ? p.speed : 30,
-    initBonus: typeof p.initBonus === 'number' ? p.initBonus : 0,
-    equipment: Array.isArray(p.equipment) ? p.equipment.map((e) => ({ ...e })) : [],
-    className: typeof p.className === 'string' && CLASS_META[p.className] ? p.className : '无职业',
-    subClassName: typeof p.subClassName === 'string' ? p.subClassName : '',
-    classResources: p.classResources && typeof p.classResources === 'object' ? { ...p.classResources } : {},
-    spellSlots: p.spellSlots && typeof p.spellSlots === 'object' ? JSON.parse(JSON.stringify(p.spellSlots)) : defaultSpellSlots(),
-    level: typeof p.level === 'number' ? Math.max(1, Math.min(20, p.level)) : 1,
-    saveBonuses: p.saveBonuses && typeof p.saveBonuses === 'object' ? { ...p.saveBonuses } : {},
-    skillProfs: p.skillProfs && typeof p.skillProfs === 'object' ? { ...p.skillProfs } : {},
-    hitDice: p.hitDice && typeof p.hitDice === 'object' ? { ...p.hitDice } : null,
     x: clamp(finalX, margin, m.mapW - margin),
     y: clamp(finalY, margin, m.mapH - margin),
-    statuses: [],
-    statusLevels: {},
-    hidden: false,
     owner: '',
     groupKey: p.name,
   };
@@ -5643,55 +4125,6 @@ function placePresetOnMap(id) {
   selectToken(token.id);
   scheduleAutosave();
   toast(`已放置「${p.name}」`);
-}
-
-// 跑团台内的「棋子库」编辑器：与独立「棋子库」程序字段一一对应
-function renderLibSheetStats(p) {
-  const box = $('#lib-sheet-stats');
-  if (!box) return;
-  box.innerHTML = '';
-  const stats = (p && p.stats && typeof p.stats === 'object') ? p.stats : {};
-  ABILITY_KEYS.forEach((k) => {
-    const v = typeof stats[k] === 'number' ? stats[k] : 10;
-    const cell = document.createElement('div');
-    cell.className = 'sheet-stat';
-    cell.innerHTML =
-      `<span class="sheet-stat-label">${ABILITY_LABELS[k]}</span>` +
-      `<input type="number" data-stat="${k}" value="${v}" min="1" max="30">` +
-      `<b class="sheet-stat-mod ${modClass(v)}" data-mod="${k}">${modText(v)}</b>`;
-    box.appendChild(cell);
-  });
-}
-
-function updateLibStatMods() {
-  const box = $('#lib-sheet-stats');
-  if (!box) return;
-  box.querySelectorAll('input[data-stat]').forEach((inp) => {
-    const k = inp.dataset.stat;
-    if (!k) return;
-    const v = clamp(parseInt(inp.value, 10) || 10, 1, 30);
-    const m = box.querySelector(`.sheet-stat-mod[data-mod="${k}"]`);
-    if (m) {
-      m.textContent = modText(v);
-      m.className = `sheet-stat-mod ${modClass(v)}`;
-    }
-  });
-}
-
-function initLibEqSelect() {
-  const sel = $('#lib-eq-select');
-  if (!sel) return;
-  sel.innerHTML = '';
-  EQUIPMENT_PRESETS.forEach((e, i) => {
-    const opt = document.createElement('option');
-    opt.value = i;
-    opt.textContent = `${e.name}（${e.type === 'armor' ? '护甲 AC' + e.baseAC : e.type === 'shield' ? '盾 +' + e.acBonus : e.dice}）`;
-    sel.appendChild(opt);
-  });
-}
-
-function renderLibEqList() {
-  renderEqRows($('#lib-eq-list'), libEqDraft);
 }
 
 let libEdCatPrev = '';
@@ -5749,22 +4182,15 @@ function readLibCatSelects() {
 function openLibEditor(id) {
   libEditorId = id;
   libAvatar = null;
-  libEqDraft = [];
   $('#lib-editor').hidden = false;
   populateLibCatSelects();
   const p = id === 'new' ? null : state.library.find((x) => x.id === id);
   if (id === 'new') {
     $('#lib-name').value = '';
     $('#lib-type').value = 'enemy';
-    $('#lib-class').value = '无职业';
-    const subNew = $('#lib-subclass');
-    if (subNew) { populateSubclassSelect(subNew, '无职业'); subNew.value = ''; }
     $('#lib-hp').value = 10;
     $('#lib-ac').value = 10;
     $('#lib-size').value = '1';
-    $('#lib-prof').value = 2;
-    $('#lib-speed').value = 30;
-    $('#lib-initbonus').value = 0;
     $('#lib-icon').value = '';
     libEdCatPrev = '';
     $('#lib-cat1').value = '其他';
@@ -5773,19 +4199,9 @@ function openLibEditor(id) {
     if (!p) { closeLibEditor(); return; }
     $('#lib-name').value = p.name;
     $('#lib-type').value = p.type;
-    $('#lib-class').value = (p.className && CLASS_META[p.className]) ? p.className : '无职业';
-    const subEdit = $('#lib-subclass');
-    if (subEdit) {
-      populateSubclassSelect(subEdit, (p.className && CLASS_META[p.className]) ? p.className : '无职业');
-      subEdit.value = p.subClassName || '';
-    }
     $('#lib-hp').value = p.hpMax;
     $('#lib-ac').value = typeof p.ac === 'number' ? p.ac : 10;
     $('#lib-size').value = String(p.size);
-    $('#lib-prof').value = typeof p.prof === 'number' ? p.prof : 2;
-    $('#lib-speed').value = typeof p.speed === 'number' ? p.speed : 30;
-    $('#lib-initbonus').value = typeof p.initBonus === 'number' ? p.initBonus : 0;
-    libEqDraft = Array.isArray(p.equipment) ? p.equipment.map((e) => ({ ...e })) : [];
     $('#lib-icon').value = p.icon || '';
     const editPath = canonicalPortraitPath(AVATAR_SOURCE_MAP[p.name] || p.iconImgPath);
     libAvatar = p.iconImg || p.iconImgHd || editPath || p.iconImgId
@@ -5795,8 +4211,6 @@ function openLibEditor(id) {
     if (parts[0] && [...$('#lib-cat1').options].some((o) => o.value === parts[0])) $('#lib-cat1').value = parts[0];
     fillLibCat2(p.category);
   }
-  renderLibSheetStats(p);
-  renderLibEqList();
   syncLibIconPreview();
   renderLibrary();
 }
@@ -5832,24 +4246,11 @@ function syncLibIconPreview() {
 
 function saveLibEditor() {
   const name = $('#lib-name').value.trim() || '未命名';
-  const oldPreset = state.library.find((x) => x.id === libEditorId);
-  const stats = { str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 };
-  $('#lib-sheet-stats').querySelectorAll('input[data-stat]').forEach((inp) => {
-    if (inp.dataset.stat) stats[inp.dataset.stat] = clamp(parseInt(inp.value, 10) || 10, 1, 30);
-  });
   const preset = {
     id: libEditorId === 'new' ? 'l' + (uid++) : libEditorId,
     name,
     type: $('#lib-type').value,
     category: readLibCatSelects(),
-    className: $('#lib-class').value,
-    subClassName: $('#lib-subclass').value,
-    classResources: oldPreset && oldPreset.classResources ? JSON.parse(JSON.stringify(oldPreset.classResources)) : {},
-    spellSlots: oldPreset && oldPreset.spellSlots ? JSON.parse(JSON.stringify(oldPreset.spellSlots)) : null,
-    level: oldPreset && typeof oldPreset.level === 'number' ? oldPreset.level : 1,
-    saveBonuses: oldPreset && oldPreset.saveBonuses ? { ...oldPreset.saveBonuses } : {},
-    skillProfs: oldPreset && oldPreset.skillProfs ? { ...oldPreset.skillProfs } : {},
-    hitDice: oldPreset && oldPreset.hitDice ? { ...oldPreset.hitDice } : null,
     icon: $('#lib-icon').value.trim(),
     iconImg: libAvatar ? libAvatar.iconImg : null,
     iconImgHd: libAvatar ? libAvatar.iconImgHd : null,
@@ -5858,11 +4259,6 @@ function saveLibEditor() {
     size: parseInt($('#lib-size').value, 10) === 2 ? 2 : 1,
     hpMax: Math.max(1, parseInt($('#lib-hp').value, 10) || 10),
     ac: Math.max(0, parseInt($('#lib-ac').value, 10) || 10),
-    stats,
-    prof: clamp(parseInt($('#lib-prof').value, 10) || 2, 0, 12),
-    speed: clamp(parseInt($('#lib-speed').value, 10) || 30, 0, 120),
-    initBonus: parseInt($('#lib-initbonus').value, 10) || 0,
-    equipment: libEqDraft.map((e) => ({ ...e })),
   };
   if (libEditorId === 'new') {
     state.library.push(preset);
@@ -6460,7 +4856,6 @@ if (sharedLib.length) {
   saveLibrary();
 }
 renderLibrary();
-initLibEqSelect();
 initLibPersistStatus();
 restoreStreamFromStorage();
 // 左侧面板默认全部折叠
