@@ -14,6 +14,7 @@
     <span>跑团台-<em>桑哆尔</em></span>
   </div>
   <div class="controls">
+    <button id="btn-toggle-left-panel" class="topbar-tool-toggle" type="button" title="显示或隐藏工具栏" aria-pressed="false">☰ 工具</button>
     <div class="dropdown">
       <button class="dropdown-btn" data-dropdown="net" id="btn-stream-dd">📡 联机 ▾</button>
       <div class="dropdown-menu" data-menu="net" hidden>
@@ -51,12 +52,14 @@
       <select id="map-select"></select>
       <button id="btn-map-next">›</button>
     </span>
-    <label class="toggle"><input type="checkbox" id="grid-toggle" checked> 网格</label>
-    <label class="toggle"><input type="checkbox" id="names-toggle" checked> 名字</label>
-    <label class="toggle" title="高清立绘开关：默认开启并优先读取项目原图；棋子很多、设备较慢时可关闭以使用 128px 缩略图"><input type="checkbox" id="hd-toggle-check"> 高清</label>
-    <label class="toggle" title="打开后点击任意格子可加/去黄色标记框"><input type="checkbox" id="mark-toggle"> 🖍️ 标记</label>
-    <label class="toggle" title="开启迷雾后，未探索的格子会变黑"><input type="checkbox" id="fog-toggle"> 🌫️ 迷雾</label>
-    <label class="toggle"><input type="checkbox" id="snap-toggle" checked> 吸附</label>
+    <div id="map-settings">
+      <label class="toggle"><input type="checkbox" id="grid-toggle" checked> 网格</label>
+      <label class="toggle"><input type="checkbox" id="names-toggle" checked> 名字</label>
+      <label class="toggle" title="高清立绘开关：默认开启并优先读取项目原图；棋子很多、设备较慢时可关闭以使用 128px 缩略图"><input type="checkbox" id="hd-toggle-check"> 高清</label>
+      <label class="toggle" title="打开后点击任意格子可加/去黄色标记框"><input type="checkbox" id="mark-toggle"> 🖍️ 标记</label>
+      <label class="toggle" title="开启迷雾后，未探索的格子会变黑"><input type="checkbox" id="fog-toggle"> 🌫️ 迷雾</label>
+      <label class="toggle"><input type="checkbox" id="snap-toggle" checked> 吸附</label>
+    </div>
     <button id="btn-fit" title="缩放并居中到整张地图">⛶ 适应窗口</button>
     <span id="app-version" class="app-version">v1.1</span>
   </div>
@@ -64,7 +67,13 @@
 
 <main id="layout">
   <aside id="left-panel" class="panel">
-    <section class="card">
+    <nav id="workspace-tabs" aria-label="主控台工具">
+      <button class="workspace-tab active" type="button" data-workspace-tab="units">♟<span>单位</span></button>
+      <button class="workspace-tab" type="button" data-workspace-tab="map">▦<span>地图</span></button>
+      <button class="workspace-tab" type="button" data-workspace-tab="draw">✎<span>绘制</span></button>
+      <button class="workspace-tab" type="button" data-workspace-tab="resources">◈<span>资源</span></button>
+    </nav>
+    <section class="card" data-workspace="units">
       <h2>🎲 骰子</h2>
       <div class="dice-grid">
         <button class="die" data-die="d4">d4</button>
@@ -79,11 +88,10 @@
         <input id="dice-expr" placeholder="如 2d6+3 / 4d8" enterkeyhint="go">
         <button id="btn-roll" class="primary">掷!</button>
       </div>
-      <p class="dice-hint">🔒 GM 掷骰仅自己可见；玩家在观战页的掷骰会实时广播给所有人。</p>
       <div id="roll-log"></div>
     </section>
 
-    <section class="card">
+    <section class="card" data-workspace="units">
       <h2>🧙 放置单位</h2>
       <input id="token-name" placeholder="名称，如：凯尔 · 游侠" maxlength="24">
       <select id="token-type">
@@ -101,7 +109,6 @@
       </div>
       <div class="icon-preview-row" id="token-icon-preview-row" hidden>
         <img id="token-icon-preview" alt="图标预览">
-        <span class="hint">将作为新单位的头像</span>
         <button id="btn-icon-clear" class="small">移除图片</button>
       </div>
       <div class="row">
@@ -111,20 +118,9 @@
         </select>
         <button id="btn-place" class="primary">📌 放置</button>
       </div>
-      <p class="hint">放置后点击棋子可选中，拖动移动；右键可快速标记死亡。</p>
     </section>
 
-    <section class="card">
-      <h2>✏️ 地图编辑</h2>
-      <div class="tile-grid" id="map-edit-tiles"></div>
-      <div class="btn-row">
-        <button id="btn-map-edit-undo">↩ 撤销</button>
-        <button id="btn-map-edit-exit" class="small">退出画笔</button>
-      </div>
-      <p class="hint">选地块（每个都带名字）后在地图上点击 / 拖动涂抹；「清除」只擦掉编辑器涂的临时格子、恢复原图，不会破坏地图。支持格子地图（图片地图请到「地图工坊」重画）。Esc 退出。</p>
-    </section>
-
-    <section class="card">
+    <section class="card" data-workspace="draw">
       <h2>🖍️ 战术涂鸦</h2>
       <div class="tool-grid">
         <button class="board-tool" data-tool="doodle-pen">✏️ 画笔</button>
@@ -151,10 +147,9 @@
         <button id="btn-doodle-undo">↩ 撤销</button>
         <button id="btn-doodle-clear">🗑 清除</button>
       </div>
-      <p class="hint">绘制：选工具后按住拖动；移动：用「选择」点中已画的形状再拖动，Delete 删除；Esc 退出。</p>
     </section>
 
-    <section class="card">
+    <section class="card" data-workspace="map">
       <h2>🌫️ 迷雾</h2>
       <div class="tool-grid">
         <button class="board-tool" data-tool="fog-reveal">🔦 揭开</button>
@@ -172,10 +167,9 @@
         <button id="btn-fog-hide-all">全部隐藏</button>
         <button id="btn-fog-show-all">全部显示</button>
       </div>
-      <p class="hint">先打开顶栏「🌫️ 迷雾」开关，再用「揭开」笔刷让玩家看到地图；Esc 退出。</p>
     </section>
 
-    <section class="card">
+    <section class="card" data-workspace="units">
       <div class="card-head">
         <h2>🎖️ 棋子库</h2>
         <button id="btn-lib-sync" class="small" title="从「棋子库」程序读取最新数据">⟳ 同步</button>
@@ -233,10 +227,9 @@
           <button id="btn-lib-cancel">取消</button>
         </div>
       </div>
-      <p class="hint">点「放到地图」直接放到当前地图中央；也可以在地图上选中棋子后点右侧「存入棋子库」。</p>
     </section>
 
-    <section class="card" id="bgm-card">
+    <section class="card" id="bgm-card" data-workspace="resources">
       <h2>🎵 BGM</h2>
       <div class="bgm-tools">
         <button id="btn-bgm-bind" class="small">📂 绑定音乐文件夹</button>
@@ -254,7 +247,7 @@
       <div id="bgm-list"></div>
     </section>
 
-    <section class="card" id="links-card">
+    <section class="card" id="links-card" data-workspace="resources">
       <h2>📚 常用网站</h2>
       <div id="links-list" class="links-list"></div>
       <div class="links-add">
@@ -272,17 +265,74 @@
           <div id="names-layer"></div>
           <canvas id="fog-canvas" class="map-layer"></canvas>
           <canvas id="doodle-canvas" class="map-layer"></canvas>
+          <canvas id="turn-path-canvas" class="map-layer"></canvas>
         </div>
-        <div id="drop-hint">
-          <div class="drop-icon">🗺️</div>
-          <p>把地图图片拖到这里，<br>或点击左上角「上传地图」</p>
-          <p class="sub">也可以直接 Ctrl/Cmd + V 粘贴截图</p>
+        <div id="drop-hint"><div class="drop-icon">🗺️</div></div>
+        <div id="map-quick-tools" aria-label="地图快捷工具">
+          <div id="map-quick-drag" title="拖动工具栏" aria-label="拖动工具栏">⠿</div>
+          <button type="button" data-toggle-target="grid-toggle" title="显示网格">#<span>网格</span></button>
+          <button type="button" data-toggle-target="names-toggle" title="显示单位名称">Aa<span>名字</span></button>
+          <button type="button" data-toggle-target="snap-toggle" title="棋子吸附网格">⌘<span>吸附</span></button>
+          <button type="button" data-toggle-target="mark-toggle" title="标记格子">✦<span>标记</span></button>
+          <button type="button" data-toggle-target="fog-toggle" title="开启迷雾">◌<span>迷雾</span></button>
         </div>
         <div id="zoom-controls">
           <button id="btn-zoom-in" title="放大">＋</button>
           <button id="btn-zoom-out" title="缩小">－</button>
           <button id="btn-zoom-fit" title="适应窗口">⛶</button>
         </div>
+      </div>
+    </section>
+
+    <section id="init-bar" class="collapsed" aria-label="游戏流程条">
+      <div class="init-head">
+        <button id="btn-init-collapse" class="init-title" type="button" aria-expanded="false">▸ 游戏流程</button>
+        <div class="init-mode-switch" role="group" aria-label="游戏模式">
+          <button id="init-mode-free" type="button" data-play-mode="free" aria-pressed="true">自由模式</button>
+          <button id="init-mode-turn" type="button" data-play-mode="turn" aria-pressed="false">回合制</button>
+        </div>
+        <div class="init-readouts">
+          <span id="init-round-readout" class="init-readout">自由行动</span>
+          <span id="init-current-readout" class="init-readout">未锁定行动单位</span>
+          <span id="init-time-readout" class="init-readout">第 1 年 · 第 1 周 · 第 1 天 08:00</span>
+        </div>
+      </div>
+      <div class="init-body">
+        <div class="init-tabs" role="tablist" aria-label="游戏流程页签">
+          <button type="button" data-encounter-panel="initiative" role="tab" aria-selected="true">⚔ 先攻</button>
+          <button type="button" data-encounter-panel="time" role="tab" aria-selected="false">⌛ 时间</button>
+        </div>
+        <section id="init-panel-initiative" class="init-panel" role="tabpanel">
+          <div class="init-left">
+            <div class="init-bar-add"><input id="init-name" placeholder="单位名称"><input id="init-value" type="number" placeholder="先攻"></div>
+            <div class="init-actions"><button id="btn-init-add">＋ 加入</button><button id="btn-init-add-token">从地图加入</button></div>
+            <div class="init-actions"><button id="btn-init-next" class="primary">下一位</button><button id="btn-init-reset-round">↺ 重置轮次</button></div>
+            <button id="btn-init-clear" class="init-clear-button" type="button">清空先攻列表</button>
+          </div>
+          <div id="init-bar-list" class="init-bar-list"></div>
+        </section>
+        <section id="init-panel-time" class="init-panel" role="tabpanel" hidden>
+          <div class="world-time-main">
+            <div class="world-date-display" id="world-date-display">第 1 年 · 第 1 周 · 第 1 天</div>
+            <div class="world-clock-display" id="world-clock-display">08:00</div>
+            <div class="world-time-status"><span id="time-running-state">时间已暂停</span><span>最近：<b id="time-event">—</b></span></div>
+          </div>
+          <div class="world-time-controls">
+            <div class="world-date-inputs">
+              <label>年<input id="time-year" type="number" min="1" max="99999"></label>
+              <label>周<input id="time-week" type="number" min="1" max="52"></label>
+              <label>日<input id="time-day" type="number" min="1" max="7"></label>
+              <label>时刻<input id="time-clock" type="time" step="60"></label>
+              <button id="btn-time-apply" type="button">应用时间</button>
+            </div>
+            <div class="init-actions world-time-actions">
+              <button id="btn-init-timer" type="button">▶ 开始时间</button>
+              <button id="btn-time-short-rest" type="button">短休 +1 小时</button>
+              <button id="btn-time-long-rest" type="button">长休 +8 小时</button>
+              <button id="btn-time-reset" type="button">↺ 重置时间</button>
+            </div>
+          </div>
+        </section>
       </div>
     </section>
 
@@ -436,6 +486,7 @@
 <script src="../棋子库/立绘清单.js"></script>
 <script src="../three.min.js"></script>
 <script src="../骰子动画.js?v=22"></script>
+<script src="../地图/tile-renderer.js?v=20260901-ai-materials"></script>
 <script src="app.js?v=20260901-lightweight"></script>
 </body>
 </html>

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <title>桑哆尔 · 玩家地图</title>
-  <style>
+    <style>
     :root { color-scheme: dark; --bg:#11141c; --panel:#1b202b; --line:#31394a; --text:#edf1f7; --muted:#9aa6ba; --gold:#e0b34c; --good:#4cc38a; --bad:#e74c5e; }
     * { box-sizing:border-box; }
     body { margin:0; min-height:100vh; overflow:hidden; background:var(--bg); color:var(--text); font:14px/1.4 system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif; }
@@ -26,15 +26,19 @@
     .card { background:#202633; border:1px solid var(--line); border-radius:10px; padding:10px; margin-bottom:10px; }
     .card h2 { font-size:14px; margin:0 0 8px; color:#f3f5f8; }
     .hint { color:var(--muted); font-size:12px; margin:6px 0 0; }
-    #center { min-width:0; position:relative; }
-    #board { position:relative; width:100%; height:100%; overflow:hidden; touch-action:none; background:#0b0d12; }
+    #center { min-width:0; min-height:0; position:relative; display:flex; flex-direction:column; }
+    #board { position:relative; width:100%; flex:1; min-height:0; overflow:hidden; touch-action:none; background:#0b0d12; }
     #world { position:absolute; transform-origin:0 0; background-color:#ddd6c2; box-shadow:0 0 40px #0008; }
     .map-layer { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
     #doodle-canvas { pointer-events:none; }
-    #tokens { position:absolute; inset:0; }
+    #turn-path-canvas { z-index:0; }
+    #tokens { position:absolute; inset:0; z-index:1; }
     .token { position:absolute; transform:translate(-50%,-50%); display:grid; place-items:center; cursor:default; }
     .token.mine { cursor:grab; }
     .token.mine .circle { box-shadow:0 0 0 3px #70e5a5, 0 0 18px #44d98caa; }
+    .token.locked { cursor:not-allowed; }
+    .token.locked.mine .circle { box-shadow:0 0 0 3px #c08a4a88, 0 0 14px #9a6c3888; filter:saturate(.72); }
+    .token.current-turn .circle { box-shadow:0 0 0 4px #e0b34c, 0 0 22px #e0b34caa; }
     .token.dragging { cursor:grabbing; }
     .circle { width:76%; height:76%; border:4px solid var(--ring); border-radius:50%; display:grid; place-items:center; background:#fff; color:#1c2430; font-size:20px; font-weight:700; background-size:cover; background-position:center; background-repeat:no-repeat; }
     .token-name { position:absolute; top:-18px; max-width:130px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; color:white; text-shadow:0 1px 3px #000,1px 0 3px #000,-1px 0 3px #000; font-size:12px; font-weight:700; }
@@ -71,6 +75,31 @@
     .hp-bar i { display:block; height:100%; background:var(--good); }
     .quick { display:grid; grid-template-columns:repeat(5,1fr); gap:5px; margin-top:7px; }
     .quick button { padding:5px 2px; font-size:12px; }
+    #flowbar { flex:0 0 auto; padding:8px 12px; border-top:1px solid var(--line); background:linear-gradient(180deg,#1c2029,var(--panel)); }
+    #flowbar.collapsed { padding-top:6px; padding-bottom:6px; }
+    #flowbar.collapsed .flow-body { display:none; }
+    .flow-head { display:flex; align-items:center; gap:8px; min-height:28px; min-width:0; }
+    #flow-toggle { border:0; padding:0; background:transparent; color:var(--gold); font-weight:700; white-space:nowrap; }
+    .flow-mode { padding:3px 7px; border:1px solid #5b4922; border-radius:999px; color:var(--gold); font-size:11px; white-space:nowrap; }
+    .flow-date { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--muted); font-size:12px; }
+    .flow-head .flow-date { margin-left:auto; }
+    .flow-tabs { display:flex; gap:4px; padding:3px 0 7px; }
+    .flow-tabs button { border-color:transparent; background:transparent; color:var(--muted); padding:4px 8px; font-size:12px; }
+    .flow-tabs button.active { color:var(--gold); background:#2b2733; border-color:#5b4922; }
+    .flow-body { padding-top:7px; border-top:1px solid rgba(255,255,255,.06); }
+    .flow-panel[hidden] { display:none; }
+    .flow-init-meta { display:flex; align-items:center; gap:9px; color:var(--muted); font-size:12px; margin-bottom:6px; }
+    .flow-init-meta b { color:var(--text); font-weight:600; }
+    .flow-init-list { display:flex; gap:6px; overflow-x:auto; padding-bottom:2px; }
+    .flow-chip { display:flex; align-items:center; gap:6px; flex:0 0 auto; padding:7px 9px; border:1px solid var(--line); border-left:3px solid transparent; border-radius:8px; background:#202633; white-space:nowrap; }
+    .flow-chip.current { border-left-color:var(--gold); background:#3a3325; box-shadow:0 0 0 1px #e0b34c55; }
+    .flow-chip-dot { width:8px; height:8px; border-radius:50%; }
+    .flow-chip-value { color:var(--gold); font-weight:700; }
+    .flow-empty { color:var(--muted); font-size:12px; }
+    .flow-time { display:flex; align-items:center; gap:14px; }
+    .flow-time-date { color:var(--muted); font-weight:600; }
+    .flow-time-clock { color:var(--gold); font-size:25px; font-variant-numeric:tabular-nums; }
+    @media (max-width:900px) { .flow-head .flow-date { max-width:52vw; } }
     #toast { position:fixed; z-index:20; left:50%; bottom:18px; transform:translateX(-50%); padding:8px 12px; border-radius:8px; background:#10141de8; border:1px solid #4c5870; opacity:0; pointer-events:none; transition:opacity .18s; }
     #toast.show { opacity:1; }
     @media (max-width:900px) { #layout { grid-template-columns:1fr; } .panel { display:none; } #right-panel { display:block; position:absolute; z-index:4; right:0; top:0; width:min(290px,86vw); height:100%; background:#1b202bf2; } #right-panel:has(#detail[hidden]) { display:none; } }
@@ -102,7 +131,29 @@
         <p class="hint">选择工具后在地图拖动；涂鸦会同步给所有人。</p>
       </section>
     </aside>
-    <section id="center"><div id="board"><div id="world"><canvas id="fog-canvas" class="map-layer"></canvas><canvas id="doodle-canvas" class="map-layer"></canvas><div id="tokens"></div></div><div id="empty">⏳ 等待主机开团…</div><div id="map-controls"><button id="zoom-out">−</button><button id="zoom-in">＋</button><button id="fit">⛶</button></div></div></section>
+    <section id="center">
+      <div id="board"><div id="world"><canvas id="fog-canvas" class="map-layer"></canvas><canvas id="doodle-canvas" class="map-layer"></canvas><canvas id="turn-path-canvas" class="map-layer"></canvas><div id="tokens"></div></div><div id="empty">⏳ 等待主机开团…</div><div id="map-controls"><button id="zoom-out">−</button><button id="zoom-in">＋</button><button id="fit">⛶</button></div></div>
+      <section id="flowbar" class="collapsed" aria-label="游戏流程">
+        <div class="flow-head">
+          <button id="flow-toggle" type="button" aria-expanded="false">▸ 游戏流程</button>
+          <span id="flow-mode" class="flow-mode">自由模式</span>
+          <span id="flow-date" class="flow-date">第 1 年 · 第 1 周 · 第 1 天 08:00</span>
+        </div>
+        <div class="flow-body">
+          <div class="flow-tabs" role="tablist" aria-label="游戏流程页签">
+            <button type="button" data-flow-panel="initiative" role="tab" aria-selected="true">⚔ 先攻</button>
+            <button type="button" data-flow-panel="time" role="tab" aria-selected="false">⌛ 时间</button>
+          </div>
+          <div id="flow-panel-initiative" class="flow-panel" role="tabpanel">
+            <div class="flow-init-meta"><span id="flow-round">自由行动</span><span>当前：<b id="flow-current">未锁定</b></span></div>
+            <div id="flow-init-list" class="flow-init-list"><span class="flow-empty">等待主控台设置先攻</span></div>
+          </div>
+          <div id="flow-panel-time" class="flow-panel" role="tabpanel" hidden>
+            <div class="flow-time"><span id="flow-time-date" class="flow-time-date">第 1 年 · 第 1 周 · 第 1 天</span><span id="flow-time-clock" class="flow-time-clock">08:00</span></div>
+          </div>
+        </div>
+      </section>
+    </section>
     <aside class="panel" id="right-panel">
       <section class="card"><h2>🧙 我的棋子</h2>
         <div id="detail" hidden>
@@ -123,8 +174,11 @@
   const TYPE = { pc:{label:'玩家角色',ring:'#5b8cff'}, enemy:{label:'敌人',ring:'#ef476f'}, npc:{label:'中立NPC',ring:'#f4a261'}, ally:{label:'友好NPC',ring:'#2ecc71'} };
   const clamp = (n,a,b) => Math.min(b,Math.max(a,n));
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  const world = $('#world'), board = $('#board'), fog = $('#fog-canvas'), fogCtx = fog.getContext('2d'), doodle = $('#doodle-canvas'), doodleCtx = doodle.getContext('2d');
-  let state = null, currentMap = null, view = {scale:1,ox:0,oy:0}, myName = '', selectedId = null, drag = null, doodleTool = null, doodleColor = '#ff4d4f', doodleDraft = null, doodleId = 1, toastTimer = null, localRolls = new Set(), lastMapViewKey = '';
+  const world = $('#world'), board = $('#board'), fog = $('#fog-canvas'), fogCtx = fog.getContext('2d'), doodle = $('#doodle-canvas'), doodleCtx = doodle.getContext('2d'), turnPath = $('#turn-path-canvas'), turnPathCtx = turnPath.getContext('2d');
+  const WORLD_MINUTES_PER_DAY = 24 * 60, WORLD_DAYS_PER_WEEK = 7, WORLD_WEEKS_PER_YEAR = 52;
+  const WORLD_MINUTES_PER_YEAR = WORLD_MINUTES_PER_DAY * WORLD_DAYS_PER_WEEK * WORLD_WEEKS_PER_YEAR;
+  const MAX_MOVE_POINTS = 60, MAX_TURN_PATH_POINTS = 200;
+  let state = null, currentMap = null, view = {scale:1,ox:0,oy:0}, myName = '', selectedId = null, drag = null, doodleTool = null, doodleColor = '#ff4d4f', doodleDraft = null, doodleId = 1, toastTimer = null, localRolls = new Set(), lastMapViewKey = '', flowPanel = 'initiative', flowClockAnchor = { localNow: performance.now(), serverNow: Date.now() }, flowTimer = null;
   try { myName = localStorage.getItem('sangduoer-watch-name') || ''; } catch (e) {}
   $('#player-name').value = myName;
 
@@ -135,6 +189,55 @@
   function fit() { if (!currentMap) return; const r=board.getBoundingClientRect(), m=currentMap; view.scale=Math.min(r.width/m.mapW,r.height/m.mapH,2); view.ox=(r.width-m.mapW*view.scale)/2; view.oy=(r.height-m.mapH*view.scale)/2; applyView(); }
   function point(e) { const r=world.getBoundingClientRect(); return {x:(e.clientX-r.left)/view.scale,y:(e.clientY-r.top)/view.scale}; }
   function snap(x,y,t) { const g=currentMap.gridSize||50, size=t.size||1; const sx=size>=2?Math.round(x/g)*g:Math.round(x/g-.5)*g+g/2; const sy=size>=2?Math.round(y/g)*g:Math.round(y/g-.5)*g+g/2; const margin=size>=2?g:g/2; return {x:clamp(sx,margin,currentMap.mapW-margin),y:clamp(sy,margin,currentMap.mapH-margin)}; }
+
+  function encounter() { return state && state.encounter && typeof state.encounter==='object' ? state.encounter : {playMode:'free',round:1,currentEntryId:null,entries:[],turnSerial:1,turnPath:{mapId:null,tokenId:null,points:[]}}; }
+  function tokenControlGroup(token) {
+    if (!currentMap || !token) return new Set();
+    const ids=new Set([token.id]);
+    if (token.mountId) ids.add(token.mountId);
+    let changed=true;
+    while(changed){ changed=false; (currentMap.tokens||[]).forEach(candidate=>{ if(candidate.mountId && ids.has(candidate.mountId) && !ids.has(candidate.id)){ids.add(candidate.id);changed=true;} }); }
+    return ids;
+  }
+  function currentTurnToken() {
+    const e=encounter(), entry=(Array.isArray(e.entries)?e.entries:[]).find(x=>x&&x.id===e.currentEntryId);
+    return entry&&entry.tokenId ? (currentMap&&currentMap.tokens||[]).find(t=>t.id===entry.tokenId)||null : null;
+  }
+  function canMoveToken(token) {
+    if (!myName || !token) return false;
+    const controlled=tokenControlGroup(token).size>0 && [...tokenControlGroup(token)].some(id=>(currentMap.tokens||[]).some(candidate=>candidate.id===id && (candidate.owner||'')===myName));
+    if (!controlled) return false;
+    const e=encounter();
+    if (e.playMode!=='turn') return true;
+    const current=currentTurnToken();
+    return !!current && tokenControlGroup(token).has(current.id);
+  }
+  function ownedToken(token) {
+    if (!token || !myName) return false;
+    return [...tokenControlGroup(token)].some(id=>(currentMap.tokens||[]).some(candidate=>candidate.id===id && (candidate.owner||'')===myName));
+  }
+  function drawTurnPath(points, color, dashed) {
+    if (!Array.isArray(points)||points.length<2) return;
+    turnPathCtx.save(); turnPathCtx.strokeStyle=color; turnPathCtx.fillStyle=color; turnPathCtx.lineWidth=4; turnPathCtx.lineCap='round'; turnPathCtx.lineJoin='round'; if(dashed)turnPathCtx.setLineDash([10,8]);
+    turnPathCtx.beginPath(); turnPathCtx.moveTo(points[0].x,points[0].y); points.slice(1).forEach(p=>turnPathCtx.lineTo(p.x,p.y)); turnPathCtx.stroke(); turnPathCtx.setLineDash([]);
+    turnPathCtx.beginPath(); turnPathCtx.arc(points[0].x,points[0].y,6,0,Math.PI*2); turnPathCtx.fill(); const end=points[points.length-1]; turnPathCtx.globalAlpha=.9; turnPathCtx.beginPath(); turnPathCtx.arc(end.x,end.y,7,0,Math.PI*2); turnPathCtx.fill(); turnPathCtx.restore();
+  }
+  function renderTurnPath(draftPoints=null) {
+    if(!currentMap)return;
+    turnPath.width=currentMap.mapW; turnPath.height=currentMap.mapH; turnPathCtx.clearRect(0,0,currentMap.mapW,currentMap.mapH);
+    const e=encounter(), saved=e.playMode==='turn'&&e.turnPath&&e.turnPath.mapId===currentMap.id?e.turnPath.points:[];
+    drawTurnPath(saved,'rgba(224,179,76,.82)',false); if(Array.isArray(draftPoints))drawTurnPath(draftPoints,'rgba(255,232,145,.95)',true);
+  }
+  function appendTurnPath(mapId, tokenId, points) {
+    const e=encounter(); if(e.playMode!=='turn'||!mapId||!tokenId||!Array.isArray(points))return;
+    const same=e.turnPath&&e.turnPath.mapId===mapId&&e.turnPath.tokenId===tokenId;
+    const combined=same&&Array.isArray(e.turnPath.points)?e.turnPath.points.slice():[];
+    points.slice(0,MAX_MOVE_POINTS).forEach(point=>{
+      const x=Number(point&&point.x), y=Number(point&&point.y); if(!Number.isFinite(x)||!Number.isFinite(y))return;
+      const last=combined[combined.length-1]; if(!last||Math.hypot(last.x-x,last.y-y)>=.01)combined.push({x,y});
+    });
+    e.turnPath={mapId:String(mapId),tokenId:String(tokenId),points:combined.length>MAX_TURN_PATH_POINTS?combined.slice(0,MAX_TURN_PATH_POINTS-1).concat(combined[combined.length-1]):combined};
+  }
 
   function renderMap(m) {
     const g=m.gridSize||50;
@@ -160,10 +263,12 @@
   function renderTokens(m) {
     const box=$('#tokens'); box.innerHTML='';
     const mountIds=new Set((m.tokens||[]).filter(t=>(t.size||1)>=2).map(t=>t.id));
+    const current=currentTurnToken();
     (m.tokens||[]).forEach(t=>{
       if (t.mountId && mountIds.has(t.mountId)) return;
-      const size=(m.gridSize||50)*(t.size||1), meta=TYPE[t.type]||TYPE.npc, el=document.createElement('div');
-      el.className='token'+(mine(t)?' mine':''); el.dataset.id=t.id; el.style.left=t.x+'px'; el.style.top=t.y+'px'; el.style.width=size+'px'; el.style.height=size+'px';
+      const size=(m.gridSize||50)*(t.size||1), meta=TYPE[t.type]||TYPE.npc, el=document.createElement('div'), owned=ownedToken(t), movable=canMoveToken(t), isCurrent=!!current&&tokenControlGroup(t).has(current.id);
+      el.className='token'+(owned?' mine':'')+(owned&&!movable?' locked':'')+(isCurrent?' current-turn':''); el.dataset.id=t.id; el.style.left=t.x+'px'; el.style.top=t.y+'px'; el.style.width=size+'px'; el.style.height=size+'px';
+      el.title=owned&&!movable&&encounter().playMode==='turn'?'尚未轮到该角色':movable?'拖动以移动本回合角色':'';
       const circle=document.createElement('div'); circle.className='circle'; circle.style.setProperty('--ring',meta.ring);
       const url=assetUrl(t); if (url) circle.style.backgroundImage='url("'+url+'")'; else circle.textContent=t.icon||'?';
       const name=document.createElement('div'); name.className='token-name'; name.textContent=t.name;
@@ -171,12 +276,46 @@
     });
   }
   function renderLinks(list) { const box=$('#player-links'); box.innerHTML=''; (list||[]).forEach(l=>{ if (!l || !l.name || !l.url) return; const a=document.createElement('a'); a.href=l.url; a.target='_blank'; a.rel='noopener'; a.textContent=l.name; box.appendChild(a); }); }
+  function flowWorldParts(totalMinutes) {
+    const total=Math.max(0,Math.floor(Number(totalMinutes)||0)), dayIndex=Math.floor(total/WORLD_MINUTES_PER_DAY), dayOfYear=dayIndex%(WORLD_DAYS_PER_WEEK*WORLD_WEEKS_PER_YEAR);
+    return {year:Math.floor(dayIndex/(WORLD_DAYS_PER_WEEK*WORLD_WEEKS_PER_YEAR))+1,week:Math.floor(dayOfYear/WORLD_DAYS_PER_WEEK)+1,day:(dayOfYear%WORLD_DAYS_PER_WEEK)+1,hour:Math.floor((total%WORLD_MINUTES_PER_DAY)/60),minute:total%60};
+  }
+  function flowDateLabel(p) { return '第 '+p.year+' 年 · 第 '+p.week+' 周 · 第 '+p.day+' 天'; }
+  function flowClockLabel(p) { return String(p.hour).padStart(2,'0')+':'+String(p.minute).padStart(2,'0'); }
+  function flowWorldTotal(e) {
+    const w=e&&e.worldTime&&typeof e.worldTime==='object'?e.worldTime:{};
+    if (!w.runningSince) return Math.max(0,Math.floor(Number(w.totalMinutes)||0));
+    const serverDelta=Math.max(0,(Number(flowClockAnchor.serverNow)||Date.now())-(Number(w.runningSince)||0));
+    const localDelta=Math.max(0,performance.now()-flowClockAnchor.localNow);
+    const rate=Number(w.rate)>0?Number(w.rate):1;
+    return Math.max(0,Math.floor((Number(w.totalMinutes)||0)+(serverDelta+localDelta)*rate/60000));
+  }
+  function renderFlow(next) {
+    const bar=$('#flowbar'), e=next&&next.encounter&&typeof next.encounter==='object'?next.encounter:{playMode:'free',round:1,currentEntryId:null,entries:[],worldTime:{totalMinutes:480}};
+    const p=flowWorldParts(flowWorldTotal(e)), entries=Array.isArray(e.entries)?e.entries:[], current=entries.find(x=>x.id===e.currentEntryId);
+    bar.classList.toggle('collapsed',bar.dataset.collapsed!=='false');
+    $('#flow-toggle').textContent=(bar.dataset.collapsed!=='false'?'▸':'▾')+' 游戏流程';
+    $('#flow-toggle').setAttribute('aria-expanded',String(bar.dataset.collapsed==='false'));
+    $('#flow-mode').textContent=e.playMode==='turn'?'回合制':'自由模式';
+    $('#flow-date').textContent=flowDateLabel(p)+' '+flowClockLabel(p);
+    $('#flow-round').textContent=e.playMode==='turn'?'第 '+(Math.max(1,Number(e.round)||1)+' 轮'):'自由行动';
+    $('#flow-current').textContent=e.playMode==='turn'&&current?current.name||'未命名单位':'未锁定';
+    $('#flow-time-date').textContent=flowDateLabel(p);
+    $('#flow-time-clock').textContent=flowClockLabel(p);
+    document.querySelectorAll('[data-flow-panel]').forEach(tab=>{const active=tab.dataset.flowPanel===flowPanel;tab.classList.toggle('active',active);tab.setAttribute('aria-selected',String(active));});
+    $('#flow-panel-initiative').hidden=flowPanel!=='initiative'; $('#flow-panel-time').hidden=flowPanel!=='time';
+    const list=$('#flow-init-list'); list.innerHTML='';
+    if(!entries.length){list.innerHTML='<span class="flow-empty">等待主控台设置先攻</span>';return;}
+    entries.forEach(entry=>{const chip=document.createElement('div');chip.className='flow-chip'+(e.playMode==='turn'&&entry.id===e.currentEntryId?' current':'');chip.innerHTML='<span class="flow-chip-dot" style="background:'+(entry.color||'#e0b34c')+'"></span><span>'+esc(entry.name||'未命名单位')+'</span><span class="flow-chip-value">'+(Number(entry.value)||0)+'</span>';list.appendChild(chip);});
+  }
   function render(next) {
-    state=next; currentMap=(next.maps||[]).find(m=>m.id===next.activeMapId)||(next.maps||[])[0]||null;
+    const incomingEncounter=next&&next.encounter&&typeof next.encounter==='object'?next.encounter:null;
+    if(drag&&drag.kind==='token'&&incomingEncounter&&Number(incomingEncounter.turnSerial)!==Number(drag.turnSerial)){drag=null;toast('⚠ 回合已变化，当前移动已取消');}
+    state=next; flowClockAnchor={localNow:performance.now(),serverNow:Number(next._serverNow)||Date.now()}; renderFlow(next); currentMap=(next.maps||[]).find(m=>m.id===next.activeMapId)||(next.maps||[])[0]||null;
     $('#connection').textContent='已连接'; $('#connection').classList.add('on'); $('#campaign').textContent=next.campaignName?'📂 '+next.campaignName:'';
     renderLinks(next._links);
     if (!currentMap) { $('#empty').style.display='grid'; return; }
-    $('#empty').style.display='none'; renderMap(currentMap); renderFog(currentMap); renderDoodles(); renderTokens(currentMap);
+    $('#empty').style.display='none'; renderMap(currentMap); renderFog(currentMap); renderDoodles(); renderTurnPath(); renderTokens(currentMap);
     const mapViewKey=currentMap.id+'|'+currentMap.mapW+'|'+currentMap.mapH;
     if(mapViewKey!==lastMapViewKey){lastMapViewKey=mapViewKey;fit();}
     if(next._bgm) applyBgm(next._bgm);
@@ -200,7 +339,32 @@
     const pct=clamp((t.hp/Math.max(1,t.hpMax))*100,0,100); $('#hp-bar').style.width=pct+'%'; $('#hp-bar').style.background=pct>50?'#4cc38a':pct>25?'#f4a261':'#e74c5e';
   }
   function updateOwned(field,value) { const t=currentMap && currentMap.tokens.find(x=>x.id===selectedId); if (!t) return; t[field]=value; sendPatch(t.id,{[field]:value}); openDetail(t.id); }
-  function sendMove(t) { if (!myName) return; fetch('/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({player:myName,action:{op:'moveToken',mapId:currentMap.id,tokenId:t.id,x:t.x,y:t.y}})}).then(r=>r.json()).then(d=>{if(d && d.ok===false) toast('⚠ '+(d.error||'移动失败'));}).catch(()=>toast('⚠ 移动未送达')); }
+  function setTokenPosition(t,x,y) {
+    t.x=x; t.y=y;
+    const el=document.querySelector('.token[data-id="'+t.id+'"]');
+    if(el){el.style.left=t.x+'px';el.style.top=t.y+'px';}
+  }
+  function rollbackMove(move) {
+    const e=encounter();
+    if(move.turnMode&&Number(e.turnSerial)!==Number(move.turnSerial))return;
+    const m=state&&(state.maps||[]).find(x=>x.id===move.mapId), t=m&&(m.tokens||[]).find(x=>x.id===move.tokenId);
+    if(t&&(!move.endXWorld||Math.abs(Number(t.x)-move.endXWorld)<.01)&&(!move.endYWorld||Math.abs(Number(t.y)-move.endYWorld)<.01)){setTokenPosition(t,move.startXWorld,move.startYWorld);renderTokens(m);}
+    renderTurnPath();
+  }
+  function sendMove(t,move) {
+    if (!myName || !currentMap || !t) return;
+    move.endXWorld=Number(t.x); move.endYWorld=Number(t.y);
+    const action={op:'moveToken',mapId:move.mapId,tokenId:t.id,x:t.x,y:t.y};
+    if(move.turnMode){action.turnSerial=move.turnSerial;action.path=move.pathPoints.slice(0,MAX_MOVE_POINTS);}
+    fetch('/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({player:myName,action})})
+      .then(async r=>({ok:r.ok,data:await r.json()}))
+      .then(result=>{
+        const d=result.data||{};
+        if(!result.ok||d.ok===false){rollbackMove(move);toast('⚠ '+(d.error||'移动失败'));return;}
+        if(move.turnMode&&Number(encounter().turnSerial)===move.turnSerial){appendTurnPath(move.mapId,t.id,move.pathPoints);renderTurnPath();}
+      })
+      .catch(()=>{rollbackMove(move);toast('⚠ 移动未送达');});
+  }
   function sendDoodles() { if (!myName || !currentMap) return; fetch('/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({player:myName,action:{op:'doodle',mapId:currentMap.id,doodles:currentMap.doodles||[]}})}).catch(()=>toast('⚠ 涂鸦未送达')); }
 
   function parseDice(expr) { const m=String(expr||'').trim().toLowerCase().match(/^(\d*)d(\d+)([+-]\d+)?$/); if (!m) return null; const n=+(m[1]||1), sides=+m[2], mod=+(m[3]||0); return n>0&&n<=100&&sides>=2&&sides<=1000?{n,sides,mod,label:m[0]}:null; }
@@ -211,24 +375,60 @@
     if (a.op==='roll') { if(a.rid && localRolls.has(a.rid)){localRolls.delete(a.rid);return;} addRoll(a.name||'玩家',a.expr||'',a.detail||'',a.total); if(window.playDieAnimation) window.playDieAnimation(a.sides||20,a.expr||'',a.total,{dice:a.dice}); return; }
     if (a.op==='doodle') { if(currentMap && a.mapId===currentMap.id && Array.isArray(a.doodles)){currentMap.doodles=a.doodles;renderDoodles();} return; }
     const m=state && (state.maps||[]).find(x=>x.id===(a.mapId||currentMap&&currentMap.id)); const t=m && (m.tokens||[]).find(x=>x.id===a.tokenId); if(!t) return;
-    if (a.op==='moveToken') { t.x=a.x;t.y=a.y; const el=document.querySelector('.token[data-id="'+t.id+'"]'); if(el){el.style.left=t.x+'px';el.style.top=t.y+'px';} }
+    if (a.op==='moveToken') {
+      setTokenPosition(t,a.x,a.y);
+      const e=encounter();
+      if(e.playMode==='turn'&&Number(a.turnSerial)===Number(e.turnSerial)&&Array.isArray(a.path)) appendTurnPath(m.id,t.id,a.path);
+      renderTurnPath();
+    }
     if (a.op==='patchToken') { ['hp','hpMax','ac'].forEach(k=>{if(a.patch && k in a.patch)t[k]=a.patch[k];}); if(selectedId===t.id) openDetail(t.id); }
   }
 
   board.addEventListener('pointerdown',e=>{
     if(e.target.closest('button')) return;
     const token=e.target.closest('.token');
-    if(token){ const t=currentMap && currentMap.tokens.find(x=>x.id===token.dataset.id); if(t && mine(t)){selectedId=t.id; openDetail(t.id); drag={kind:'token',id:t.id}; board.setPointerCapture(e.pointerId); token.classList.add('dragging');} return; }
+    if(token){
+      const t=currentMap && currentMap.tokens.find(x=>x.id===token.dataset.id);
+      if(!t)return;
+      if(ownedToken(t)){selectedId=t.id;openDetail(t.id);}
+      if(!canMoveToken(t)){
+        if(ownedToken(t)&&encounter().playMode==='turn') toast('⚠ 尚未轮到该角色');
+        return;
+      }
+      board.setPointerCapture(e.pointerId);
+      drag={kind:'token',id:t.id,mapId:currentMap.id,startX:e.clientX,startY:e.clientY,startXWorld:t.x,startYWorld:t.y,turnMode:encounter().playMode==='turn',turnSerial:Number(encounter().turnSerial)||1,pathRecording:encounter().playMode==='turn',pathPoints:[{x:t.x,y:t.y}]};
+      token.classList.add('dragging');
+      return;
+    }
     if(doodleTool && currentMap){ const p=point(e); doodleDraft=doodleTool==='pen'?{tool:'pen',color:doodleColor,width:5,points:[p]}:{tool:doodleTool,color:doodleColor,width:5,x0:p.x,y0:p.y,x1:p.x,y1:p.y}; drag={kind:'doodle'}; board.setPointerCapture(e.pointerId); renderDoodles(); return; }
     drag={kind:'pan',x:e.clientX,y:e.clientY,ox:view.ox,oy:view.oy}; board.setPointerCapture(e.pointerId);
   });
   board.addEventListener('pointermove',e=>{
     if(!drag || !currentMap) return;
     if(drag.kind==='pan'){view.ox=drag.ox+e.clientX-drag.x;view.oy=drag.oy+e.clientY-drag.y;applyView();return;}
-    if(drag.kind==='token'){const t=currentMap.tokens.find(x=>x.id===drag.id);if(!t)return; const p=point(e), q=state.snap===false?p:snap(p.x,p.y,t);t.x=q.x;t.y=q.y;const el=document.querySelector('.token[data-id="'+t.id+'"]');if(el){el.style.left=t.x+'px';el.style.top=t.y+'px';}return;}
+    if(drag.kind==='token'){
+      const t=currentMap.tokens.find(x=>x.id===drag.id);if(!t)return;
+      const p=point(e), q=state.snap===false?p:snap(p.x,p.y,t);setTokenPosition(t,q.x,q.y);
+      if(drag.pathRecording){
+        const last=drag.pathPoints[drag.pathPoints.length-1], threshold=state.snap ? .01 : Math.max(3,currentMap.gridSize*.08);
+        if(!last||Math.hypot(t.x-last.x,t.y-last.y)>=threshold){drag.pathPoints.push({x:t.x,y:t.y});if(drag.pathPoints.length>MAX_MOVE_POINTS)drag.pathPoints=drag.pathPoints.slice(0,MAX_MOVE_POINTS-1).concat(drag.pathPoints[drag.pathPoints.length-1]);}
+        renderTurnPath(drag.pathPoints);
+      }
+      return;
+    }
     if(drag.kind==='doodle'){const p=point(e);if(doodleDraft.tool==='pen')doodleDraft.points.push(p);else{doodleDraft.x1=p.x;doodleDraft.y1=p.y;}renderDoodles();}
   });
-  function finish(e){ if(!drag)return; if(drag.kind==='token'){const t=currentMap&&currentMap.tokens.find(x=>x.id===drag.id);if(t)sendMove(t);const el=document.querySelector('.token[data-id="'+drag.id+'"]');if(el)el.classList.remove('dragging');} if(drag.kind==='doodle'&&doodleDraft){const d=doodleDraft;const valid=d.tool==='pen'?d.points.length>1:Math.hypot(d.x1-d.x0,d.y1-d.y0)>4;if(valid){d.id='pd'+(doodleId++);currentMap.doodles=currentMap.doodles||[];currentMap.doodles.push(d);sendDoodles();}doodleDraft=null;renderDoodles();}drag=null; }
+  function finish(e){
+    if(!drag)return;
+    const finished=drag;
+    if(finished.kind==='token'){
+      const t=currentMap&&currentMap.tokens.find(x=>x.id===finished.id);
+      if(t){sendMove(t,finished);const el=document.querySelector('.token[data-id="'+finished.id+'"]');if(el)el.classList.remove('dragging');}
+      renderTurnPath();
+    }
+    if(finished.kind==='doodle'&&doodleDraft){const d=doodleDraft;const valid=d.tool==='pen'?d.points.length>1:Math.hypot(d.x1-d.x0,d.y1-d.y0)>4;if(valid){d.id='pd'+(doodleId++);currentMap.doodles=currentMap.doodles||[];currentMap.doodles.push(d);sendDoodles();}doodleDraft=null;renderDoodles();}
+    drag=null;
+  }
   board.addEventListener('pointerup',finish); board.addEventListener('pointercancel',finish);
   board.addEventListener('wheel',e=>{e.preventDefault();if(!currentMap)return;const r=world.getBoundingClientRect(),wx=(e.clientX-r.left)/view.scale,wy=(e.clientY-r.top)/view.scale,ns=clamp(view.scale*Math.exp(-e.deltaY*.0012),.2,4);view.ox+=e.clientX-r.left-wx*ns;view.oy+=e.clientY-r.top-wy*ns;view.scale=ns;applyView();},{passive:false});
   $('#zoom-in').onclick=()=>{view.scale=clamp(view.scale*1.25,.2,4);applyView();}; $('#zoom-out').onclick=()=>{view.scale=clamp(view.scale/1.25,.2,4);applyView();}; $('#fit').onclick=fit;
@@ -241,6 +441,8 @@
   document.querySelectorAll('[data-die]').forEach(b=>b.onclick=()=>roll(b.dataset.die)); $('#dice-roll').onclick=()=>roll($('#dice-expr').value); $('#dice-expr').addEventListener('keydown',e=>{if(e.key==='Enter')roll($('#dice-expr').value);});
   document.querySelectorAll('[data-tool]').forEach(b=>b.onclick=()=>{doodleTool=doodleTool===b.dataset.tool?null:b.dataset.tool;document.querySelectorAll('[data-tool]').forEach(x=>x.classList.toggle('active',x===b&&!!doodleTool));});
   document.querySelectorAll('[data-color]').forEach(b=>b.onclick=()=>{doodleColor=b.dataset.color;document.querySelectorAll('[data-color]').forEach(x=>x.classList.toggle('active',x===b));});
+  $('#flow-toggle').onclick=()=>{const bar=$('#flowbar');bar.dataset.collapsed=bar.dataset.collapsed==='false'?'true':'false';renderFlow(state);};
+  document.querySelectorAll('[data-flow-panel]').forEach(tab=>tab.onclick=()=>{flowPanel=tab.dataset.flowPanel==='time'?'time':'initiative';renderFlow(state);});
   window.addEventListener('resize',fit);
 
   const playerAudio=new Audio(); let bgmUrl='';
@@ -249,6 +451,7 @@
   es.onopen=()=>{$('#connection').textContent='已连接';$('#connection').classList.add('on');};
   es.onerror=()=>{$('#connection').textContent='重连中…';$('#connection').classList.remove('on');};
   es.onmessage=e=>{try{const ev=JSON.parse(e.data);if(ev.type==='state')render(ev.state);else if(ev.type==='action'){if(ev.action&&ev.action.op==='bgm')applyBgm(ev.action);else applyAction(ev.action);}}catch(err){}};
+  flowTimer=setInterval(()=>{if(state&&state.encounter&&state.encounter.worldTime&&state.encounter.worldTime.runningSince)renderFlow(state);},500);
   </script>
 </body>
 </html>

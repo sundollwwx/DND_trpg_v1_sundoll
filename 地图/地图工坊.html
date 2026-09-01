@@ -60,7 +60,16 @@ main { flex:1; display:flex; min-height:0; }
   display:flex; align-items:center; gap:6px; padding:5px 7px; font-size:12px;
   border-radius:8px; text-align:left;
 }
-.palette-btn .sw { width:18px; height:18px; border-radius:5px; border:1px solid rgba(255,255,255,.25); flex-shrink:0; }
+.palette-btn .sw { width:28px; height:28px; border-radius:6px; border:1px solid rgba(255,255,255,.25); flex-shrink:0; }
+.palette-btn canvas.sw { display:block; image-rendering:auto; }
+.palette-toolbar { display:flex; gap:6px; align-items:center; }
+.palette-toolbar input { min-width:0; flex:1; padding:6px 8px; font-size:12px; }
+.palette-toolbar button { flex:0 0 auto; padding:6px 8px; font-size:12px; }
+.palette-entry { position:relative; min-width:0; }
+.palette-entry .palette-btn { width:100%; }
+.palette-favorite { position:absolute; right:5px; top:50%; transform:translateY(-50%); color:var(--muted); font-size:16px; line-height:1; cursor:pointer; padding:3px; }
+.palette-favorite.is-favorite { color:var(--accent); }
+.palette-empty { grid-column:1 / -1; color:var(--muted); font-size:12px; padding:8px 2px; }
 .palette-group {
   grid-column: 1 / -1;
   font-size: 12px;
@@ -99,8 +108,8 @@ main { flex:1; display:flex; min-height:0; }
   <div class="brand">🗺️ 地图工坊 <em>5 尺网格地图制作器</em></div>
   <div class="controls">
     <label>地图名称<input id="map-name" value="我的地牢" maxlength="20"></label>
-    <label>列（格）<input id="cols" type="number" min="8" max="80" value="24"></label>
-    <label>行（格）<input id="rows" type="number" min="8" max="80" value="18"></label>
+    <label>列（格）<input id="cols" type="number" min="8" max="100" value="24"></label>
+    <label>行（格）<input id="rows" type="number" min="8" max="100" value="18"></label>
     <label>每格像素<select id="cell-scale">
       <option value="40">40</option>
       <option value="50" selected>50</option>
@@ -146,6 +155,10 @@ main { flex:1; display:flex; min-height:0; }
 
     <section class="card">
       <h2>🎨 地块</h2>
+      <div class="palette-toolbar">
+        <input id="palette-search" type="search" placeholder="搜索地块…" aria-label="搜索地块">
+        <button id="btn-favorites" type="button" aria-pressed="false">☆ 收藏</button>
+      </div>
       <div class="palette-grid" id="palette"></div>
       <p class="hint">每格代表 D&amp;D 世界中的 <b style="color:var(--accent);">5 尺</b>。</p>
     </section>
@@ -231,6 +244,7 @@ main { flex:1; display:flex; min-height:0; }
 </main>
 <input type="file" id="file-open" accept=".json,application/json" hidden>
 
+<script src="tile-renderer.js?v=20260901-ai-materials"></script>
 <script>
 'use strict';
 
@@ -346,6 +360,7 @@ let selectedState = null;
 let selectedObject = 'bigaltar';
 let undoStack = [], redoStack = [];
 const DRAFT_KEY = 'dnd-mapworkshop-draft-v1';
+const PALETTE_PREFERENCES_KEY = 'dnd-mapworkshop-palette-v1';
 let drawing = false, dragStart = null, dragCur = null, gesturePushed = false;
 let rafPending = false;
 let zoom = 1, fitMode = false;
@@ -353,6 +368,40 @@ let selection = null, clipboard = null;
 let movingSel = false, moveData = null;
 let panning = false, panStart = null;
 let lastClickCell = null;
+let lastPaintCell = null;
+let favoritePaletteKeys = new Set();
+let recentPaletteKeys = [];
+let favoritesOnly = false;
+
+function paletteKey(item) {
+  return `${item.id}:${item.state || ''}`;
+}
+
+function loadPalettePreferences() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(PALETTE_PREFERENCES_KEY) || '{}');
+    favoritePaletteKeys = new Set(Array.isArray(saved.favorites) ? saved.favorites : []);
+    recentPaletteKeys = Array.isArray(saved.recent) ? saved.recent.slice(0, 6) : [];
+  } catch (e) {
+    favoritePaletteKeys = new Set();
+    recentPaletteKeys = [];
+  }
+}
+
+function savePalettePreferences() {
+  try {
+    localStorage.setItem(PALETTE_PREFERENCES_KEY, JSON.stringify({
+      favorites: [...favoritePaletteKeys],
+      recent: recentPaletteKeys,
+    }));
+  } catch (e) {}
+}
+
+function rememberPaletteItem(item) {
+  const key = paletteKey(item);
+  recentPaletteKeys = [key, ...recentPaletteKeys.filter((x) => x !== key)].slice(0, 6);
+  savePalettePreferences();
+}
 
 /* ==================== 缩放 / 平移 ==================== */
 
@@ -410,8 +459,8 @@ function makeGrid(c, r, fill) {
 }
 
 function newMap() {
-  cols = clampInt($('#cols').value, 8, 80);
-  rows = clampInt($('#rows').value, 8, 80);
+  cols = clampInt($('#cols').value, 8, 100);
+  rows = clampInt($('#rows').value, 8, 100);
   scale = parseInt($('#cell-scale').value, 10) || 50;
   canvas.width = cols * scale;
   canvas.height = rows * scale;
@@ -1297,9 +1346,18 @@ function drawTileAt(x, y) {
   const id = (grid[y] && grid[y][x]) || 'void';
   const t = TILE_BY_ID[id];
   const px = x * scale, py = y * scale;
-  g.fillStyle = t.base;
-  g.fillRect(px, py, scale, scale);
-  drawDetail(id, paintStates[`${x},${y}`] || null, px, py, scale);
+  const neighbors = {
+    north: y > 0 ? grid[y - 1][x] : 'void',
+    south: y < rows - 1 ? grid[y + 1][x] : 'void',
+    west: x > 0 ? grid[y][x - 1] : 'void',
+    east: x < cols - 1 ? grid[y][x + 1] : 'void',
+  };
+  const materialDrawn = window.SundollTileRenderer?.drawMaterial(g, px, py, scale, id, { x, y, neighbors });
+  if (!materialDrawn) {
+    g.fillStyle = t.base;
+    g.fillRect(px, py, scale, scale);
+    drawDetail(id, paintStates[`${x},${y}`] || null, px, py, scale);
+  }
 }
 
 function drawGrid() {
@@ -1617,6 +1675,16 @@ canvas.addEventListener('pointerdown', (e) => {
   dragStart = cell;
   dragCur = cell;
   if (!gesturePushed) { pushUndo(); gesturePushed = true; }
+  if ((tool === 'brush' || tool === 'erase') && e.shiftKey && lastPaintCell) {
+    lineCells(lastPaintCell.x, lastPaintCell.y, cell.x, cell.y).forEach(([x, y]) => applyPaint(x, y));
+    lastPaintCell = { ...cell };
+    drawing = false;
+    gesturePushed = false;
+    render();
+    saveDraft();
+    toast('已从上次落点绘制直线');
+    return;
+  }
   if (tool === 'pick') {
     selectedTile = grid[cell.y][cell.x] || 'void';
     selectedState = paintStates[`${cell.x},${cell.y}`] || null;
@@ -1626,6 +1694,7 @@ canvas.addEventListener('pointerdown', (e) => {
   }
   if (tool === 'brush' || tool === 'erase' || tool === 'fill') {
     applyPaint(cell.x, cell.y);
+    lastPaintCell = { ...cell };
   }
   render();
   updateStatus(cell);
@@ -1743,28 +1812,99 @@ canvas.addEventListener('contextmenu', (e) => {
 function buildPalette() {
   const box = $('#palette');
   box.innerHTML = '';
+  const query = ($('#palette-search')?.value || '').trim().toLocaleLowerCase();
+  const filtered = PALETTE.filter((p) => {
+    const matchesSearch = !query || `${p.name} ${p.id} ${p.group}`.toLocaleLowerCase().includes(query);
+    return matchesSearch && (!favoritesOnly || favoritePaletteKeys.has(paletteKey(p)));
+  });
   const groups = {};
-  PALETTE.forEach((p) => { (groups[p.group] = groups[p.group] || []).push(p); });
-  Object.keys(groups).forEach((gname) => {
+  filtered.forEach((p) => { (groups[p.group] = groups[p.group] || []).push(p); });
+  const appendHeading = (name) => {
     const h = document.createElement('div');
     h.className = 'palette-group';
-    h.textContent = gname;
+    h.textContent = name;
     box.appendChild(h);
-    groups[gname].forEach((p) => {
-      const b = document.createElement('button');
-      b.className = 'palette-btn';
-      b.dataset.tile = p.id;
-      b.dataset.state = p.state || '';
-      b.innerHTML = `<span class="sw" style="background:${p.base}"></span>${p.emoji} ${p.name}`;
-      b.addEventListener('click', () => {
-        selectedTile = p.id;
-        selectedState = p.state;
-        syncPalette();
-      });
-      box.appendChild(b);
+  };
+  const appendPaletteButton = (p) => {
+    const key = paletteKey(p);
+    const entry = document.createElement('div');
+    entry.className = 'palette-entry';
+    const b = document.createElement('button');
+    b.className = 'palette-btn';
+    b.dataset.tile = p.id;
+    b.dataset.state = p.state || '';
+    const preview = document.createElement('canvas');
+    preview.className = 'sw material-preview';
+    preview.width = 56;
+    preview.height = 56;
+    preview.dataset.tile = p.id;
+    preview.dataset.base = p.base;
+    preview.dataset.previewIndex = String(PALETTE.indexOf(p));
+    b.appendChild(preview);
+    b.append(`${p.emoji} ${p.name}`);
+    const favorite = document.createElement('span');
+    favorite.className = `palette-favorite${favoritePaletteKeys.has(key) ? ' is-favorite' : ''}`;
+    favorite.textContent = favoritePaletteKeys.has(key) ? '★' : '☆';
+    favorite.title = favoritePaletteKeys.has(key) ? '取消收藏' : '收藏';
+    favorite.setAttribute('role', 'button');
+    favorite.setAttribute('aria-label', favorite.title);
+    favorite.tabIndex = 0;
+    const toggleFavorite = (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (favoritePaletteKeys.has(key)) favoritePaletteKeys.delete(key);
+      else favoritePaletteKeys.add(key);
+      savePalettePreferences();
+      buildPalette();
+    };
+    favorite.addEventListener('click', toggleFavorite);
+    favorite.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ') toggleFavorite(event);
     });
+    b.addEventListener('click', () => {
+      selectedTile = p.id;
+      selectedState = p.state;
+      rememberPaletteItem(p);
+      buildPalette();
+      syncPalette();
+    });
+    entry.append(b, favorite);
+    box.appendChild(entry);
+  };
+  const recentItems = recentPaletteKeys
+    .map((key) => PALETTE.find((item) => paletteKey(item) === key))
+    .filter((item) => item && filtered.includes(item));
+  if (!favoritesOnly && !query && recentItems.length) {
+    appendHeading('🕘 最近使用');
+    recentItems.forEach(appendPaletteButton);
+  }
+  Object.keys(groups).forEach((gname) => {
+    appendHeading(gname);
+    groups[gname].forEach(appendPaletteButton);
   });
+  if (!filtered.length) {
+    const empty = document.createElement('div');
+    empty.className = 'palette-empty';
+    empty.textContent = '没有符合条件的地块';
+    box.appendChild(empty);
+  }
+  renderMaterialPreviews();
   syncPalette();
+}
+
+function renderMaterialPreviews() {
+  document.querySelectorAll('.material-preview').forEach((preview) => {
+    const pg = preview.getContext('2d');
+    const id = preview.dataset.tile;
+    const index = Number(preview.dataset.previewIndex) || 0;
+    const renderer = window.SundollTileRenderer;
+    if (renderer?.isAiMaterial(id)) {
+      renderer.drawMaterial(pg, 0, 0, preview.width, id, { x: index, y: index * 3 + 1 });
+    } else {
+      pg.fillStyle = preview.dataset.base;
+      pg.fillRect(0, 0, preview.width, preview.height);
+    }
+  });
 }
 
 function syncPalette() {
@@ -1834,6 +1974,15 @@ document.querySelectorAll('.tool-grid button').forEach((b) => {
 });
 
 $('#brush-size').addEventListener('change', (e) => { brush = parseInt(e.target.value, 10) || 1; });
+$('#palette-search').addEventListener('input', buildPalette);
+$('#btn-favorites').addEventListener('click', () => {
+  favoritesOnly = !favoritesOnly;
+  const button = $('#btn-favorites');
+  button.classList.toggle('active', favoritesOnly);
+  button.setAttribute('aria-pressed', String(favoritesOnly));
+  button.textContent = favoritesOnly ? '★ 收藏' : '☆ 收藏';
+  buildPalette();
+});
 $('#btn-new').addEventListener('click', () => {
   if (confirm('新建地图会清空当前内容，确定继续？')) newMap();
 });
@@ -2054,8 +2203,8 @@ function applyTemplate(name) {
     const tname = name.slice('__custom__'.length);
     const t = loadTemplates().find((x) => x.name === tname);
     if (!t) { toast('模板不存在'); return; }
-    cols = clampInt(t.cols, 8, 80);
-    rows = clampInt(t.rows, 8, 80);
+    cols = clampInt(t.cols, 8, 100);
+    rows = clampInt(t.rows, 8, 100);
     scale = clampInt(t.scale, 40, 80);
     canvas.width = cols * scale;
     canvas.height = rows * scale;
@@ -2302,7 +2451,7 @@ function loadDraft() {
     const d = JSON.parse(raw);
     if (!d || !Array.isArray(d.grid) || !d.grid.length || !Array.isArray(d.grid[0])) return false;
     const c = d.grid[0].length, r = d.grid.length;
-    if (c < 8 || r < 8 || c > 80 || r > 80) return false;
+    if (c < 8 || r < 8 || c > 100 || r > 100) return false;
     cols = c; rows = r;
     scale = clampInt(d.scale, 40, 80);
     grid = d.grid.map((row) => row.slice());
@@ -2326,8 +2475,8 @@ function applyMapData(data) {
     return;
   }
   const c = data.grid[0].length, r = data.grid.length;
-  if (c < 8 || r < 8 || c > 80 || r > 80) {
-    toast(`地图尺寸 ${c}×${r} 超出支持范围（8~80 格）`);
+  if (c < 8 || r < 8 || c > 100 || r > 100) {
+    toast(`地图尺寸 ${c}×${r} 超出支持范围（8~100 格）`);
     return;
   }
   cols = c; rows = r;
@@ -2389,6 +2538,11 @@ $('#btn-export-table').addEventListener('click', () => {
 
 /* ==================== 启动 ==================== */
 
+loadPalettePreferences();
+window.SundollTileRenderer?.onReady(() => {
+  render();
+  renderMaterialPreviews();
+});
 buildPalette();
 buildObjectPalette();
 refreshTemplateSelect();

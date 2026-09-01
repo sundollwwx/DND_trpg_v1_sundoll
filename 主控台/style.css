@@ -8,12 +8,15 @@
   --bg: #101218;
   --panel: #191c25;
   --panel2: #212531;
+  --panel3: #282d3a;
   --border: #2b303d;
   --text: #e8eaf0;
   --muted: #9aa3b2;
   --accent: #e0b34c;
   --danger: #e74c5e;
   --ok: #4cc38a;
+  --radius: 12px;
+  --shadow: 0 12px 32px rgba(0, 0, 0, .26);
 }
 
 html, body {
@@ -59,11 +62,12 @@ button {
   color: var(--text);
   border-radius: 8px;
   padding: 6px 10px;
-  transition: background .15s, filter .15s, transform .05s;
+  transition: background .15s, border-color .15s, color .15s, filter .15s, transform .05s;
 }
 
 button:hover {
-  background: #2b3140;
+  background: var(--panel3);
+  border-color: #454d60;
 }
 
 button:active {
@@ -102,7 +106,7 @@ button.small {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 8px 14px;
+  padding: 9px 14px;
   background: var(--panel);
   border-bottom: 1px solid var(--border);
   flex-wrap: wrap;
@@ -133,6 +137,23 @@ button.small {
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
+}
+
+.topbar-tool-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--accent);
+  border-color: #5b4922;
+}
+
+.topbar-tool-toggle[aria-pressed="true"] {
+  background: #25211a;
+  color: var(--muted);
+}
+
+#map-settings {
+  display: none;
 }
 
 .toggle {
@@ -257,12 +278,13 @@ button.small {
 }
 
 .panel {
-  width: 322px;
-  min-width: 322px;
+  width: 300px;
+  min-width: 300px;
   background: var(--panel);
   border-left: 1px solid var(--border);
   overflow-y: auto;
   padding-bottom: 12px;
+  transition: width .2s ease, min-width .2s ease, border-color .2s ease;
 }
 
 #left-panel {
@@ -270,15 +292,75 @@ button.small {
   border-left: none;
 }
 
+#layout.focus-map #left-panel {
+  width: 0;
+  min-width: 0;
+  padding: 0;
+  overflow: hidden;
+  border-right-color: transparent;
+}
+
+#right-panel:has(#unit-card.collapsed) {
+  width: 0;
+  min-width: 0;
+  padding: 0;
+  overflow: hidden;
+  border-left-color: transparent;
+}
+
+#workspace-tabs {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+  margin: 10px 10px 0;
+  padding: 4px;
+  background: rgba(16, 18, 24, .9);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  backdrop-filter: blur(10px);
+  box-shadow: var(--shadow);
+}
+
+.workspace-tab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-height: 46px;
+  padding: 5px 2px;
+  color: var(--muted);
+  border-color: transparent;
+  background: transparent;
+  font-size: 16px;
+}
+
+.workspace-tab span {
+  font-size: 11px;
+}
+
+.workspace-tab.active {
+  color: var(--accent);
+  background: #2a2730;
+  border-color: #5b4922;
+}
+
 .card {
   background: var(--panel);
   margin: 12px 10px 0;
   padding: 12px;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius);
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.card[hidden] {
+  display: none !important;
 }
 
 .links-list {
@@ -643,6 +725,58 @@ button.small {
   outline: none;
 }
 
+#map-quick-tools {
+  position: absolute;
+  left: 14px;
+  top: 14px;
+  z-index: 3;
+  display: flex;
+  gap: 4px;
+  padding: 5px;
+  border: 1px solid rgba(105, 115, 135, .38);
+  border-radius: 12px;
+  background: rgba(25, 28, 37, .88);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(8px);
+}
+
+#map-quick-drag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 31px;
+  width: 20px;
+  color: var(--muted);
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+
+#map-quick-drag:active { cursor: grabbing; color: var(--accent); }
+
+#map-quick-tools button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 31px;
+  padding: 4px 7px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+#map-quick-tools button:hover,
+#map-quick-tools button.active {
+  color: var(--accent);
+  background: #2a2730;
+  border-color: #5b4922;
+}
+
+#map-quick-tools button > span {
+  font-size: 11px;
+}
+
 #board.panning {
   cursor: grabbing;
 }
@@ -706,7 +840,7 @@ button.small {
 #zoom-controls {
   position: absolute;
   right: 14px;
-  bottom: 14px;
+  bottom: 58px;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -774,6 +908,10 @@ button.small {
 
 #doodle-canvas {
   z-index: 4;
+}
+
+#turn-path-canvas {
+  z-index: 1;
 }
 
 /* ============ 轻便地图编辑 ============ */
@@ -1617,27 +1755,86 @@ button.small {
 
 #init-bar {
   display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 10px 14px;
+  flex-direction: column;
+  gap: 0;
+  padding: 8px 14px;
   background: linear-gradient(180deg, #1c2029, var(--panel));
   border-top: 1px solid var(--border);
-  min-height: 200px;
   flex-shrink: 0;
 }
 
-.init-left {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  width: 175px;
-  flex-shrink: 0;
-}
+.init-head { display:flex; align-items:center; gap:9px; min-height:30px; min-width:0; }
+.init-title { border:0; padding:0; background:transparent; cursor:pointer; flex-shrink:0; }
+.init-readouts { display:flex; align-items:center; gap:8px; min-width:0; margin-left:auto; overflow:hidden; }
+.init-readout { color:var(--muted); font-size:12px; border-left:1px solid var(--border); padding-left:8px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.init-body { display:flex; flex-direction:column; gap:8px; min-height:0; padding-top:8px; }
+#init-bar.collapsed { padding-top:6px; padding-bottom:6px; }
+#init-bar.collapsed .init-body { display:none; }
 
 .init-title {
   font-size: 15px;
   font-weight: 700;
   color: var(--accent);
+}
+
+.init-mode-switch {
+  display: flex;
+  gap: 3px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(16, 18, 24, .55);
+  flex-shrink: 0;
+}
+
+.init-mode-switch button,
+.init-tabs button {
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+  padding: 5px 9px;
+  font-size: 12px;
+}
+
+.init-mode-switch button.active,
+.init-tabs button.active {
+  color: var(--accent);
+  background: #2b2733;
+  border-color: #5b4922;
+}
+
+.init-mode-switch button:disabled,
+.init-tabs button:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
+
+.init-tabs {
+  display: flex;
+  gap: 4px;
+  align-self: flex-start;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: rgba(16, 18, 24, .45);
+}
+
+.init-panel {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-height: 94px;
+  min-width: 0;
+}
+
+.init-panel[hidden] { display: none; }
+
+.init-left {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(330px, 32vw);
+  flex-shrink: 0;
 }
 
 .init-bar-add {
@@ -1662,6 +1859,13 @@ button.small {
 
 .init-actions button {
   flex: 1;
+}
+
+.init-clear-button {
+  color: var(--muted);
+  font-size: 11px;
+  padding: 4px 7px;
+  align-self: flex-start;
 }
 
 .init-bar-list {
@@ -1741,6 +1945,74 @@ button.small {
 .init-chip-del:hover {
   opacity: 1;
   color: #ff9aa5;
+}
+
+.world-time-main {
+  min-width: 235px;
+  padding: 4px 4px 0;
+}
+
+.world-date-display {
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.world-clock-display {
+  color: var(--accent);
+  font-size: 32px;
+  line-height: 1.05;
+  font-variant-numeric: tabular-nums;
+  margin-top: 5px;
+}
+
+.world-time-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.world-time-status b { color: var(--text); font-weight: 500; }
+
+.world-time-controls {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.world-date-inputs {
+  display: flex;
+  align-items: end;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.world-date-inputs label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.world-date-inputs input { width: 68px; }
+.world-date-inputs input[type="time"] { width: 92px; }
+.world-date-inputs button { height: 32px; }
+.world-time-actions { flex-wrap: wrap; }
+.world-time-actions button { flex: 0 1 auto; }
+
+@media (max-width: 900px) {
+  .init-readout:nth-child(2) { display: none; }
+  .init-panel { flex-direction: column; gap: 8px; }
+  .init-left { width: 100%; }
+  .init-bar-list { width: 100%; max-height: 90px; }
+  .world-time-main { min-width: 0; }
+  .world-time-controls { width: 100%; }
 }
 
 

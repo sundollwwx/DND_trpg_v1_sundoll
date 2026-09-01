@@ -8,7 +8,7 @@
               在「📡 联机 → 开启玩家模式」开启推送。
   玩家：同一 WiFi 下用浏览器打开 http://<本机IP>:端口/主控台/观战.html
 """
-import os, sys, json, time, socket, threading, re, base64, hashlib
+import os, sys, json, time, socket, threading, re, base64, hashlib, math
 from urllib.parse import urlparse, parse_qs, unquote_to_bytes
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
@@ -23,6 +23,8 @@ RECENT_ACTIONS = []   # 玩家动作（带自增 seq），用于主机合并
 NEXT_SEQ = 1
 MAX_RECENT = 500
 PATCH_FIELDS = {'hp', 'hpMax', 'ac'}
+MAX_MOVE_POINTS = 60
+MAX_TURN_PATH_POINTS = 200
 MUSIC_EXTS = ('.mp3', '.m4a', '.wav', '.ogg', '.flac', '.aac', '.opus', '.webm')
 # 联机媒体只留在服务器内存中。状态里改为内容哈希 URL，浏览器可长期缓存，
 # 不再把 Base64 地图和头像塞进每一条 SSE 消息。
@@ -89,23 +91,119 @@ def find_token(state, token_id):
     return None, None
 
 
+def finite_number(value):
+    try:
+        number = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return number if math.isfinite(number) else None
+
+
+def token_control_group(state, token):
+    """返回棋子、坐骑和坐骑上骑手组成的控制组 ID。"""
+    if not isinstance(token, dict) or not token.get('id'):
+        return set()
+    ids = {token.get('id')}
+    mount_id = token.get('mountId')
+    if mount_id:
+        ids.add(mount_id)
+    changed = True
+    while changed:
+        changed = False
+        for m in (state or {}).get('maps', []) or []:
+            for rider in m.get('tokens', []) or []:
+                if rider.get('mountId') in ids and rider.get('id') not in ids:
+                    ids.add(rider.get('id'))
+                    changed = True
+    return ids
+
+
 def can_control(state, token, player):
-    """玩家只能操作自己名下的棋子；骑手可以把坐骑一起带走。"""
+    """玩家只能操作自己控制组内的棋子；骑手可以把坐骑一起带走。"""
     player = (player or '').strip()
     if not player:
         return False
-    if (token.get('owner') or '').strip() == player:
-        return True
-    if token.get('size', 1) >= 2:
-        for m in (state or {}).get('maps', []) or []:
-            for r in m.get('tokens', []) or []:
-                if r.get('mountId') == token.get('id') and (r.get('owner') or '').strip() == player:
-                    return True
+    group = token_control_group(state, token)
+    for m in (state or {}).get('maps', []) or []:
+        for candidate in m.get('tokens', []) or []:
+            if candidate.get('id') in group and (candidate.get('owner') or '').strip() == player:
+                return True
     return False
+
+
+def encounter_state(state):
+    encounter = (state or {}).get('encounter')
+    if isinstance(encounter, dict):
+        return encounter
+    if isinstance(state, dict):
+        state['encounter'] = {}
+        return state['encounter']
+    return {}
+
+
+def encounter_turn_serial(state):
+    value = finite_number(encounter_state(state).get('turnSerial', 1))
+    return max(1, int(value)) if value is not None else 1
+
+
+def current_turn_token_id(state):
+    encounter = encounter_state(state)
+    current_id = encounter.get('currentEntryId')
+    for entry in encounter.get('entries', []) or []:
+        if isinstance(entry, dict) and entry.get('id') == current_id:
+            token_id = entry.get('tokenId')
+            return token_id if token_id else None
+    return None
+
+
+def can_move_token(state, token, player, action):
+    """判断玩家是否能在当前模式、当前回合移动该棋子。"""
+    if not can_control(state, token, player):
+        return False, '只能操作自己名下的棋子'
+    encounter = encounter_state(state)
+    if encounter.get('playMode') != 'turn':
+        return True, None
+    current_token_id = current_turn_token_id(state)
+    if not current_token_id:
+        return False, '当前先攻尚未关联棋子，暂时不能移动'
+    if current_token_id not in token_control_group(state, token):
+        return False, '尚未轮到这个角色'
+    requested_serial = finite_number(action.get('turnSerial'))
+    if requested_serial is None or int(requested_serial) != encounter_turn_serial(state):
+        return False, '回合已经变化，请重新操作'
+    return True, None
+
+
+def token_limits(m, token):
+    grid = finite_number(m.get('gridSize', 50)) or 50
+    grid = max(1, grid)
+    map_w = max(0, finite_number(m.get('mapW', 0)) or 0)
+    map_h = max(0, finite_number(m.get('mapH', 0)) or 0)
+    size = finite_number(token.get('size', 1)) or 1
+    margin = grid if size >= 2 else grid / 2
+    return map_w, map_h, min(margin, map_w / 2), min(margin, map_h / 2)
+
+
+def clamp_token_point(m, token, point):
+    x = finite_number(point.get('x'))
+    y = finite_number(point.get('y'))
+    if x is None or y is None:
+        return None
+    map_w, map_h, margin_x, margin_y = token_limits(m, token)
+    return {
+        'x': max(margin_x, min(map_w - margin_x, x)),
+        'y': max(margin_y, min(map_h - margin_y, y)),
+    }
+
+
+def same_point(a, b):
+    return abs(a['x'] - b['x']) < 0.01 and abs(a['y'] - b['y']) < 0.01
 
 
 def apply_action(state, action):
     """幂等地把玩家动作应用到状态上。"""
+    if not isinstance(action, dict):
+        return False
     op = action.get('op')
     m, t = find_token(state, action.get('tokenId'))
     if not m or not t:
@@ -134,14 +232,75 @@ def apply_action(state, action):
                     pass
         return True
     if op == 'moveToken':
-        grid = m.get('gridSize', 50)
-        margin = grid if t.get('size', 1) >= 2 else grid / 2
-        map_w = m.get('mapW', 0)
-        map_h = m.get('mapH', 0)
-        x = float(action.get('x', t.get('x', 0)))
-        y = float(action.get('y', t.get('y', 0)))
-        t['x'] = max(margin, min(map_w - margin, x))
-        t['y'] = max(margin, min(map_h - margin, y))
+        if action.get('mapId') is not None and action.get('mapId') != m.get('id'):
+            return False
+        point = clamp_token_point(m, t, {'x': action.get('x'), 'y': action.get('y')})
+        if point is None:
+            return False
+        action['mapId'] = m.get('id')
+        action['x'] = point['x']
+        action['y'] = point['y']
+        encounter = encounter_state(state)
+        if encounter.get('playMode') == 'turn':
+            serial = finite_number(action.get('turnSerial'))
+            if serial is None:
+                return False
+            serial = int(serial)
+            if serial != encounter_turn_serial(state):
+                t['x'] = point['x']
+                t['y'] = point['y']
+                for r in m.get('tokens', []) or []:
+                    if r.get('mountId') == t.get('id'):
+                        r['x'] = t['x']
+                        r['y'] = t['y']
+                return True
+            raw_path = action.get('path')
+            if raw_path is None:
+                raw_path = []
+            if not isinstance(raw_path, list) or len(raw_path) > MAX_MOVE_POINTS:
+                return False
+            fragment = []
+            for raw_point in raw_path:
+                if not isinstance(raw_point, dict):
+                    return False
+                normalized = clamp_token_point(m, t, raw_point)
+                if normalized is None:
+                    return False
+                fragment.append(normalized)
+            if not fragment:
+                fragment = [{'x': finite_number(t.get('x')) or point['x'], 'y': finite_number(t.get('y')) or point['y']}]
+            if not same_point(fragment[-1], point):
+                fragment.append(point)
+            if len(fragment) > MAX_MOVE_POINTS:
+                fragment = fragment[:MAX_MOVE_POINTS - 1] + [fragment[-1]]
+            existing = encounter.get('turnPath')
+            existing_points = []
+            if isinstance(existing, dict) and existing.get('mapId') == m.get('id') and existing.get('tokenId') == t.get('id'):
+                for raw_point in existing.get('points', []) or []:
+                    if isinstance(raw_point, dict):
+                        normalized = clamp_token_point(m, t, raw_point)
+                        if normalized is not None:
+                            existing_points.append(normalized)
+            combined = existing_points[:]
+            for candidate in fragment:
+                if not combined or not same_point(combined[-1], candidate):
+                    combined.append(candidate)
+            if len(combined) > MAX_TURN_PATH_POINTS:
+                combined = combined[:MAX_TURN_PATH_POINTS - 1] + [combined[-1]]
+            encounter['turnPath'] = {
+                'mapId': m.get('id'),
+                'tokenId': t.get('id'),
+                'points': combined,
+            }
+            t['x'] = point['x']
+            t['y'] = point['y']
+            action['turnSerial'] = serial
+            action['path'] = fragment
+        else:
+            encounter['turnPath'] = {'mapId': None, 'tokenId': None, 'points': []}
+            action.pop('path', None)
+            t['x'] = point['x']
+            t['y'] = point['y']
         for r in m.get('tokens', []) or []:
             if r.get('mountId') == t.get('id'):
                 r['x'] = t['x']
@@ -280,6 +439,8 @@ class Handler(SimpleHTTPRequestHandler):
                     if act.get('seq', 0) > seq0:
                         apply_action(STATE, act)
                 STATE['_streamSeq'] = RECENT_ACTIONS[-1]['seq'] if RECENT_ACTIONS else 0
+                # 观战端用服务器时钟作为世界时间运行快照的锚点，避免各设备系统时钟不同。
+                STATE['_serverNow'] = int(time.time() * 1000)
             broadcast({'type': 'state', 'state': STATE})
             self._send_json({'ok': True})
         elif self.path.startswith('/api/music'):
@@ -317,6 +478,9 @@ class Handler(SimpleHTTPRequestHandler):
             if not player:
                 self._send_json({'ok': False, 'error': '缺少玩家名'}, 400)
                 return
+            if not isinstance(action, dict):
+                self._send_json({'ok': False, 'error': '动作数据无效'}, 400)
+                return
             # 掷骰：不修改状态、不写入动作历史，只广播一次让所有人看到
             if action.get('op') == 'roll':
                 ev = {'type': 'action', 'seq': 0, 'action': dict(action)}
@@ -351,8 +515,19 @@ class Handler(SimpleHTTPRequestHandler):
                 if STATE is None:
                     self._send_json({'ok': False, 'error': '主机尚未推送状态'}, 400)
                     return
-                _, tok = find_token(STATE, action.get('tokenId'))
-                if not tok or not can_control(STATE, tok, player):
+                map_obj, tok = find_token(STATE, action.get('tokenId'))
+                if not tok:
+                    self._send_json({'ok': False, 'error': '棋子不存在'}, 404)
+                    return
+                if action.get('op') == 'moveToken':
+                    allowed, reason = can_move_token(STATE, tok, player, action)
+                    if not allowed:
+                        self._send_json({'ok': False, 'error': reason}, 409 if reason == '回合已经变化，请重新操作' else 403)
+                        return
+                    if action.get('mapId') is not None and action.get('mapId') != map_obj.get('id'):
+                        self._send_json({'ok': False, 'error': '地图与棋子不匹配'}, 400)
+                        return
+                elif not can_control(STATE, tok, player):
                     self._send_json({'ok': False, 'error': '只能操作自己名下的棋子'}, 403)
                     return
                 if not apply_action(STATE, action):
@@ -365,7 +540,7 @@ class Handler(SimpleHTTPRequestHandler):
                 RECENT_ACTIONS.append(act)
                 if len(RECENT_ACTIONS) > MAX_RECENT:
                     del RECENT_ACTIONS[:len(RECENT_ACTIONS) - MAX_RECENT]
-                ev = {'type': 'action', 'seq': seq, 'action': action}
+                ev = {'type': 'action', 'seq': seq, 'action': dict(action)}
             broadcast(ev)
             self._send_json({'ok': True, 'seq': seq})
         else:
@@ -381,7 +556,10 @@ class Handler(SimpleHTTPRequestHandler):
         lock = threading.Lock()
         with LOCK:
             CLIENTS.append((self.wfile, lock))
-            initial = STATE
+            initial = dict(STATE) if STATE is not None else None
+            if initial is not None:
+                # 新观战端可能在状态最后一次变更很久之后才接入，需要以本次发送时刻校准世界时间。
+                initial['_serverNow'] = int(time.time() * 1000)
         try:
             if initial is not None:
                 with lock:
