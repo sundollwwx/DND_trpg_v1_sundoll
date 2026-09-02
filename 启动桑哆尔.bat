@@ -24,7 +24,16 @@ goto server_started
 start "Sangduoer Server" /min python "start_server.py"
 
 :server_started
-rem Wait until the local server has had time to bind port 8090.
-timeout /t 2 /nobreak >nul
-start "" "http://127.0.0.1:8090/%%E4%%B8%%BB%%E6%%8E%%A7%%E5%%8F%%B0/%%E4%%B8%%BB%%E6%%8E%%A7%%E5%%8F%%B0.html"
+rem Wait until the local server is healthy before opening the host console.
+for /l %%I in (1,1,30) do (
+  powershell -NoProfile -Command "try { Invoke-WebRequest -UseBasicParsing -TimeoutSec 1 http://127.0.0.1:8090/api/health | Out-Null; exit 0 } catch { exit 1 }" >nul 2>nul
+  if not errorlevel 1 goto server_ready
+  timeout /t 1 /nobreak >nul
+)
+echo [ERROR] Server did not become ready on port 8090.
+pause
+exit /b 1
+
+:server_ready
+start "" "http://127.0.0.1:8090/主控台/主控台.html"
 exit /b 0

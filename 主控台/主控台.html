@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>桑哆尔 · 跑团台</title>
-  <link rel="stylesheet" href="style.css?v=20260814k">
+  <link rel="stylesheet" href="style.css?v=20260901-m19">
 </head>
 <body>
 
@@ -18,6 +18,14 @@
     <div class="dropdown">
       <button class="dropdown-btn" data-dropdown="net" id="btn-stream-dd">📡 联机 ▾</button>
       <div class="dropdown-menu" data-menu="net" hidden>
+        <div id="net-info" class="net-info">尚未连接服务器</div>
+        <div id="net-player-list" class="net-player-list"></div>
+        <label class="server-url-field" for="server-url-input">
+          服务器地址
+          <input id="server-url-input" type="url" inputmode="url" placeholder="自动 / http://127.0.0.1:8090" autocomplete="off">
+        </label>
+        <div id="server-url-hint" class="server-url-hint">使用当前页面地址；直接双击 HTML 时可在这里填写服务器地址。</div>
+        <button data-action="server-url-apply">应用服务器地址</button>
         <button data-action="server-check">🔍 检测服务器（在线/离线）</button>
         <button data-action="server-copy">📋 复制启动命令</button>
         <button data-action="stream-push">🔄 更新数据（立即推送）</button>
@@ -39,12 +47,8 @@
     <div class="dropdown">
       <button class="dropdown-btn" data-dropdown="save">💾 存档 ▾</button>
       <div class="dropdown-menu" data-menu="save" hidden>
-        <button data-action="save">💾 保存</button>
-        <button data-action="backup-all">📦 导出完整备份（全部数据）</button>
-        <button data-action="restore-all">📥 恢复完整备份</button>
-        <button data-action="bind-folder">📌 绑定项目文件夹</button>
-        <button data-action="campaigns">🗂️ 战役管理</button>
-        <button data-action="reset">🗑 清空全部</button>
+        <button data-action="save">💾 存档</button>
+        <button data-action="load">📂 读取存档</button>
       </div>
     </div>
     <span class="map-switch" title="切换地图（楼上楼下）">
@@ -55,12 +59,13 @@
     <div id="map-settings">
       <label class="toggle"><input type="checkbox" id="grid-toggle" checked> 网格</label>
       <label class="toggle"><input type="checkbox" id="names-toggle" checked> 名字</label>
-      <label class="toggle" title="高清立绘开关：默认开启并优先读取项目原图；棋子很多、设备较慢时可关闭以使用 128px 缩略图"><input type="checkbox" id="hd-toggle-check"> 高清</label>
+      <label class="toggle" title="高清立绘开关：默认开启并优先读取项目原图；关闭后优先使用 128px 缓存，没有缓存时仍显示当前立绘"><input type="checkbox" id="hd-toggle-check"> 高清</label>
       <label class="toggle" title="打开后点击任意格子可加/去黄色标记框"><input type="checkbox" id="mark-toggle"> 🖍️ 标记</label>
       <label class="toggle" title="开启迷雾后，未探索的格子会变黑"><input type="checkbox" id="fog-toggle"> 🌫️ 迷雾</label>
       <label class="toggle"><input type="checkbox" id="snap-toggle" checked> 吸附</label>
     </div>
     <button id="btn-fit" title="缩放并居中到整张地图">⛶ 适应窗口</button>
+    <span id="save-status" class="save-status" title="存档状态">未保存</span>
     <span id="app-version" class="app-version">v1.1</span>
   </div>
 </header>
@@ -88,6 +93,7 @@
         <input id="dice-expr" placeholder="如 2d6+3 / 4d8" enterkeyhint="go">
         <button id="btn-roll" class="primary">掷!</button>
       </div>
+      <label class="chk dice-visibility" title="关闭时骰点只记录在主控台；打开后才广播给玩家"><input type="checkbox" id="dice-broadcast"> 📣 广播给玩家</label>
       <div id="roll-log"></div>
     </section>
 
@@ -172,7 +178,7 @@
     <section class="card" data-workspace="units">
       <div class="card-head">
         <h2>🎖️ 棋子库</h2>
-        <button id="btn-lib-sync" class="small" title="从「棋子库」程序读取最新数据">⟳ 同步</button>
+        <button id="btn-lib-sync" class="small" title="从“存档”中的全局棋子库读取最新数据">⟳ 同步</button>
       </div>
       <div class="row">
         <input id="lib-search" placeholder="搜索棋子…" maxlength="20">
@@ -190,8 +196,7 @@
       <div id="lib-list"></div>
       <button id="btn-lib-add" class="primary small">＋ 新建预设</button>
       <div class="row lib-persist">
-        <button id="btn-lib-persist" class="small" title="第一次点这里选择保存位置，之后每次修改棋子库都会自动写入这个文件">📌 永久保存</button>
-        <span id="lib-persist-status" class="lib-persist-status">未固定</span>
+        <span id="lib-persist-status" class="lib-persist-status">随“存档”文件夹保存</span>
       </div>
       <div id="lib-editor" hidden>
         <input id="lib-name" placeholder="名称，如：地精" maxlength="24">
@@ -256,6 +261,12 @@
         <button id="btn-link-add" class="small primary">＋</button>
       </div>
     </section>
+
+    <section class="card" id="shared-note-card" data-workspace="resources">
+      <div class="card-head"><h2>📖 共享公告 / 手册</h2><span id="shared-note-count" class="hint">0/4000</span></div>
+      <textarea id="shared-note" rows="7" maxlength="4000" placeholder="给玩家看的规则约定、当前目标、线索或场景提示……"></textarea>
+      <p class="hint">内容会随联机状态同步到观战台；GM 私密备注不会同步。</p>
+    </section>
   </aside>
 
   <section id="center">
@@ -294,7 +305,7 @@
         <div class="init-readouts">
           <span id="init-round-readout" class="init-readout">自由行动</span>
           <span id="init-current-readout" class="init-readout">未锁定行动单位</span>
-          <span id="init-time-readout" class="init-readout">第 1 年 · 第 1 周 · 第 1 天 08:00</span>
+            <span id="init-time-readout" class="init-readout">第 1 年 · 第 1 周 · 第 1 天 08:00:00</span>
         </div>
       </div>
       <div class="init-body">
@@ -322,7 +333,7 @@
               <label>年<input id="time-year" type="number" min="1" max="99999"></label>
               <label>周<input id="time-week" type="number" min="1" max="52"></label>
               <label>日<input id="time-day" type="number" min="1" max="7"></label>
-              <label>时刻<input id="time-clock" type="time" step="60"></label>
+              <label>时刻<input id="time-clock" type="time" step="1"></label>
               <button id="btn-time-apply" type="button">应用时间</button>
             </div>
             <div class="init-actions world-time-actions">
@@ -371,6 +382,18 @@
             <button data-hp="full">回满</button>
           </div>
           <label class="field row2"><span>AC</span><input id="detail-ac-input" type="number" min="0" max="99"></label>
+          <div class="detail-section">
+            <div class="detail-section-title"><span>状态效果</span><span class="hint">不自动计算规则</span></div>
+            <div id="detail-conditions" class="condition-list"></div>
+            <div class="condition-add-row">
+              <select id="detail-condition-select" aria-label="选择状态"></select>
+              <input id="detail-condition-turns" type="number" min="1" max="999" placeholder="自身回合数">
+              <button id="btn-detail-condition-add" class="small primary" type="button">添加</button>
+            </div>
+          </div>
+          <label class="field note-field"><span>玩家可见备注</span><textarea id="detail-public-note" maxlength="240" placeholder="玩家可以看到的提示"></textarea></label>
+          <label class="field note-field"><span>GM 私密备注</span><textarea id="detail-gm-note" maxlength="500" placeholder="只有主控台可见"></textarea></label>
+          <label class="detail-visibility"><input id="detail-hidden-players" type="checkbox"> 对玩家隐藏此棋子</label>
           <div class="field sec">
             <span>移到其他地图</span>
             <div class="row">
@@ -421,17 +444,12 @@
 
 <div id="campaign-modal" class="modal-mask" hidden>
   <div class="modal">
-    <h2>🗂️ 战役管理</h2>
+    <h2>📂 读取存档</h2>
     <p class="hint" id="campaign-current"></p>
-    <p class="hint" style="font-size:12px;color:var(--muted);line-height:1.6;">战役保存在浏览器战役库；绑定项目文件夹后，每个战役会同步到 <code>主控台/状态/战役/&lt;战役名&gt;/存档.json</code>，打开本窗口时会自动与文件夹双向同步——所以双击打开和服务器地址打开只要绑定同一个文件夹，看到的战役就是同一批。「导出」会下载 JSON 并同时存入 <code>主控台/状态/导出/</code>。</p>
-    <div class="btn-row">
-      <button id="btn-campaign-new" class="primary">＋ 新建战役</button>
-      <button id="btn-campaign-import">📁 导入地图到当前战役</button>
-      <button id="btn-campaign-import-backup">⬆ 导入战役</button>
-    </div>
-    <input type="file" id="file-campaign-import" accept=".json,application/json" hidden>
+    <p class="hint" style="font-size:12px;color:var(--muted);line-height:1.6;">选择一个战役读取它的正式存档。浏览器缓存只用于意外关闭恢复，不会作为这里的存档来源。</p>
     <div id="campaign-list"></div>
     <div class="modal-actions">
+      <button id="btn-save-folder-change">📁 更换“存档”文件夹</button>
       <button id="btn-campaign-close">关闭</button>
     </div>
   </div>
@@ -463,30 +481,24 @@
 <input type="file" id="file-map" accept="image/*" hidden>
 <input type="file" id="file-map-import" accept=".json,application/json" hidden>
 <input type="file" id="file-map-folder" multiple accept=".json,application/json" hidden>
-<input type="file" id="file-import" accept=".json,application/json" hidden>
-<input type="file" id="file-backup-all" accept=".json,application/json" hidden>
-
 <div id="toast" hidden></div>
 
 <div id="cover" class="cover">
   <div class="cover-box">
     <div class="cover-brand">🐉 桑哆尔跑团台</div>
-    <div class="cover-sub">选择战役，开始冒险</div>
     <div class="cover-actions">
       <button id="cover-continue" class="cover-btn primary" hidden>⏯ 继续战役</button>
       <button id="cover-new" class="cover-btn">🆕 新建战役</button>
       <button id="cover-load" class="cover-btn">📂 载入战役</button>
       <button id="cover-temp" class="cover-btn">⚡ 临时战役</button>
     </div>
-    <div class="cover-hint">新建战役 = 空白开始，保存为独立战役；载入战役 = 打开已有战役；临时战役 = 直接开玩、不写入战役存档</div>
   </div>
 </div>
 
-<script src="../棋子库/棋子库数据.js"></script>
-<script src="../棋子库/立绘清单.js"></script>
+<script src="../asset/棋子库/默认预设.js?v=20260902-library-cleanup-v3"></script>
 <script src="../three.min.js"></script>
 <script src="../骰子动画.js?v=22"></script>
-<script src="../地图/tile-renderer.js?v=20260901-ai-materials"></script>
-<script src="app.js?v=20260901-lightweight"></script>
+<script src="../asset/地图/tile-renderer.js?v=20260902-explicit-variants"></script>
+<script src="app.js?v=20260902-explicit-variants"></script>
 </body>
 </html>

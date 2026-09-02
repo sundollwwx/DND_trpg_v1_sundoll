@@ -139,6 +139,19 @@ button.small {
   flex-wrap: wrap;
 }
 
+.save-status {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.save-status.ok { color: var(--ok); }
+.save-status.busy { color: var(--accent); }
+.save-status.error { color: #ff9aa5; }
+
 .topbar-tool-toggle {
   display: inline-flex;
   align-items: center;
@@ -246,6 +259,55 @@ button.small {
   display: flex;
   flex-direction: column;
   gap: 2px;
+}
+
+.net-info {
+  padding: 7px 9px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid rgba(255,255,255,.08);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-line;
+}
+
+.net-player-list {
+  display: grid;
+  gap: 2px;
+  padding: 2px 4px 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.net-player-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.net-player-row.online { color: var(--text); }
+
+.server-url-field {
+  display: grid;
+  gap: 4px;
+  padding: 7px 9px 2px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.server-url-field input {
+  width: 100%;
+  min-width: 0;
+  font-size: 12px;
+}
+
+.server-url-hint {
+  padding: 2px 9px 4px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: normal;
+  word-break: break-all;
 }
 
 .dropdown-menu[hidden] {
@@ -403,6 +465,20 @@ button.small {
   flex: 1;
   min-width: 0;
   padding: 5px 8px;
+}
+
+#shared-note {
+  width: 100%;
+  min-height: 110px;
+  resize: vertical;
+  line-height: 1.55;
+}
+
+.dice-visibility {
+  display: block;
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .card h2 {
@@ -867,7 +943,46 @@ button.small {
   justify-content: center;
   cursor: grab;
   pointer-events: auto;
-  z-index: 1;
+  z-index: 4;
+}
+
+.token.gm-hidden-token {
+  opacity: .68;
+}
+
+.token.gm-hidden-token .circle {
+  border-style: dashed;
+  box-shadow: 0 0 0 3px rgba(196, 132, 255, .62), 0 0 18px rgba(196, 132, 255, .25);
+}
+
+.token-condition-badges {
+  position: absolute;
+  right: -5px;
+  bottom: -3px;
+  display: flex;
+  gap: 2px;
+  max-width: 90%;
+  pointer-events: none;
+}
+
+.token-condition-badge {
+  display: inline-grid;
+  place-items: center;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 3px;
+  border: 1px solid var(--condition-color, #a8b3c7);
+  border-radius: 5px;
+  background: #121622e8;
+  color: var(--condition-color, #d7dce5);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.token-condition-badge.more {
+  color: var(--muted);
+  border-color: var(--border);
 }
 
 #names-layer {
@@ -875,7 +990,7 @@ button.small {
   left: 0;
   top: 0;
   pointer-events: none;
-  z-index: 2;
+  z-index: 5;
 }
 
 #names-layer .token-name-label {
@@ -907,11 +1022,15 @@ button.small {
 }
 
 #doodle-canvas {
-  z-index: 4;
+  z-index: 6;
+}
+
+#fog-canvas {
+  z-index: 2;
 }
 
 #turn-path-canvas {
-  z-index: 1;
+  z-index: 3;
 }
 
 /* ============ 轻便地图编辑 ============ */
@@ -1317,6 +1436,101 @@ button.small {
 .hp-btns button {
   font-size: 12px;
   padding: 5px 2px;
+}
+
+.detail-section {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, .07);
+}
+
+.detail-section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.condition-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  min-height: 25px;
+}
+
+.condition-empty {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.condition-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 4px 6px;
+  border: 1px solid color-mix(in srgb, var(--condition-color) 50%, var(--border));
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--condition-color) 12%, var(--panel2));
+  color: var(--text);
+  font-size: 11px;
+}
+
+.condition-chip .condition-remove,
+.condition-chip .condition-visibility {
+  padding: 0 2px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1;
+}
+
+.condition-chip .condition-remove:hover,
+.condition-chip .condition-visibility:hover {
+  color: #ff9aa5;
+}
+
+.condition-add-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 92px auto;
+  gap: 5px;
+}
+
+.condition-add-row input,
+.condition-add-row select {
+  min-width: 0;
+  font-size: 12px;
+}
+
+.note-field textarea {
+  width: 100%;
+  min-height: 48px;
+  resize: vertical;
+  background: #141722;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 7px 8px;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+}
+
+.detail-visibility {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 10px;
+  padding: 8px;
+  color: #e2b1ff;
+  border: 1px solid #5a3e70;
+  border-radius: 8px;
+  background: rgba(90, 62, 112, .16);
+  font-size: 12px;
 }
 
 .hitdice-box {
@@ -1754,6 +1968,7 @@ button.small {
 /* ============ 先攻条（底部） ============ */
 
 #init-bar {
+  --flow-open-height: 154px;
   display: flex;
   flex-direction: column;
   gap: 0;
@@ -1763,11 +1978,15 @@ button.small {
   flex-shrink: 0;
 }
 
+#init-bar:not(.collapsed) {
+  height: var(--flow-open-height);
+}
+
 .init-head { display:flex; align-items:center; gap:9px; min-height:30px; min-width:0; }
 .init-title { border:0; padding:0; background:transparent; cursor:pointer; flex-shrink:0; }
 .init-readouts { display:flex; align-items:center; gap:8px; min-width:0; margin-left:auto; overflow:hidden; }
 .init-readout { color:var(--muted); font-size:12px; border-left:1px solid var(--border); padding-left:8px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.init-body { display:flex; flex-direction:column; gap:8px; min-height:0; padding-top:8px; }
+.init-body { display:flex; flex-direction:column; gap:8px; min-height:0; flex:1; overflow:hidden; padding-top:8px; }
 #init-bar.collapsed { padding-top:6px; padding-bottom:6px; }
 #init-bar.collapsed .init-body { display:none; }
 
@@ -1823,8 +2042,10 @@ button.small {
   display: flex;
   align-items: flex-start;
   gap: 12px;
-  min-height: 94px;
+  height: 100%;
+  min-height: 0;
   min-width: 0;
+  overflow: hidden;
 }
 
 .init-panel[hidden] { display: none; }
@@ -1877,6 +2098,7 @@ button.small {
   gap: 6px;
   overflow-y: auto;
   max-height: 100%;
+  overflow-y: auto;
 }
 
 .init-empty {
@@ -1960,7 +2182,7 @@ button.small {
 
 .world-clock-display {
   color: var(--accent);
-  font-size: 32px;
+  font-size: 30px;
   line-height: 1.05;
   font-variant-numeric: tabular-nums;
   margin-top: 5px;
@@ -2007,6 +2229,7 @@ button.small {
 .world-time-actions button { flex: 0 1 auto; }
 
 @media (max-width: 900px) {
+  #init-bar { --flow-open-height: 190px; }
   .init-readout:nth-child(2) { display: none; }
   .init-panel { flex-direction: column; gap: 8px; }
   .init-left { width: 100%; }

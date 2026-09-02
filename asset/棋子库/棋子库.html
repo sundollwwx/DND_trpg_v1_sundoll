@@ -1,0 +1,1381 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>棋子库 · 分类管理</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg:#101218; --panel:#191c25; --panel2:#212531; --border:#2b303d;
+  --text:#e8eaf0; --muted:#9aa3b2; --accent:#e0b34c; --danger:#e74c5e;
+}
+html,body { height:100%; }
+body {
+  display:flex; flex-direction:column;
+  font-family:"PingFang SC","Microsoft YaHei","Noto Sans SC",system-ui,sans-serif;
+  background:var(--bg); color:var(--text); overflow:hidden; user-select:none;
+}
+input,select,button { font:inherit; color:inherit; }
+input,select {
+  background:#141722; border:1px solid var(--border); border-radius:8px;
+  padding:6px 8px; outline:none; width:100%;
+}
+input:focus,select:focus { border-color:var(--accent); }
+button {
+  cursor:pointer; border:1px solid var(--border); background:var(--panel2);
+  color:var(--text); border-radius:8px; padding:7px 11px;
+  transition:background .15s, filter .15s;
+}
+button:hover { background:#2b3140; }
+button.primary { background:var(--accent); border-color:var(--accent); color:#241d0a; font-weight:600; }
+button.primary:hover { background:#f0c45c; }
+button.small { padding:4px 8px; font-size:12px; }
+
+header {
+  display:flex; align-items:center; justify-content:space-between; gap:10px;
+  padding:8px 14px; background:var(--panel); border-bottom:1px solid var(--border); z-index:5;
+}
+.brand { display:flex; align-items:center; gap:8px; font-size:17px; font-weight:700; white-space:nowrap; }
+.brand em { color:var(--accent); font-style:normal; }
+.controls { display:flex; gap:8px; align-items:center; }
+
+main { flex:1; display:flex; min-height:0; }
+.panel { width:250px; min-width:250px; background:var(--panel); border-right:1px solid var(--border); overflow-y:auto; padding-bottom:12px; }
+.card { background:var(--panel); margin:12px 10px 0; padding:12px; border:1px solid var(--border); border-radius:12px; display:flex; flex-direction:column; gap:8px; }
+.card h2 { font-size:15px; color:var(--accent); border-bottom:1px solid var(--border); padding-bottom:6px; }
+#cat-list { list-style:none; display:flex; flex-direction:column; gap:3px; }
+#cat-list li {
+  display:flex; justify-content:space-between; align-items:center; gap:8px;
+  padding:6px 9px; border-radius:8px; cursor:pointer; font-size:14px;
+  border:1px solid transparent;
+}
+#cat-list li:hover { background:var(--panel2); }
+#cat-list li.active { background:#2b2733; border-color:var(--accent); color:var(--accent); }
+#cat-list .cnt { font-size:12px; color:var(--muted); }
+#cat-list li.cat-l1 { font-weight:600; }
+#cat-list li.cat-l1 .chev { width:14px; flex:none; font-size:11px; color:var(--muted); }
+#cat-list li.cat-l1 .cat-name { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+#cat-list li.cat-l2 { padding-left:26px; font-size:13px; }
+#cat-list li.cat-l2 .cat-name { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+#cat-list li.active .cnt { color:var(--accent); }
+
+.main { flex:1; min-width:0; display:flex; flex-direction:column; overflow-y:auto; }
+#grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(210px, 1fr)); gap:10px; padding:14px; }
+.empty { color:var(--muted); text-align:center; padding:60px 20px; font-size:15px; line-height:1.8; }
+.main .hint { padding:0 14px 14px; font-size:12px; color:var(--muted); line-height:1.6; }
+
+.preset {
+  background:var(--panel); border:1px solid var(--border); border-radius:12px;
+  padding:12px; display:flex; flex-direction:column; gap:8px;
+}
+.preset .head { display:flex; align-items:center; gap:10px; }
+.thumb {
+  width:42px; height:42px; border-radius:50%; flex-shrink:0;
+  border:3px solid var(--ring,#5b8cff);
+  background-color:#141722; background-size:cover; background-position:center;
+  display:flex; align-items:center; justify-content:center; font-size:20px;
+  box-shadow:0 2px 8px rgba(0,0,0,.45);
+}
+.preset .pname { font-size:15px; font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.tags { display:flex; flex-wrap:wrap; gap:4px; }
+.tag {
+  font-size:11px; padding:2px 7px; border-radius:20px;
+  background:var(--panel2); border:1px solid var(--border); color:var(--muted);
+}
+.tag.type-pc { color:#9db8ff; border-color:#3a4a75; }
+.tag.type-enemy { color:#ff9aa5; border-color:#6b2833; }
+.tag.type-npc { color:#ffcf9f; border-color:#6b4a2b; }
+.tag.cat { color:var(--accent); border-color:#5c4a22; }
+.tag.cls { color:#8ed0ff; border-color:#2f5d86; }
+.preset .actions { display:flex; gap:6px; }
+.preset .actions button { flex:1; }
+
+.mask {
+  position:fixed; inset:0; background:rgba(0,0,0,.55); z-index:80;
+  display:flex; align-items:center; justify-content:center;
+}
+.mask[hidden] { display:none; }
+.modal {
+  width:380px; max-width:92vw; background:var(--panel); border:1px solid var(--border);
+  border-radius:14px; padding:18px; display:flex; flex-direction:column; gap:9px;
+  box-shadow:0 18px 60px rgba(0,0,0,.55); max-height:88vh; overflow-y:auto;
+}
+.modal h2 { color:var(--accent); font-size:17px; }
+.row { display:flex; gap:6px; align-items:center; }
+.row > * { flex:1; min-width:0; }
+.row button { flex:0 0 auto; }
+.icon-preview-row { display:flex; align-items:center; gap:8px; }
+.icon-preview-row img { width:32px; height:32px; border-radius:50%; object-fit:cover; border:1px solid var(--border); background:#141722; }
+.actions { display:flex; justify-content:flex-end; gap:8px; }
+.hd-badge { margin-left:6px; background:var(--danger); color:#fff; border-radius:9px; padding:0 6px; font-size:11px; line-height:1.5; }
+.hd-missing { border:1px solid var(--danger); background:rgba(231,78,94,.12); border-radius:10px; padding:10px 12px; font-size:12px; color:var(--text); line-height:1.7; max-height:22vh; overflow-y:auto; }
+.portrait-flow { width:520px; }
+.portrait-flow textarea { min-height:88px; resize:vertical; }
+.portrait-preview { display:flex; align-items:center; gap:12px; padding:10px; border:1px solid var(--border); border-radius:10px; background:var(--panel2); }
+.portrait-preview img { width:84px; height:84px; border-radius:12px; object-fit:cover; border:1px solid var(--border); background:#141722; }
+.portrait-step { font-size:12px; color:var(--muted); line-height:1.6; }
+
+.lib-persist-status { font-size:12px; color:var(--muted); white-space:nowrap; align-self:center; }
+.lib-persist-status.on { color:#4cc38a; }
+
+.eq-head {
+  display:flex; gap:4px; font-size:11px; color:var(--muted); padding:0 6px;
+}
+.eq-head span:nth-child(1) { flex:1; }
+.eq-head span:nth-child(2) { width:66px; }
+.eq-head span:nth-child(3) { width:56px; }
+.eq-head span:nth-child(4) { width:74px; text-align:center; }
+.eq-head span:nth-child(5) { width:24px; }
+.eq-empty { color:var(--muted); font-size:12px; }
+.eq-row {
+  display:flex; align-items:center; gap:4px;
+  background:var(--panel2); border:1px solid var(--border);
+  border-radius:8px; padding:4px 6px; margin-bottom:4px;
+}
+.eq-name { flex:1; min-width:0; }
+.eq-num { width:56px; }
+.eq-dice { width:62px; }
+.eq-cap, .eq-attr, .eq-type { padding:3px 4px; font-size:12px; }
+.eq-cap { width:74px; }
+.eq-attr { width:54px; }
+.eq-type { width:66px; }
+.eq-del { width:24px; height:24px; padding:0; flex-shrink:0; }
+
+#toast {
+  position:fixed; bottom:26px; left:50%; transform:translateX(-50%);
+  background:#232838; border:1px solid var(--border); border-radius:10px;
+  padding:9px 16px; font-size:14px; box-shadow:0 8px 28px rgba(0,0,0,.5); z-index:100;
+}
+#toast[hidden] { display:none; }
+::-webkit-scrollbar { width:8px; height:8px; }
+::-webkit-scrollbar-thumb { background:#333947; border-radius:8px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">🎖️ 棋子库 <em>分类管理</em></div>
+  <div class="controls">
+    <button id="btn-export" title="导出棋子数据；项目立绘原图需随立绘文件夹单独备份">⬇ 导出数据</button>
+    <button id="btn-import" title="用 JSON 中的棋子数据替换当前棋子库">⬆ 导入数据</button>
+    <button id="btn-persist" title="连接项目根目录中的“存档”文件夹，之后每次修改都会写入同一份全局棋子库">📂 连接存档</button>
+    <button id="btn-portrait-flow" title="生成立绘提示词、导入成图并绑定到棋子">🎨 立绘工作台</button>
+    <button id="btn-hd" title="从项目原图重新生成浏览器中的 2048/512/128px 图片缓存">🖼️ 重建高清缓存<span id="hd-badge" class="hd-badge" hidden></span></button>
+    <span id="persist-status" class="lib-persist-status">随“存档”文件夹保存</span>
+    <input type="file" id="file-import" accept=".json,application/json" hidden>
+    <button id="btn-add" class="primary">＋ 新建预设</button>
+  </div>
+</header>
+
+<main>
+  <aside class="panel">
+    <section class="card">
+      <h2>📂 分类</h2>
+      <ul id="cat-list"></ul>
+      <p class="hint" style="font-size:12px;color:var(--muted);line-height:1.5;">分类是两级结构，与规则书一致，比如「妖精/地精」「妖精/座狼」「龙类/红龙」；点一级分类可查看整组，点二级只看该组。编辑棋子时从下拉框挑选即可。</p>
+    </section>
+    <section class="card">
+      <h2>🔍 筛选</h2>
+      <input id="lib-search" placeholder="搜索名称…" maxlength="20">
+      <select id="lib-type">
+        <option value="all">全部类型</option>
+        <option value="pc">玩家角色</option>
+        <option value="enemy">敌人</option>
+        <option value="npc">中立NPC</option>
+        <option value="ally">友好NPC</option>
+      </select>
+    </section>
+  </aside>
+
+  <section class="main">
+    <div id="grid"></div>
+    <p class="hint">正式棋子库保存在「存档/棋子库/棋子库.json」；浏览器只保留离线恢复缓存。当前立绘来自项目中的「asset/棋子库/立绘」文件夹，预设只记录相对路径；导出只备份棋子数据。</p>
+  </section>
+</main>
+
+<div id="editor-modal" class="mask" hidden>
+  <div class="modal">
+    <h2 id="editor-title">＋ 新建预设</h2>
+    <input id="ed-name" placeholder="名称，如：地精" maxlength="24">
+    <select id="ed-type">
+      <option value="pc">玩家角色</option>
+      <option value="enemy" selected>敌人</option>
+      <option value="npc">中立NPC</option>
+      <option value="ally">友好NPC</option>
+    </select>
+    <div class="row">
+      <select id="ed-cat1" title="一级分类（如：妖精、龙类、巨人）"></select>
+      <select id="ed-cat2" title="二级分类（可留空，如：地精、红龙、巨魔）"></select>
+    </div>
+    <div class="row">
+      <input id="ed-hp" type="number" placeholder="生命值" min="1" value="10">
+      <input id="ed-ac" type="number" placeholder="AC" min="0" value="10">
+      <select id="ed-size" title="占几格">
+        <option value="1">1×1</option>
+        <option value="2">2×2</option>
+      </select>
+    </div>
+    <div class="row">
+      <input id="ed-icon" placeholder="图标 🐺" maxlength="4">
+      <button id="btn-icon" class="small" title="上传图片头像">🖼️</button>
+      <input type="file" id="file-icon" accept="image/*" hidden>
+    </div>
+    <div class="icon-preview-row" id="icon-preview-row" hidden>
+      <img id="icon-preview" alt="图标预览">
+      <button id="btn-icon-clear" class="small">移除图片</button>
+    </div>
+    <div class="actions">
+      <button id="btn-cancel">取消</button>
+      <button id="btn-save" class="primary">💾 保存</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" hidden></div>
+
+<div id="portrait-modal" class="mask" hidden>
+  <div class="modal portrait-flow">
+    <h2>🎨 立绘工作台</h2>
+    <div class="portrait-step">① 选择棋子并补充外观；② 复制提示词给 Codex 或图像模型绘制；③ 导入成图。工具会生成 2048px 原图缓存、512px 高清展示版和 128px 轻量版，并自动绑定棋子。</div>
+    <select id="portrait-token"></select>
+    <select id="portrait-style">
+      <option value="暗黑奇幻写实插画">暗黑奇幻写实</option>
+      <option value="经典奇幻规则书插画">经典规则书风格</option>
+      <option value="精致日系奇幻插画">日系奇幻</option>
+      <option value="厚涂概念设计">厚涂概念设计</option>
+    </select>
+    <textarea id="portrait-notes" placeholder="外观补充，例如：灰绿色皮肤，破旧皮甲，右手弯刀，警惕神情"></textarea>
+    <textarea id="portrait-prompt" readonly></textarea>
+    <div class="row">
+      <button id="btn-portrait-folder">📂 绑定棋子库文件夹</button>
+      <span id="portrait-folder-status" class="portrait-step">未绑定；导入时使用内嵌高清后备</span>
+    </div>
+    <div class="row">
+      <button id="btn-portrait-copy">📋 复制提示词</button>
+      <button id="btn-portrait-upload" class="primary">⬆ 导入成图</button>
+      <input id="file-portrait" type="file" accept="image/png,image/jpeg,image/webp" hidden>
+    </div>
+    <div id="portrait-preview-row" class="portrait-preview" hidden>
+      <img id="portrait-preview" alt="立绘预览">
+      <div class="portrait-step"><b id="portrait-preview-name"></b><br>已生成跨页面可用的高清展示数据；直接双击与 localhost 模式都能读取。</div>
+    </div>
+    <div class="actions"><button id="btn-portrait-close">关闭</button></div>
+  </div>
+</div>
+
+<div id="hd-modal" class="mask" hidden>
+  <div class="modal">
+    <h2>🖼️ 重建高清缓存</h2>
+    <p class="hint" style="font-size:12px;color:var(--muted);line-height:1.7;">选择项目里的「asset/棋子库」文件夹。工具会按每个预设记录的相对路径匹配原图，并在本浏览器重建最高 2048px 原图缓存、512px 显示版和 128px 缩略版；不会对图片进行 AI 超分辨率处理。</p>
+    <div class="row">
+      <button id="btn-hd-pick" class="primary">📂 选择棋子库文件夹</button>
+      <input type="file" id="file-hd-dir" webkitdirectory multiple accept="image/*" hidden>
+      <span id="hd-status" class="hint" style="font-size:12px;color:var(--muted);">选择后自动开始处理</span>
+    </div>
+    <div id="hd-progress" style="display:flex;flex-direction:column;gap:4px;max-height:38vh;overflow-y:auto;"></div>
+    <div id="hd-missing" class="hd-missing" hidden></div>
+    <div class="actions">
+      <button id="btn-hd-close">关闭</button>
+    </div>
+  </div>
+</div>
+
+<script src="默认预设.js?v=20260902-library-cleanup-v3"></script>
+<script>
+'use strict';
+
+const LIBRARY_KEY = 'dnd-board-library-v1';
+const LIBRARY_SAVED_AT_KEY = 'dnd-board-library-saved-at-v1';
+const TYPE_META = {
+  pc: { label: '玩家', color: '#9db8ff', ring: '#5b8cff', defaultIcon: '🧙' },
+  enemy: { label: '敌人', color: '#ff9aa5', ring: '#ef476f', defaultIcon: '👹' },
+  npc: { label: '中立NPC', color: '#ffcf9f', ring: '#f4a261', defaultIcon: '🧑‍🌾' },
+  ally: { label: '友好NPC', color: '#9ae6b4', ring: '#2ecc71', defaultIcon: '🧑‍🤝‍🧑' },
+};
+// 只用于第一次打开、且没有可读正式存档时的内置模板。
+const BUNDLED_LIBRARY = Array.isArray(window.__LIBRARY_SEED__) ? window.__LIBRARY_SEED__ : [];
+const $ = (sel) => document.querySelector(sel);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => (
+  { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+));
+
+let presets = [];
+let filterCat = '全部';
+let filterType = 'all';
+let searchText = '';
+let editorId = null;
+let avatar = null;
+let uid = 1;
+
+/* ==================== 高清头像（IndexedDB 存储） ==================== */
+
+const AVATAR_DB = 'dnd-board-assets';
+const AVATAR_HD_MAX = 2048;
+const AVATAR_DISPLAY_MAX = 512; // 显示上限：卡片渲染时自动降到 512px，避免大纹理拖慢
+const AVATAR_LOW_MAX = 128;     // 低清显示版：主控台关高清时使用
+const avatarCache = new Map();
+const avatarLowCache = new Map();
+
+function idbOpen() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(AVATAR_DB, 1);
+    req.onupgradeneeded = () => {
+      if (!req.result.objectStoreNames.contains('avatars')) req.result.createObjectStore('avatars');
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function avatarPut(id, dataUrl) {
+  return idbOpen().then((db) => new Promise((resolve, reject) => {
+    const tx = db.transaction('avatars', 'readwrite');
+    tx.objectStore('avatars').put(dataUrl, id);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  }));
+}
+
+function avatarDeleteSet(id) {
+  if (!id) return Promise.resolve();
+  return idbOpen().then((db) => new Promise((resolve, reject) => {
+    const tx = db.transaction('avatars', 'readwrite');
+    const store = tx.objectStore('avatars');
+    [id, id + '@d', id + '@s'].forEach((key) => store.delete(key));
+    tx.oncomplete = () => {
+      avatarCache.delete(id);
+      avatarLowCache.delete(id);
+      resolve();
+    };
+    tx.onerror = () => reject(tx.error);
+  }));
+}
+
+function avatarGet(id) {
+  return idbOpen().then((db) => new Promise((resolve, reject) => {
+    const tx = db.transaction('avatars', 'readonly');
+    const req = tx.objectStore('avatars').get(id);
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = () => reject(req.error);
+  }));
+}
+
+function canvasHasAlpha(c) {
+  const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+  for (let i = 3; i < d.length; i += 4) {
+    if (d[i] < 255) return true;
+  }
+  return false;
+}
+
+function scaleToDataUrl(img, max, preferJpeg) {
+  const scale = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+  const w = Math.max(1, Math.round(img.naturalWidth * scale));
+  const h = Math.max(1, Math.round(img.naturalHeight * scale));
+  const c = document.createElement('canvas');
+  c.width = w;
+  c.height = h;
+  const g = c.getContext('2d');
+  g.imageSmoothingEnabled = true;
+  g.imageSmoothingQuality = 'high';
+  g.drawImage(img, 0, 0, w, h);
+  if (preferJpeg && !canvasHasAlpha(c)) return c.toDataURL('image/jpeg', 0.92);
+  return c.toDataURL('image/png');
+}
+
+function processAvatarFile(file, cb) {
+  const reader = new FileReader();
+  reader.onload = () => {
+    const img = new Image();
+    img.onload = () => cb({
+      hd: scaleToDataUrl(img, AVATAR_HD_MAX, true),
+      display: scaleToDataUrl(img, AVATAR_DISPLAY_MAX, true),
+      thumb: scaleToDataUrl(img, AVATAR_LOW_MAX, true),
+    });
+    img.onerror = () => cb(null);
+    img.src = reader.result;
+  };
+  reader.onerror = () => cb(null);
+  reader.readAsDataURL(file);
+}
+
+function applyAvatar(el, iconImg, iconImgId, iconImgHd, iconImgPath) {
+  if (iconImg) el.style.backgroundImage = `url("${iconImg}")`;
+  if (iconImgHd) el.style.backgroundImage = `url("${iconImgHd}")`;
+  if (iconImgPath) { el.style.backgroundImage = `url("${iconImgPath}")`; return; }
+  if (iconImgId) {
+    const cached = avatarCache.get(iconImgId);
+    if (cached) {
+      el.style.backgroundImage = `url("${cached}")`;
+    } else {
+      avatarGetDisplay(iconImgId).then((disp) => {
+        if (disp && el.isConnected) el.style.backgroundImage = `url("${disp}")`;
+      }).catch(() => {});
+    }
+  }
+}
+
+// 图片降到指定上限：用 createImageBitmap 离主线程解码，不卡界面
+function avatarDisplayDataUrl(hdDataUrl, max = AVATAR_DISPLAY_MAX) {
+  return (async () => {
+    try {
+      const blob = await (await fetch(hdDataUrl)).blob();
+      const bmp1 = await createImageBitmap(blob);
+      if (bmp1.width <= max && bmp1.height <= max) {
+        const c = document.createElement('canvas');
+        c.width = bmp1.width;
+        c.height = bmp1.height;
+        const g = c.getContext('2d');
+        g.drawImage(bmp1, 0, 0);
+        bmp1.close();
+        return canvasHasAlpha(c) ? c.toDataURL('image/png') : c.toDataURL('image/jpeg', 0.9);
+      }
+      const scale = max / Math.max(bmp1.width, bmp1.height);
+      const w = Math.max(1, Math.round(bmp1.width * scale));
+      const h = Math.max(1, Math.round(bmp1.height * scale));
+      bmp1.close();
+      const bmp2 = await createImageBitmap(blob, { resizeWidth: w, resizeHeight: h, resizeQuality: 'high' });
+      const c = document.createElement('canvas');
+      c.width = bmp2.width;
+      c.height = bmp2.height;
+      const g = c.getContext('2d');
+      g.drawImage(bmp2, 0, 0);
+      bmp2.close();
+      return canvasHasAlpha(c) ? c.toDataURL('image/png') : c.toDataURL('image/jpeg', 0.9);
+    } catch (e) {
+      return new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+          const scale = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+          const w = Math.max(1, Math.round(img.naturalWidth * scale));
+          const h = Math.max(1, Math.round(img.naturalHeight * scale));
+          const c = document.createElement('canvas');
+          c.width = w;
+          c.height = h;
+          const g = c.getContext('2d');
+          g.imageSmoothingEnabled = true;
+          g.imageSmoothingQuality = 'high';
+          g.drawImage(img, 0, 0, w, h);
+          resolve(canvasHasAlpha(c) ? c.toDataURL('image/png') : c.toDataURL('image/jpeg', 0.9));
+        };
+        img.onerror = () => resolve(hdDataUrl);
+        img.src = hdDataUrl;
+      });
+    }
+  })();
+}
+
+// 高清入库时顺便生成 512 显示版并永久存入高清库（键 id@d），以后读取零计算
+async function storeAvatar(id, hd) {
+  await avatarPut(id, hd);
+  try {
+    const [disp, low] = await Promise.all([
+      avatarDisplayDataUrl(hd, AVATAR_DISPLAY_MAX),
+      avatarDisplayDataUrl(hd, AVATAR_LOW_MAX),
+    ]);
+    await Promise.all([avatarPut(id + '@d', disp), avatarPut(id + '@s', low)]);
+    avatarCache.set(id, disp);
+    avatarLowCache.set(id, low);
+  } catch (e) { /* 显示版失败不影响原图 */ }
+}
+
+// 优先读显示版（id@d）；没有就现场生成并写回永久库
+async function avatarGetDisplay(id) {
+  const cached = avatarCache.get(id);
+  if (cached) return cached;
+  const disp = await avatarGet(id + '@d');
+  if (disp) { avatarCache.set(id, disp); return disp; }
+  const hd = await avatarGet(id);
+  if (!hd) return null;
+  const made = await avatarDisplayDataUrl(hd);
+  avatarCache.set(id, made);
+  try { await avatarPut(id + '@d', made); } catch (e) { /* 忽略 */ }
+  return made;
+}
+
+async function avatarGetLow(id) {
+  const cached = avatarLowCache.get(id);
+  if (cached) return cached;
+  const low = await avatarGet(id + '@s');
+  if (low) { avatarLowCache.set(id, low); return low; }
+  const disp = await avatarGet(id + '@d');
+  if (disp) {
+    const made = await avatarDisplayDataUrl(disp, AVATAR_LOW_MAX);
+    avatarLowCache.set(id, made);
+    try { await avatarPut(id + '@s', made); } catch (e) { /* 忽略 */ }
+    return made;
+  }
+  const hd = await avatarGet(id);
+  if (hd) {
+    const [disp2, low2] = await Promise.all([
+      avatarDisplayDataUrl(hd, AVATAR_DISPLAY_MAX),
+      avatarDisplayDataUrl(hd, AVATAR_LOW_MAX),
+    ]);
+    avatarCache.set(id, disp2);
+    avatarLowCache.set(id, low2);
+    try { await Promise.all([avatarPut(id + '@d', disp2), avatarPut(id + '@s', low2)]); } catch (e) { /* 忽略 */ }
+    return low2;
+  }
+  return null;
+}
+
+function canonicalPortraitPath(value) {
+  if (!value) return null;
+  return String(value)
+    .replace(/\\/g, '/')
+    .replace(/^(?:\.\.\/)?(?:(?:asset|assets)\/)?棋子库\//, '')
+    .replace('立绘/NPC/短团-烬鳞讨伐/', '立绘/NPC/短团·烬鳞讨伐/');
+}
+
+function normalize(p) {
+  // 预设与地图单位共用极简字段：显示信息、尺寸、HP 和 AC。
+  const portraitPath = canonicalPortraitPath(p.iconImgPath);
+  const isPathBacked = !!portraitPath;
+  return {
+    id: p.id || 'l' + (uid++),
+    name: p.name || '未命名',
+    type: ['pc', 'enemy', 'npc', 'ally'].includes(p.type) ? p.type : 'npc',
+    category: (p.category || '').trim() || '其他',
+    icon: p.icon || '',
+    iconImg: isPathBacked ? null : (p.iconImg || null),
+    iconImgHd: isPathBacked ? null : (p.iconImgHd || null),
+    iconImgPath: portraitPath,
+    iconImgId: isPathBacked ? null : (p.iconImgId || null),
+    size: p.size === 2 ? 2 : 1,
+    hpMax: Math.max(1, parseInt(p.hpMax, 10) || 10),
+    ac: Math.max(0, Math.min(99, parseInt(p.ac, 10) || 10)),
+  };
+}
+
+/* ============ 全局棋子库保存到“存档”文件夹 ============ */
+
+const FILE_DB = 'dnd-board-files';
+const SAVE_HANDLE_KEY = 'save-root-dir-v2';
+const SAVE_ROOT_DIR = '存档';
+const SAVE_LIBRARY_DIR = '棋子库';
+const SAVE_LIBRARY_FILE = '棋子库.json';
+let libFileTimer = null;
+
+function idbOpenFiles() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(FILE_DB, 1);
+    req.onupgradeneeded = () => req.result.createObjectStore('files');
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function idbFilesGet(key) {
+  return idbOpenFiles().then((db) => new Promise((resolve, reject) => {
+    const tx = db.transaction('files', 'readonly');
+    const r = tx.objectStore('files').get(key);
+    r.onsuccess = () => resolve(r.result);
+    r.onerror = () => reject(r.error);
+  }));
+}
+
+function idbFilesSet(key, value) {
+  return idbOpenFiles().then((db) => new Promise((resolve, reject) => {
+    const tx = db.transaction('files', 'readwrite');
+    tx.objectStore('files').put(value, key);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  }));
+}
+
+async function getSaveLibraryDir(root, create = true) {
+  return root.getDirectoryHandle(SAVE_LIBRARY_DIR, { create });
+}
+
+function libraryPackage(list, savedAt = Date.now()) {
+  return {
+    format: 'sangduoer-library',
+    schemaVersion: 1,
+    savedAt,
+    presets: (list || []).map(normalize),
+  };
+}
+
+async function readLibraryFile() {
+  try {
+    const root = await idbFilesGet(SAVE_HANDLE_KEY);
+    if (!root || await root.queryPermission({ mode: 'readwrite' }) !== 'granted') return null;
+    const dir = await getSaveLibraryDir(root, false);
+    const handle = await dir.getFileHandle(SAVE_LIBRARY_FILE);
+    const data = JSON.parse(await (await handle.getFile()).text());
+    if (!data || data.format !== 'sangduoer-library' || !Array.isArray(data.presets)) return null;
+    return { savedAt: Number(data.savedAt) || 0, presets: data.presets.map(normalize) };
+  } catch (e) {
+    return null;
+  }
+}
+
+async function writeLibraryFile(list, savedAt) {
+  try {
+    const root = await idbFilesGet(SAVE_HANDLE_KEY);
+    if (!root) return 'unset';
+    const perm = await root.queryPermission({ mode: 'readwrite' });
+    if (perm !== 'granted') return 'denied';
+    const dir = await getSaveLibraryDir(root, true);
+    const handle = await dir.getFileHandle(SAVE_LIBRARY_FILE, { create: true });
+    const stamp = Number(savedAt) || Number(localStorage.getItem(LIBRARY_SAVED_AT_KEY)) || Date.now();
+    const w = await handle.createWritable();
+    await w.write(JSON.stringify(libraryPackage(list, stamp), null, 2));
+    await w.close();
+    return 'ok';
+  } catch (e) {
+    console.warn('写入棋子库文件失败', e);
+    return 'error';
+  }
+}
+
+function scheduleLibraryFileWrite() {
+  clearTimeout(libFileTimer);
+  libFileTimer = setTimeout(async () => {
+    const r = await writeLibraryFile(presets);
+    updateLibPersistStatus(r);
+  }, 400);
+}
+
+function updateLibPersistStatus(st) {
+  const el = $('#lib-persist-status') || $('#persist-status');
+  if (!el) return;
+  if (st === 'ok') { el.textContent = '已保存到“存档”'; el.classList.add('on'); }
+  else if (st === 'denied') { el.textContent = '“存档”文件夹待授权'; el.classList.remove('on'); }
+  else if (st === 'error') { el.textContent = '棋子库写入失败'; el.classList.remove('on'); }
+  else { el.textContent = '随“存档”文件夹保存'; el.classList.remove('on'); }
+}
+
+async function persistLibraryButton() {
+  if (!window.showDirectoryPicker) {
+    toast('当前浏览器不支持文件夹存档，请使用 Chrome / Edge');
+    return;
+  }
+  try {
+    alert('请选择项目根目录中名为“存档”的文件夹。');
+    const handle = await window.showDirectoryPicker({ id: 'sangduoer-save-root-v2', mode: 'readwrite' });
+    if (handle.name !== SAVE_ROOT_DIR) {
+      toast('请选择名称正好为“存档”的文件夹');
+      return;
+    }
+    await idbFilesSet(SAVE_HANDLE_KEY, handle);
+    const ok = await syncLibraryWithFolder();
+    toast(ok ? '✅ 已连接“存档”，棋子库会自动保存' : '连接失败，请重试');
+  } catch (e) {
+    if (e && e.name !== 'AbortError') toast('未能选择保存位置：' + (e.message || e));
+  }
+}
+
+function applyLibraryFromDisk(disk) {
+  presets = disk.presets.map(normalize);
+  localStorage.setItem(LIBRARY_KEY, JSON.stringify(presets));
+  localStorage.setItem(LIBRARY_SAVED_AT_KEY, String(disk.savedAt || Date.now()));
+  uid = 1;
+  presets.forEach((p) => { const n = parseInt(String(p.id).replace(/\D/g, ''), 10) || 0; uid = Math.max(uid, n + 1); });
+  populateCatSelects();
+  renderAll();
+}
+
+async function syncLibraryWithFolder() {
+  try {
+    const handle = await idbFilesGet(SAVE_HANDLE_KEY);
+    if (!handle) { updateLibPersistStatus('unset'); return false; }
+    const perm = await handle.queryPermission({ mode: 'readwrite' });
+    if (perm !== 'granted') { updateLibPersistStatus('denied'); return false; }
+    const disk = await readLibraryFile();
+    if (disk) {
+      // 正式“存档”文件优先；浏览器 localStorage 只在该文件尚不存在时用于首次迁移。
+      applyLibraryFromDisk(disk);
+    } else {
+      const localSavedAt = Number(localStorage.getItem(LIBRARY_SAVED_AT_KEY)) || Date.now();
+      const result = await writeLibraryFile(presets, localSavedAt);
+      if (result !== 'ok') {
+        updateLibPersistStatus(result);
+        return false;
+      }
+    }
+    updateLibPersistStatus('ok');
+    return true;
+  } catch (e) {
+    updateLibPersistStatus('unset');
+    return false;
+  }
+}
+
+async function initLibPersistStatus() {
+  await syncLibraryWithFolder();
+}
+
+function loadLibrary() {
+  try {
+    const raw = localStorage.getItem(LIBRARY_KEY);
+    const arr = raw ? JSON.parse(raw) : [];
+    if (Array.isArray(arr) && arr.length) return arr.map(normalize);
+  } catch (e) { /* 损坏则回退到文件 */ }
+  if (BUNDLED_LIBRARY.length) {
+    const arr = BUNDLED_LIBRARY.map(normalize);
+    try { localStorage.setItem(LIBRARY_KEY, JSON.stringify(arr)); } catch (e) { /* ignore */ }
+    return arr;
+  }
+  return [];
+}
+
+function saveLibrary() {
+  // 每次落盘前执行一次轻量化迁移，旧存档中的重复高清 data URL 会被移除。
+  presets = presets.map(normalize);
+  const savedAt = Date.now();
+  try {
+    localStorage.setItem(LIBRARY_KEY, JSON.stringify(presets));
+    localStorage.setItem(LIBRARY_SAVED_AT_KEY, String(savedAt));
+  } catch (e) {
+    toast('⚠ 保存失败：浏览器存储空间不足');
+  }
+  scheduleLibraryFileWrite();
+}
+
+// 两级分类树：一级＝生物类型，二级＝族群，与《怪物图鉴2025》结构一致
+const LIB_CATEGORY_TREE = {
+  '玩家': ['战役-烬鳞讨伐'],
+  '魔宠': ['寻找魔宠'],
+  '妖精': ['地精', '熊地精', '大地精', '啵灵蛙', '皮克精', '半羊人', '座狼', '人马', '小仙灵', '闪现犬', '树精'],
+  '龙类': ['红龙', '白龙', '黑龙', '绿龙', '蓝龙', '黄铜龙', '赤铜龙', '青铜龙', '银龙', '金龙', '幽影龙', '狗头人', '妖精龙'],
+  '巨人': ['巨魔', '食人魔', '序位巨人', '独眼巨人'],
+  '类人': ['平民', '警卫', '匪徒', '贵族', '武者', '邪教徒', '祭司', '斥候', '打手', '演艺者', '间谍', '海盗', '狂战士', '魔法师', '骑士', '德鲁伊', '角斗士', '刺客'],
+  '怪兽': ['兽化人', '蛇人', '枭熊', '雪怪', '鲨蜥', '螳螂人', '蛇鸡', '百足魔兽', '蚊蝠', '斧嘴鸟', '幽邃熊怪', '天狗'],
+  '亡灵': ['骷髅', '丧尸', '食尸鬼', '妖鬼', '木乃伊', '还魂鬼', '死亡骑士', '幽影', '尸妖', '巫妖', '龙巫妖'],
+  '邪魔': ['恶魔', '魔鬼', '尤格罗斯魔', '鬣狗人', '鲨华鱼人'],
+  '构装': ['魔像', '魔冢', '活化物件', '石化铁牛'],
+  '元素': ['魔蝠', '火蜥蜴', '蜥蜴人', '火矮人', '人鱼', '鸟羽人', '四元素', '巨灵'],
+  '异怪': ['夺心魔', '寇涛', '史拉蟾', '吉斯人', '穴居攫怪'],
+  '天族': ['天使', '斯芬克斯'],
+  '泥怪': ['灰泥怪'],
+  '植物': ['蕈人', '枯萎怪', '真菌', '启蒙植物'],
+  '多类型': ['鬼婆', '眼魔', '纳迦', '吸血鬼', '泰坦'],
+  '野兽': ['狼', '熊', '马', '蛇', '蜘蛛', '鸟', '鱼', '恐龙'],
+  '法术造物': ['奥术'],
+  '物件': ['冒险装备'],
+  '坐骑': ['妖精', '天界', '邪魔', '野兽'],
+  'NPC': [],
+  '角色': [],
+  '其他': [],
+};
+
+function catParts(c) {
+  return String(c || '').split('/').map((s) => s.trim()).filter(Boolean);
+}
+
+const catOpen = new Set(); // 已展开的一级分类
+
+function renderCats() {
+  const ul = $('#cat-list');
+  ul.innerHTML = '';
+  const total = presets.length;
+  const add = (name, count, cls, extraHtml, onClick) => {
+    const li = document.createElement('li');
+    li.className = (cls || '') + (filterCat === name ? ' active' : '');
+    li.innerHTML = `<span class="cat-name">${esc(name)}</span><span class="cnt">${count}</span>${extraHtml || ''}`;
+    li.addEventListener('click', onClick);
+    ul.appendChild(li);
+  };
+  add('全部', total, '', '', () => { filterCat = '全部'; renderCats(); renderGrid(); });
+
+  const usedL1 = [];
+  presets.forEach((p) => {
+    const n = catParts(p.category)[0] || '其他';
+    if (!usedL1.includes(n)) usedL1.push(n);
+  });
+  const l1Order = [...Object.keys(LIB_CATEGORY_TREE), ...usedL1.filter((n) => !(n in LIB_CATEGORY_TREE))];
+
+  l1Order.forEach((name) => {
+    const count = presets.filter((p) => (catParts(p.category)[0] || '其他') === name).length;
+    if (!count) return;
+    const kids = new Set();
+    presets.forEach((p) => {
+      const parts = catParts(p.category);
+      if (parts[0] === name && parts[1]) kids.add(parts[1]);
+    });
+    const hasKids = kids.size > 0;
+    const expanded = catOpen.has(name);
+    const li = document.createElement('li');
+    const branchActive = filterCat === name || String(filterCat || '').startsWith(name + '/');
+    li.className = 'cat-l1' + (branchActive ? ' active' : '');
+    li.innerHTML =
+      `<span class="chev">${hasKids ? (expanded ? '▾' : '▸') : ''}</span>` +
+      `<span class="cat-name">${esc(name)}</span><span class="cnt">${count}</span>`;
+    li.addEventListener('click', () => { filterCat = name; renderCats(); renderGrid(); });
+    const chev = li.querySelector('.chev');
+    if (chev) chev.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (catOpen.has(name)) catOpen.delete(name); else catOpen.add(name);
+      renderCats();
+    });
+    ul.appendChild(li);
+    if (hasKids && expanded) {
+      [...kids].sort((a, b) => a.localeCompare(b, 'zh')).forEach((kid) => {
+        const path = name + '/' + kid;
+        const kidCount = presets.filter((p) => p.category === path).length;
+        const kli = document.createElement('li');
+        kli.className = 'cat-l2' + (filterCat === path ? ' active' : '');
+        kli.innerHTML = `<span class="cat-name">${esc(kid)}</span><span class="cnt">${kidCount}</span>`;
+        kli.addEventListener('click', () => { filterCat = path; renderCats(); renderGrid(); });
+        ul.appendChild(kli);
+      });
+    }
+  });
+}
+
+function filtered() {
+  const q = searchText.trim().toLowerCase();
+  return presets.filter((p) => {
+    const cat = p.category || '其他';
+    const matchCat = filterCat === '全部' || cat === filterCat || cat.startsWith(filterCat + '/');
+    return matchCat &&
+      (filterType === 'all' || p.type === filterType) &&
+      (!q || p.name.toLowerCase().includes(q));
+  });
+}
+
+function renderGrid() {
+  const grid = $('#grid');
+  grid.innerHTML = '';
+  const items = filtered();
+  if (!items.length) {
+    const d = document.createElement('div');
+    d.className = 'empty';
+    d.textContent = presets.length
+      ? '没有匹配的棋子，试试调整筛选或搜索。'
+      : '棋子库还是空的，点右上角「＋ 新建预设」开始收藏你的棋子吧！';
+    grid.appendChild(d);
+    return;
+  }
+  items.forEach((p) => {
+    const meta = TYPE_META[p.type] || TYPE_META.npc;
+    const card = document.createElement('div');
+    card.className = 'preset';
+
+    const head = document.createElement('div');
+    head.className = 'head';
+    const thumb = document.createElement('div');
+    thumb.className = 'thumb';
+    thumb.style.setProperty('--ring', meta.ring);
+    if (p.iconImg || p.iconImgHd || p.iconImgPath || p.iconImgId) {
+      thumb.style.backgroundSize = 'cover';
+      thumb.style.backgroundPosition = 'center';
+      applyAvatar(thumb, p.iconImg, p.iconImgId, p.iconImgHd, p.iconImgPath);
+    } else {
+      thumb.textContent = p.icon || meta.defaultIcon;
+    }
+    const name = document.createElement('div');
+    name.className = 'pname';
+    name.textContent = p.name;
+    head.append(thumb, name);
+
+    const tags = document.createElement('div');
+    tags.className = 'tags';
+    tags.innerHTML =
+      `<span class="tag type-${p.type}">${meta.label}</span>` +
+      `<span class="tag cat">${esc(p.category)}</span>` +
+      `<span class="tag">${p.size === 2 ? '2×2' : '1×1'}</span>` +
+      `<span class="tag">HP ${p.hpMax}</span>` +
+      `<span class="tag">AC ${typeof p.ac === 'number' ? p.ac : 10}</span>`;
+
+    const actions = document.createElement('div');
+    actions.className = 'actions';
+    const edit = document.createElement('button');
+    edit.className = 'small';
+    edit.textContent = '✎ 编辑';
+    edit.addEventListener('click', () => openEditor(p.id));
+    const del = document.createElement('button');
+    del.className = 'small';
+    del.textContent = '× 删除';
+    del.addEventListener('click', async () => {
+      if (!confirm(`删除预设「${p.name}」？`)) return;
+      const cacheShared = !!p.iconImgId && presets.some((x) => x.id !== p.id && x.iconImgId === p.iconImgId);
+      const clearCache = !!p.iconImgId && !cacheShared && confirm('是否同时清理该棋子在本浏览器中的高清缓存？\n\n项目「立绘」文件夹中的原图不会被删除。');
+      if (clearCache) {
+        try { await avatarDeleteSet(p.iconImgId); }
+        catch (e) { toast('棋子已删除，但浏览器图片缓存清理失败'); }
+      }
+      presets = presets.filter((x) => x.id !== p.id);
+      saveLibrary();
+      renderAll();
+      toast(`已删除「${p.name}」`);
+    });
+    actions.append(edit, del);
+
+    card.append(head, tags, actions);
+    grid.appendChild(card);
+  });
+}
+
+function renderAll() {
+  renderCats();
+  renderGrid();
+  updateHdBadge();
+}
+
+let edCatPrev = '';
+
+function cat1Values() {
+  const set = new Set(Object.keys(LIB_CATEGORY_TREE));
+  presets.forEach((p) => { const n = catParts(p.category)[0]; if (n) set.add(n); });
+  return [...set];
+}
+
+function cat2Values(cat1) {
+  const set = new Set(LIB_CATEGORY_TREE[cat1] || []);
+  presets.forEach((p) => {
+    const parts = catParts(p.category);
+    if (parts[0] === cat1 && parts[1]) set.add(parts[1]);
+  });
+  return [...set];
+}
+
+function populateCatSelects() {
+  const c1 = $('#ed-cat1');
+  const c2 = $('#ed-cat2');
+  c1.innerHTML = '';
+  cat1Values().forEach((n) => {
+    const o = document.createElement('option');
+    o.value = n;
+    o.textContent = n;
+    c1.appendChild(o);
+  });
+  c1.onchange = () => { edCatPrev = ''; fillCat2(); };
+  fillCat2();
+}
+
+function fillCat2(prev) {
+  const c1 = $('#ed-cat1');
+  const c2 = $('#ed-cat2');
+  if (typeof prev === 'string') edCatPrev = prev;
+  const parts = catParts(edCatPrev);
+  c2.innerHTML = '<option value="">（无二级）</option>';
+  cat2Values(c1.value).forEach((n) => {
+    const o = document.createElement('option');
+    o.value = n;
+    o.textContent = n;
+    c2.appendChild(o);
+  });
+  if (parts[0] === c1.value && parts[1] && [...c2.options].some((o) => o.value === parts[1])) c2.value = parts[1];
+}
+
+function readCatSelects() {
+  const c1 = $('#ed-cat1').value;
+  const c2 = $('#ed-cat2').value;
+  return c1 ? (c2 ? c1 + '/' + c2 : c1) : '其他';
+}
+
+function syncIconPreview() {
+  if (avatar && (avatar.iconImg || avatar.iconImgHd || avatar.iconImgPath)) {
+    $('#icon-preview').src = avatar.iconImgPath || avatar.iconImgHd || avatar.iconImg;
+    $('#icon-preview-row').hidden = false;
+    if (avatar.iconImgPath) return;
+    if (avatar.iconImgId) {
+      const cached = avatarCache.get(avatar.iconImgId);
+      if (cached) {
+        $('#icon-preview').src = cached;
+      } else {
+        avatarGetDisplay(avatar.iconImgId).then((disp) => {
+          if (disp) $('#icon-preview').src = disp;
+        }).catch(() => {});
+      }
+    }
+  } else {
+    $('#icon-preview').src = '';
+    $('#icon-preview-row').hidden = true;
+  }
+}
+
+function openEditor(id) {
+  editorId = id;
+  avatar = null;
+  $('#editor-modal').hidden = false;
+  $('#editor-title').textContent = id === 'new' ? '＋ 新建预设' : '✎ 编辑预设';
+  if (id === 'new') {
+    $('#ed-name').value = '';
+    $('#ed-type').value = 'enemy';
+    edCatPrev = '';
+    $('#ed-cat1').value = '其他';
+    fillCat2();
+    $('#ed-hp').value = 10;
+    $('#ed-ac').value = 10;
+    $('#ed-size').value = '1';
+    $('#ed-icon').value = '';
+  } else {
+    const p = presets.find((x) => x.id === id);
+    if (!p) { closeEditor(); return; }
+    $('#ed-name').value = p.name;
+    $('#ed-type').value = p.type;
+    const parts = catParts(p.category);
+    if (parts[0] && [...$('#ed-cat1').options].some((o) => o.value === parts[0])) $('#ed-cat1').value = parts[0];
+    fillCat2(p.category);
+    $('#ed-hp').value = p.hpMax;
+    $('#ed-ac').value = typeof p.ac === 'number' ? p.ac : 10;
+    $('#ed-size').value = String(p.size);
+    $('#ed-icon').value = p.icon || '';
+    const editPath = canonicalPortraitPath(p.iconImgPath);
+    avatar = p.iconImg || p.iconImgHd || editPath || p.iconImgId
+      ? { iconImgId: p.iconImgId || null, iconImg: p.iconImg || null, iconImgHd: editPath ? null : (p.iconImgHd || null), iconImgPath: editPath }
+      : null;
+  }
+  syncIconPreview();
+}
+
+function closeEditor() {
+  editorId = null;
+  avatar = null;
+  $('#editor-modal').hidden = true;
+}
+
+function saveEditor() {
+  const preset = {
+    id: editorId === 'new' ? 'l' + (uid++) : editorId,
+    name: $('#ed-name').value.trim() || '未命名',
+    type: $('#ed-type').value,
+    category: readCatSelects(),
+    icon: $('#ed-icon').value.trim(),
+    iconImg: avatar ? avatar.iconImg : null,
+    iconImgHd: avatar ? avatar.iconImgHd : null,
+    iconImgPath: avatar ? avatar.iconImgPath || null : null,
+    iconImgId: avatar ? avatar.iconImgId : null,
+    size: parseInt($('#ed-size').value, 10) === 2 ? 2 : 1,
+    hpMax: Math.max(1, parseInt($('#ed-hp').value, 10) || 10),
+    ac: Math.max(0, parseInt($('#ed-ac').value, 10) || 10),
+  };
+  if (editorId === 'new') presets.push(preset);
+  else {
+    const i = presets.findIndex((x) => x.id === editorId);
+    if (i >= 0) presets[i] = preset;
+  }
+  saveLibrary();
+  closeEditor();
+  renderAll();
+  toast(`已保存「${preset.name}」`);
+}
+
+function exportLib() {
+  const blob = new Blob([JSON.stringify({ app: 'dnd-board-library', version: 1, presets }, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = '棋子库备份.json';
+  a.click();
+  URL.revokeObjectURL(a.href);
+  toast('棋子数据已导出；完整备份还需保留立绘文件夹');
+}
+
+function importLib(file) {
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const data = JSON.parse(reader.result);
+      const arr = Array.isArray(data) ? data : data.presets;
+      if (!Array.isArray(arr)) throw new Error('bad');
+      if (!confirm(`将用文件中的 ${arr.length} 个预设替换当前棋子库（当前 ${presets.length} 个），确定？`)) return;
+      presets = arr.map(normalize);
+      saveLibrary();
+      renderAll();
+      toast('棋子库已导入');
+    } catch (e) {
+      toast('导入失败：文件格式不正确');
+    }
+  };
+  reader.readAsText(file);
+}
+
+let toastTimer = null;
+function toast(msg) {
+  const el = $('#toast');
+  el.textContent = msg;
+  el.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { el.hidden = true; }, 2200);
+}
+
+$('#btn-add').addEventListener('click', () => openEditor('new'));
+$('#btn-save').addEventListener('click', saveEditor);
+$('#btn-cancel').addEventListener('click', closeEditor);
+$('#btn-persist').addEventListener('click', persistLibraryButton);
+
+/* ==================== 立绘工作台 ==================== */
+
+const PORTRAIT_HANDLE_KEY = 'portrait-library-dir-v2';
+const PORTRAIT_ROOT_DIR = '棋子库';
+let portraitDirHandle = null;
+
+async function loadPortraitDirHandle() {
+  try {
+    portraitDirHandle = await idbFilesGet(PORTRAIT_HANDLE_KEY);
+    if (portraitDirHandle && portraitDirHandle.name !== PORTRAIT_ROOT_DIR) portraitDirHandle = null;
+  } catch (e) { portraitDirHandle = null; }
+  const status = $('#portrait-folder-status');
+  if (status) status.textContent = portraitDirHandle ? '已绑定「asset/棋子库」；成图将写入当前立绘目录' : '未绑定；导入时使用内嵌高清后备';
+}
+
+async function bindPortraitDir() {
+  if (!window.showDirectoryPicker) { toast('当前浏览器不支持文件夹写入，请用 Chrome / Edge'); return; }
+  try {
+    alert('请选择项目中的“asset/棋子库”文件夹。\n\n程序会把新立绘写入其中的“立绘”目录，不会再创建嵌套的棋子库目录。');
+    const handle = await window.showDirectoryPicker({ id: 'sangduoer-portrait-root-v2', mode: 'readwrite' });
+    if (handle.name !== PORTRAIT_ROOT_DIR) {
+      toast('请选择名称正好为“棋子库”的文件夹');
+      return;
+    }
+    await idbFilesSet(PORTRAIT_HANDLE_KEY, handle);
+    portraitDirHandle = handle;
+    await loadPortraitDirHandle();
+    toast('已绑定 asset/棋子库 文件夹；之后导入会自动保存原图');
+  } catch (e) {
+    if (e && e.name !== 'AbortError') toast('文件夹绑定失败：' + (e.message || e));
+  }
+}
+
+async function archivePortraitFile(p, file) {
+  if (!portraitDirHandle || portraitDirHandle.name !== PORTRAIT_ROOT_DIR) return null;
+  let perm = await portraitDirHandle.queryPermission({ mode: 'readwrite' });
+  if (perm !== 'granted') perm = await portraitDirHandle.requestPermission({ mode: 'readwrite' });
+  if (perm !== 'granted') return null;
+  let dir = await portraitDirHandle.getDirectoryHandle('立绘', { create: true });
+  const canonicalCategory = String(p.category || '其他').replace('NPC/短团-烬鳞讨伐', 'NPC/短团·烬鳞讨伐');
+  for (const raw of canonicalCategory.split('/')) {
+    const part = raw.trim().replace(/[\\:*?"<>|]/g, '-') || '其他';
+    dir = await dir.getDirectoryHandle(part, { create: true });
+  }
+  const ext = file.type === 'image/webp' ? '.webp' : file.type === 'image/jpeg' ? '.jpg' : '.png';
+  const filename = p.name.replace(/[\\/:*?"<>|]/g, '-') + ext;
+  const handle = await dir.getFileHandle(filename, { create: true });
+  const writable = await handle.createWritable();
+  await writable.write(file);
+  await writable.close();
+  return ['立绘', ...canonicalCategory.split('/').map((x) => x.trim()), filename].join('/');
+}
+
+function portraitSelectedPreset() {
+  return presets.find((p) => p.id === $('#portrait-token').value) || null;
+}
+
+function portraitPromptFor(p) {
+  if (!p) return '';
+  const style = $('#portrait-style').value;
+  const notes = $('#portrait-notes').value.trim();
+  const role = TYPE_META[p.type] ? TYPE_META[p.type].label : '角色';
+  return [
+    '用途：跑团地图棋子立绘。',
+    `主体：${p.name}，${p.category || '奇幻生物'}，${role}。${notes ? '外观要求：' + notes + '。' : ''}`,
+    `风格：${style}，西幻史诗厚涂写实，高细节，单角色全身，正面或轻微四分之三视角。`,
+    '构图：1:1 正方形；中央圆形区域约占画布 86%；角色、四肢、翅膀和装备完整收在圆内，并保留安全边距。',
+    '背景：圆内只使用暖色旧羊皮纸纹理；圆形以外必须是纯白色，不得延伸场景。',
+    '限制：不要文字、彩色外环、边框、UI、签名、水印，不要裁切头顶、武器或脚部，不要出现额外角色或卡通风格。'
+  ].join('\n');
+}
+
+function refreshPortraitPrompt() {
+  $('#portrait-prompt').value = portraitPromptFor(portraitSelectedPreset());
+}
+
+function openPortraitFlow() {
+  const sel = $('#portrait-token');
+  sel.innerHTML = '';
+  [...presets].sort((a, b) => Number(!!(a.iconImgPath || a.iconImgHd || a.iconImg)) - Number(!!(b.iconImgPath || b.iconImgHd || b.iconImg)))
+    .forEach((p) => {
+      const o = document.createElement('option');
+      o.value = p.id;
+      o.textContent = `${p.iconImgPath || p.iconImgHd || p.iconImg ? '✓' : '○'} ${p.name} · ${p.category || '其他'}`;
+      sel.appendChild(o);
+    });
+  $('#portrait-preview-row').hidden = true;
+  $('#portrait-modal').hidden = false;
+  refreshPortraitPrompt();
+  loadPortraitDirHandle();
+}
+
+async function copyPortraitPrompt() {
+  const value = $('#portrait-prompt').value;
+  try {
+    await navigator.clipboard.writeText(value);
+  } catch (e) {
+    $('#portrait-prompt').focus();
+    $('#portrait-prompt').select();
+    document.execCommand('copy');
+  }
+  toast('提示词已复制；生成后回到这里导入成图');
+}
+
+function importPortraitFile(file) {
+  const p = portraitSelectedPreset();
+  if (!p || !file) return;
+  processAvatarFile(file, async (res) => {
+    if (!res) { toast('立绘读取失败'); return; }
+    const aid = p.iconImgId || ('a' + (uid++));
+    try {
+      let archivedPath = null;
+      try { archivedPath = await archivePortraitFile(p, file); }
+      catch (e) { toast('原图归档失败，已改用内嵌高清方式保存'); }
+      await storeAvatar(aid, res.hd);
+      p.iconImgId = aid;
+      p.iconImg = res.thumb;
+      p.iconImgHd = archivedPath ? null : res.display;
+      p.iconImgPath = archivedPath;
+      await saveLibrary();
+      $('#portrait-preview').src = res.display;
+      $('#portrait-preview-name').textContent = p.name;
+      $('#portrait-preview-row').hidden = false;
+      renderAll();
+      updateHdBadge();
+      toast(archivedPath ? `✅ 「${p.name}」原图已归档并入库` : `✅ 「${p.name}」已以内嵌高清方式入库`);
+    } catch (e) {
+      toast('立绘写入失败，请检查浏览器存储空间');
+    }
+  });
+}
+
+$('#btn-portrait-flow').addEventListener('click', openPortraitFlow);
+$('#btn-portrait-close').addEventListener('click', () => { $('#portrait-modal').hidden = true; });
+$('#portrait-modal').addEventListener('click', (e) => { if (e.target === $('#portrait-modal')) $('#portrait-modal').hidden = true; });
+$('#portrait-token').addEventListener('change', refreshPortraitPrompt);
+$('#portrait-style').addEventListener('change', refreshPortraitPrompt);
+$('#portrait-notes').addEventListener('input', refreshPortraitPrompt);
+$('#btn-portrait-copy').addEventListener('click', copyPortraitPrompt);
+$('#btn-portrait-folder').addEventListener('click', bindPortraitDir);
+$('#btn-portrait-upload').addEventListener('click', () => $('#file-portrait').click());
+$('#file-portrait').addEventListener('change', (e) => {
+  const file = e.target.files && e.target.files[0];
+  e.target.value = '';
+  importPortraitFile(file);
+});
+
+/* ==================== 高清立绘修复（集成在棋子库内） ==================== */
+
+function hdNormPath(p) {
+  let s = String(p || '').replace(/\\/g, '/');
+  const idx = s.lastIndexOf('棋子库/');
+  if (idx >= 0) s = s.slice(idx + 4);
+  return s.replace(/^\.\//, '');
+}
+
+function hdAddRow(name, status, cls) {
+  const box = $('#hd-progress');
+  const row = document.createElement('div');
+  row.className = 'row';
+  row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:5px 9px;border:1px solid var(--border);border-radius:9px;background:var(--panel2);font-size:13px;';
+  const n = document.createElement('span');
+  n.style.cssText = 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+  n.textContent = name;
+  const s = document.createElement('span');
+  s.style.cssText = 'font-size:12px;';
+  s.textContent = status;
+  s.style.color = cls === 'ok' ? '#2ecc71' : cls === 'err' ? '#e74c5e' : 'var(--muted)';
+  row.append(n, s);
+  box.appendChild(row);
+  box.scrollTop = box.scrollHeight;
+}
+
+function updateHdBadge() {
+  const n = presets.filter((p) => !(p.iconImg || p.iconImgHd || p.iconImgPath || p.iconImgId)).length;
+  const badge = $('#hd-badge');
+  if (!badge) return;
+  badge.textContent = n ? '缺 ' + n : '';
+  badge.hidden = !n;
+  const btn = $('#btn-hd');
+  if (btn) {
+    btn.title = n
+      ? `还有 ${n} 个棋子没有立绘；可选择棋子库文件夹重建缓存并查看未匹配名单`
+      : '从项目原图重建本浏览器的 2048/512/128px 图片缓存';
+  }
+}
+
+async function runHdRepair(files) {
+  const box = $('#hd-progress');
+  box.innerHTML = '';
+  $('#btn-hd-pick').disabled = true;
+  $('#hd-status').textContent = '处理中…';
+  const byPath = new Map();
+  const byName = new Map();
+  files.forEach((f) => {
+    byPath.set(hdNormPath(f.webkitRelativePath || f.name), f);
+    byName.set(f.name, f);
+  });
+  let ok = 0, fail = 0, skip = 0;
+  const missingNames = [];
+  for (const p of presets) {
+    const expected = canonicalPortraitPath(p.iconImgPath);
+    let file = expected ? byPath.get(hdNormPath(expected)) : null;
+    if (!file && byName.get(p.name + '.png')) file = byName.get(p.name + '.png');
+    if (!file && p.name === '火蜥蜴火蛇' && byName.get('火蛇.png')) file = byName.get('火蛇.png');
+    if (!file) { skip++; missingNames.push(p.name); hdAddRow(p.name, '无原图，跳过', 'skip'); continue; }
+    const res = await new Promise((resolve) => processAvatarFile(file, resolve));
+    if (!res) { fail++; hdAddRow(p.name, '✗ 图片读取失败', 'err'); continue; }
+    try {
+      let aid = p.iconImgId;
+      if (!aid) { aid = 'a' + (uid++); p.iconImgId = aid; }
+      await storeAvatar(aid, res.hd);
+      p.iconImg = res.thumb;
+      p.iconImgPath = canonicalPortraitPath(hdNormPath(file.webkitRelativePath || file.name));
+      // 项目原图可直接读取，不再把 512px data URL 重复写进棋子数据。
+      p.iconImgHd = p.iconImgPath ? null : res.display;
+      ok++;
+      hdAddRow(p.name, '✓ 缓存已重建', 'ok');
+    } catch (e) {
+      fail++;
+      hdAddRow(p.name, '✗ 写入失败', 'err');
+    }
+  }
+  saveLibrary();
+  $('#btn-hd-pick').disabled = false;
+  const missingBox = $('#hd-missing');
+  if (missingNames.length) {
+    missingBox.innerHTML = '⚠️ 有 <b>' + missingNames.length + '</b> 个棋子没有匹配到原图（还没画立绘，或文件没放在对应位置）：<br>' +
+      missingNames.map((n) => esc(n)).join('、');
+    missingBox.hidden = false;
+    toast('有 ' + missingNames.length + ' 个棋子没有匹配到原图，已列出名单');
+  } else {
+    missingBox.hidden = true;
+  }
+  updateHdBadge();
+  $('#hd-status').textContent = `完成：成功 ${ok}，失败 ${fail}，未匹配 ${missingNames.length}。跑团台同步后即可使用新缓存。`;
+}
+
+$('#btn-hd').addEventListener('click', () => { $('#hd-modal').hidden = false; });
+$('#btn-hd-close').addEventListener('click', () => { $('#hd-modal').hidden = true; });
+$('#hd-modal').addEventListener('click', (e) => { if (e.target === $('#hd-modal')) $('#hd-modal').hidden = true; });
+$('#btn-hd-pick').addEventListener('click', () => $('#file-hd-dir').click());
+$('#file-hd-dir').addEventListener('change', (e) => {
+  const files = [...(e.target.files || [])];
+  e.target.value = '';
+  if (files.length) runHdRepair(files);
+});
+$('#editor-modal').addEventListener('click', (e) => { if (e.target === $('#editor-modal')) closeEditor(); });
+$('#lib-search').addEventListener('input', (e) => { searchText = e.target.value; renderGrid(); });
+$('#lib-type').addEventListener('change', (e) => { filterType = e.target.value; renderGrid(); });
+$('#btn-icon').addEventListener('click', () => $('#file-icon').click());
+$('#file-icon').addEventListener('change', (e) => {
+  const f = e.target.files[0];
+  e.target.value = '';
+  if (!f) return;
+  processAvatarFile(f, (res) => {
+    if (!res) { toast('图标读取失败'); return; }
+    const id = 'a' + (uid++);
+    storeAvatar(id, res.hd).then(() => {
+      avatar = { iconImgId: id, iconImg: res.thumb, iconImgHd: res.display, iconImgPath: null };
+      syncIconPreview();
+    });
+  });
+});
+$('#btn-icon-clear').addEventListener('click', () => { avatar = null; syncIconPreview(); });
+
+$('#btn-export').addEventListener('click', exportLib);
+$('#btn-import').addEventListener('click', () => $('#file-import').click());
+$('#file-import').addEventListener('change', (e) => {
+  if (e.target.files[0]) importLib(e.target.files[0]);
+  e.target.value = '';
+});
+
+presets = loadLibrary();
+populateCatSelects();
+presets.forEach((p) => { const n = parseInt(String(p.id).replace(/\D/g, ''), 10) || 0; uid = Math.max(uid, n + 1); });
+initLibPersistStatus();
+renderAll();
+</script>
+</body>
+</html>

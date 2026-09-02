@@ -4,13 +4,35 @@
 
 const STORAGE_KEY = 'dnd-board-state-v1';
 const LIBRARY_KEY = 'dnd-board-library-v1';
-const APP_VERSION = 'v1.3';
+const LIBRARY_SAVED_AT_KEY = 'dnd-board-library-saved-at-v1';
+// 只用于首次打开且尚未连接“存档”时的内置模板；绝不是当前棋子库的第二份存档。
+const BUNDLED_LIBRARY = Array.isArray(window.__LIBRARY_SEED__) ? window.__LIBRARY_SEED__ : [];
+const SERVER_URL_KEY = 'sangduoer-server-url-v1';
+const APP_VERSION = 'v1.7';
 
 const TYPE_META = {
   pc:    { label: '玩家角色', ring: '#5b8cff', glow: 'rgba(91,140,255,.45)', defaultIcon: '🧙' },
   enemy: { label: '敌人',     ring: '#ef476f', glow: 'rgba(239,71,111,.45)', defaultIcon: '👹' },
   npc:   { label: '中立NPC',   ring: '#f4a261', glow: 'rgba(244,162,97,.45)', defaultIcon: '🧑‍🌾' },
   ally:  { label: '友好NPC',   ring: '#2ecc71', glow: 'rgba(46,204,113,.45)', defaultIcon: '🧑‍🤝‍🧑' },
+};
+
+const CONDITION_META = {
+  prone:       { label: '倒地', icon: '↘', color: '#f4a261' },
+  unconscious: { label: '昏迷', icon: '💤', color: '#9b8cff' },
+  incapacitated:{ label: '失能', icon: '⛔', color: '#b9c0cc' },
+  blinded:     { label: '目盲', icon: '◌', color: '#c6a97d' },
+  deafened:    { label: '耳聋', icon: '耳', color: '#c6a97d' },
+  frightened:  { label: '恐慌', icon: '!', color: '#d879ff' },
+  charmed:     { label: '魅惑', icon: '♡', color: '#ff8fb3' },
+  poisoned:    { label: '中毒', icon: '☠', color: '#79c267' },
+  grappled:    { label: '擒抱', icon: '⚓', color: '#d99b62' },
+  restrained:  { label: '束缚', icon: '⛓', color: '#d99b62' },
+  stunned:     { label: '眩晕', icon: '✦', color: '#ffd166' },
+  petrified:   { label: '石化', icon: '◆', color: '#a9b3bf' },
+  invisible:   { label: '隐形', icon: '◇', color: '#8fbaff' },
+  concentrating:{ label: '专注', icon: '◎', color: '#68d9c0' },
+  burning:     { label: '燃烧', icon: '🔥', color: '#ef6c45' },
 };
 
 // 两级分类树：一级＝生物类型，二级＝族群，与《怪物图鉴2025》结构一致
@@ -121,10 +143,12 @@ function defaultEncounterState() {
     },
     entries: [],
     worldTime: {
-      totalMinutes: 8 * 60,
+      totalSeconds: 8 * 60 * 60,
       runningSince: null,
       rate: 1,
+      resumeAfterTurn: false,
     },
+    secondsPerRound: 6,
     lastEvent: null,
   };
 }
@@ -142,6 +166,8 @@ const state = {
   campaignId: null,
   campaignName: '默认战役',
   library: [],
+  sharedResources: [],
+  sharedNotes: '',
   selectedId: null,
   encounter: defaultEncounterState(),
 };
@@ -150,7 +176,8 @@ let uid = 1;
 let drag = null;
 let toastTimer = null;
 let autosaveTimer = null;
-let campaignSaveTimer = null;
+let folderSaveQueue = Promise.resolve();
+let lastFolderSaveAt = 0;
 let streamOn = false;
 let streamTimer = null;
 let streamFailToastAt = 0;
@@ -160,8 +187,15 @@ let streamPushing = false;
 let streamES = null;
 let streamAppliedSeq = 0;
 let streamInfo = null;
+let streamPlayersTimer = null;
+let streamPlayers = [];
+let sharedNoteTimer = null;
+let hostLocalRolls = new Set();
 let tokenAvatar = null;
 let boardTool = null;
+let editTile = 'floor';
+let editVariant = 0;
+let mapEditHistory = [];
 let doodleTool = 'pen';
 let doodleColor = '#ff4d4f';
 let doodleWidth = 6;
@@ -221,18 +255,25 @@ function normalizeEncounter(raw) {
   if (!currentEntryId && entries.length && source.playMode === 'turn') currentEntryId = entries[0].id;
 
   const worldSource = source.worldTime && typeof source.worldTime === 'object' ? source.worldTime : {};
+  const rawSeconds = Number(worldSource.totalSeconds);
   const rawMinutes = Number(worldSource.totalMinutes);
   const rawRate = Number(worldSource.rate);
   const runningSince = Number(worldSource.runningSince);
   const worldTime = {
-    totalMinutes: Number.isFinite(rawMinutes) ? Math.max(0, Math.floor(rawMinutes)) : defaults.worldTime.totalMinutes,
+    totalSeconds: Number.isFinite(rawSeconds)
+      ? Math.max(0, Math.floor(rawSeconds))
+      : (Number.isFinite(rawMinutes) ? Math.max(0, Math.floor(rawMinutes * 60)) : defaults.worldTime.totalSeconds),
     runningSince: Number.isFinite(runningSince) && runningSince > 0 ? runningSince : null,
     rate: Number.isFinite(rawRate) && rawRate > 0 ? clamp(rawRate, 0.01, 60) : 1,
+    resumeAfterTurn: worldSource.resumeAfterTurn === true,
   };
   const panel = source.panel === 'time' ? 'time' : 'initiative';
   const playMode = source.playMode === 'turn' ? 'turn' : 'free';
   const rawTurnSerial = Number(source.turnSerial);
   const turnSerial = Number.isFinite(rawTurnSerial) ? Math.max(1, Math.trunc(rawTurnSerial)) : 1;
+  const rawSecondsPerRound = Number(source.secondsPerRound);
+  const secondsPerRound = Number.isFinite(rawSecondsPerRound) && rawSecondsPerRound > 0
+    ? clamp(Math.trunc(rawSecondsPerRound), 1, 3600) : 6;
   const rawTurnPath = source.turnPath && typeof source.turnPath === 'object' ? source.turnPath : {};
   const turnPoints = Array.isArray(rawTurnPath.points) ? rawTurnPath.points.slice(0, MAX_TURN_PATH_POINTS).reduce((out, point) => {
     const x = Number(point && point.x);
@@ -256,6 +297,7 @@ function normalizeEncounter(raw) {
     round: Math.max(1, Math.trunc(Number(source.round)) || 1),
     currentEntryId,
     turnSerial,
+    secondsPerRound,
     turnPath: playMode === 'turn' ? turnPath : { mapId: null, tokenId: null, points: [] },
     entries,
     worldTime,
@@ -273,6 +315,7 @@ function encounterState() {
   if (e.playMode !== 'turn') e.playMode = 'free';
   e.round = Math.max(1, parseInt(e.round, 10) || 1);
   e.turnSerial = Math.max(1, parseInt(e.turnSerial, 10) || 1);
+  e.secondsPerRound = clamp(Math.trunc(Number(e.secondsPerRound) || 6), 1, 3600);
   if (!e.turnPath || typeof e.turnPath !== 'object') e.turnPath = { mapId: null, tokenId: null, points: [] };
   e.turnPath.mapId = e.turnPath.mapId ? String(e.turnPath.mapId) : null;
   e.turnPath.tokenId = e.turnPath.tokenId ? String(e.turnPath.tokenId) : null;
@@ -283,12 +326,17 @@ function encounterState() {
   e.entries = e.entries.filter((entry) => entry && entry.id);
   if (!e.entries.some((entry) => entry.id === e.currentEntryId)) e.currentEntryId = e.entries[0]?.id || null;
   if (!e.worldTime || typeof e.worldTime !== 'object') e.worldTime = defaultEncounterState().worldTime;
-  const totalMinutes = Number(e.worldTime.totalMinutes);
-  e.worldTime.totalMinutes = Number.isFinite(totalMinutes) ? Math.max(0, Math.floor(totalMinutes)) : 8 * 60;
+  const totalSeconds = Number(e.worldTime.totalSeconds);
+  const legacyMinutes = Number(e.worldTime.totalMinutes);
+  e.worldTime.totalSeconds = Number.isFinite(totalSeconds)
+    ? Math.max(0, Math.floor(totalSeconds))
+    : (Number.isFinite(legacyMinutes) ? Math.max(0, Math.floor(legacyMinutes * 60)) : 8 * 60 * 60);
+  delete e.worldTime.totalMinutes;
   e.worldTime.rate = Number.isFinite(Number(e.worldTime.rate)) && Number(e.worldTime.rate) > 0
     ? clamp(Number(e.worldTime.rate), 0.01, 60) : 1;
   e.worldTime.runningSince = Number.isFinite(Number(e.worldTime.runningSince)) && Number(e.worldTime.runningSince) > 0
     ? Number(e.worldTime.runningSince) : null;
+  e.worldTime.resumeAfterTurn = e.worldTime.resumeAfterTurn === true;
   return e;
 }
 
@@ -326,22 +374,25 @@ function appendTurnPath(e, mapId, tokenId, points) {
 
 function worldTimeNow(e = encounterState(), now = Date.now()) {
   const w = e.worldTime;
-  if (!w.runningSince) return w.totalMinutes;
-  const elapsed = Math.max(0, now - w.runningSince) * w.rate / 60000;
-  return Math.floor(w.totalMinutes + elapsed);
+  if (!w.runningSince) return w.totalSeconds;
+  const elapsed = Math.max(0, now - w.runningSince) * w.rate / 1000;
+  return Math.floor(w.totalSeconds + elapsed);
 }
 
-function worldTimeParts(totalMinutes) {
-  const total = Math.max(0, Math.floor(Number(totalMinutes) || 0));
-  const dayIndex = Math.floor(total / WORLD_MINUTES_PER_DAY);
+function worldTimeParts(totalSeconds) {
+  const total = Math.max(0, Math.floor(Number(totalSeconds) || 0));
+  const secondsPerDay = WORLD_MINUTES_PER_DAY * 60;
+  const dayIndex = Math.floor(total / secondsPerDay);
   const dayOfYear = dayIndex % (WORLD_DAYS_PER_WEEK * WORLD_WEEKS_PER_YEAR);
+  const inDay = total % secondsPerDay;
   return {
     year: Math.floor(dayIndex / (WORLD_DAYS_PER_WEEK * WORLD_WEEKS_PER_YEAR)) + 1,
     week: Math.floor(dayOfYear / WORLD_DAYS_PER_WEEK) + 1,
     day: (dayOfYear % WORLD_DAYS_PER_WEEK) + 1,
-    hour: Math.floor((total % WORLD_MINUTES_PER_DAY) / 60),
-    minute: total % 60,
-    totalMinutes: total,
+    hour: Math.floor(inDay / 3600),
+    minute: Math.floor((inDay % 3600) / 60),
+    second: inDay % 60,
+    totalSeconds: total,
   };
 }
 
@@ -350,14 +401,14 @@ function formatWorldDate(parts) {
 }
 
 function formatWorldClock(parts) {
-  return `${String(parts.hour).padStart(2, '0')}:${String(parts.minute).padStart(2, '0')}`;
+  return `${String(parts.hour).padStart(2, '0')}:${String(parts.minute).padStart(2, '0')}:${String(parts.second).padStart(2, '0')}`;
 }
 
 function materializeWorldTime(e = encounterState(), now = Date.now()) {
-  if (!e.worldTime.runningSince) return e.worldTime.totalMinutes;
-  e.worldTime.totalMinutes = worldTimeNow(e, now);
+  if (!e.worldTime.runningSince) return e.worldTime.totalSeconds;
+  e.worldTime.totalSeconds = worldTimeNow(e, now);
   e.worldTime.runningSince = null;
-  return e.worldTime.totalMinutes;
+  return e.worldTime.totalSeconds;
 }
 
 function currentInitiativeEntry(e = encounterState()) {
@@ -410,19 +461,24 @@ function setEncounterEvent(e, label) {
   e.lastEvent = { label: String(label || '').slice(0, 80), at: Date.now() };
 }
 
-function publicEncounterState() {
+function publicEncounterState(visibleTokenIds = null) {
   const e = encounterState();
+  const visible = (tokenId) => !tokenId || !visibleTokenIds || visibleTokenIds.has(tokenId);
+  const currentEntry = e.entries.find((entry) => entry.id === e.currentEntryId);
+  const currentVisible = visible(currentEntry?.tokenId);
   return {
     playMode: e.playMode,
     round: e.round,
-    currentEntryId: e.currentEntryId,
+    secondsPerRound: e.secondsPerRound,
+    currentEntryId: currentVisible ? e.currentEntryId : null,
     turnSerial: e.turnSerial,
     turnPath: {
-      mapId: e.turnPath?.mapId || null,
-      tokenId: e.turnPath?.tokenId || null,
-      points: Array.isArray(e.turnPath?.points) ? e.turnPath.points.map((point) => ({ x: point.x, y: point.y })) : [],
+      mapId: visible(e.turnPath?.tokenId) ? (e.turnPath?.mapId || null) : null,
+      tokenId: visible(e.turnPath?.tokenId) ? (e.turnPath?.tokenId || null) : null,
+      points: visible(e.turnPath?.tokenId) && Array.isArray(e.turnPath?.points)
+        ? e.turnPath.points.map((point) => ({ x: point.x, y: point.y })) : [],
     },
-    entries: e.entries.map((entry) => ({
+    entries: e.entries.filter((entry) => visible(entry.tokenId)).map((entry) => ({
       id: entry.id,
       name: initiativeEntryLabel(entry),
       value: entry.value,
@@ -430,11 +486,12 @@ function publicEncounterState() {
       tokenId: entry.tokenId,
     })),
     worldTime: {
-      totalMinutes: e.worldTime.totalMinutes,
+      totalSeconds: worldTimeNow(e),
       runningSince: e.worldTime.runningSince,
       rate: e.worldTime.rate,
     },
-    lastEvent: e.lastEvent,
+    // 事件文本可能包含被隐藏单位名称，观战端只需要知道状态已更新。
+    lastEvent: e.lastEvent ? { at: e.lastEvent.at, label: '流程状态已更新' } : null,
   };
 }
 
@@ -462,9 +519,11 @@ function renderEncounter() {
   $('#init-panel-initiative').hidden = e.panel !== 'initiative';
   $('#init-panel-time').hidden = e.panel !== 'time';
   $('#btn-init-next').disabled = e.playMode !== 'turn' || !e.entries.length;
-  $('#btn-init-timer').textContent = e.worldTime.runningSince ? '❚❚ 暂停时间' : '▶ 开始时间';
-  $('#btn-time-short-rest').disabled = false;
-  $('#btn-time-long-rest').disabled = false;
+  $('#btn-init-timer').textContent = e.playMode === 'turn'
+    ? '⏱ 按战斗轮推进' : (e.worldTime.runningSince ? '❚❚ 暂停时间' : '▶ 开始时间');
+  $('#btn-init-timer').disabled = e.playMode === 'turn';
+  $('#btn-time-short-rest').disabled = e.playMode === 'turn';
+  $('#btn-time-long-rest').disabled = e.playMode === 'turn';
   const timeInputs = {
     year: $('#time-year'), week: $('#time-week'), day: $('#time-day'), clock: $('#time-clock'),
   };
@@ -474,7 +533,9 @@ function renderEncounter() {
   if (timeInputs.clock && document.activeElement !== timeInputs.clock) timeInputs.clock.value = formatWorldClock(world);
   $('#world-date-display').textContent = formatWorldDate(world);
   $('#world-clock-display').textContent = formatWorldClock(world);
-  $('#time-running-state').textContent = e.worldTime.runningSince ? '时间运行中' : '时间已暂停';
+  $('#time-running-state').textContent = e.playMode === 'turn'
+    ? `战斗轮推进：每轮 +${e.secondsPerRound} 秒`
+    : (e.worldTime.runningSince ? '时间运行中' : '时间已暂停');
   $('#time-event').textContent = e.lastEvent?.label || '—';
   const list = $('#init-bar-list');
   list.innerHTML = '';
@@ -516,30 +577,64 @@ function renderEncounter() {
   renderTurnPath();
 }
 
+function decrementCurrentTokenConditions(e) {
+  const current = currentInitiativeEntry(e);
+  const token = current?.tokenId ? findToken(current.tokenId) : null;
+  if (!token || !Array.isArray(token.conditions)) return;
+  let changed = false;
+  token.conditions = token.conditions.flatMap((condition) => {
+    if (!Number.isFinite(Number(condition.remainingTurns))) return [condition];
+    const remaining = Math.max(0, Math.trunc(Number(condition.remainingTurns)) - 1);
+    changed = true;
+    if (!remaining) return [];
+    return [{ ...condition, remainingTurns: remaining }];
+  });
+  if (changed) normalizeSheet(token);
+}
+
 function advanceEncounter() {
   const e = encounterState();
   if (e.playMode !== 'turn' || !e.entries.length) return;
-  const index = Math.max(0, e.entries.findIndex((entry) => entry.id === e.currentEntryId));
+  const currentIndex = e.entries.findIndex((entry) => entry.id === e.currentEntryId);
+  if (currentIndex < 0) {
+    e.currentEntryId = e.entries[0].id;
+    bumpEncounterTurn(e);
+    setEncounterEvent(e, `当前单位：${initiativeEntryLabel(e.entries[0])}`);
+    renderEncounter(); scheduleAutosave();
+    return;
+  }
+  decrementCurrentTokenConditions(e);
+  const index = currentIndex;
   const nextIndex = (index + 1) % e.entries.length;
-  if (nextIndex === 0) e.round += 1;
+  if (nextIndex === 0) {
+    e.round += 1;
+    materializeWorldTime(e);
+    e.worldTime.totalSeconds += e.secondsPerRound;
+  }
   e.currentEntryId = e.entries[nextIndex].id;
   bumpEncounterTurn(e);
-  setEncounterEvent(e, `当前单位：${initiativeEntryLabel(e.entries[nextIndex])}`);
+  setEncounterEvent(e, nextIndex === 0
+    ? `第 ${e.round} 轮开始：世界时间 +${e.secondsPerRound} 秒`
+    : `当前单位：${initiativeEntryLabel(e.entries[nextIndex])}`);
   renderEncounter(); scheduleAutosave();
 }
 
 function setWorldClockRunning() {
   const e = encounterState();
+  if (e.playMode === 'turn') {
+    toast('回合制按完整战斗轮推进时间，请使用“下一位”');
+    return;
+  }
   if (e.worldTime.runningSince) materializeWorldTime(e);
   else e.worldTime.runningSince = Date.now();
   setEncounterEvent(e, e.worldTime.runningSince ? '世界时间开始运行' : '世界时间已暂停');
   renderEncounter(); scheduleAutosave();
 }
 
-function advanceWorldTime(minutes, label) {
+function advanceWorldTime(seconds, label) {
   const e = encounterState();
   materializeWorldTime(e);
-  e.worldTime.totalMinutes += Math.max(0, Math.trunc(minutes));
+  e.worldTime.totalSeconds += Math.max(0, Math.trunc(seconds));
   setEncounterEvent(e, label);
   renderEncounter(); scheduleAutosave();
 }
@@ -549,15 +644,16 @@ function setWorldTimeFromInputs() {
   const year = clamp(Math.trunc(Number($('#time-year').value) || 1), 1, 99999);
   const week = clamp(Math.trunc(Number($('#time-week').value) || 1), 1, WORLD_WEEKS_PER_YEAR);
   const day = clamp(Math.trunc(Number($('#time-day').value) || 1), 1, WORLD_DAYS_PER_WEEK);
-  const timeMatch = String($('#time-clock').value || '').match(/^(\d{1,2}):(\d{2})$/);
+  const timeMatch = String($('#time-clock').value || '').match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
   const hour = timeMatch ? clamp(Number(timeMatch[1]), 0, 23) : 8;
   const minute = timeMatch ? clamp(Number(timeMatch[2]), 0, 59) : 0;
+  const second = timeMatch ? clamp(Number(timeMatch[3] || 0), 0, 59) : 0;
   materializeWorldTime(e);
-  e.worldTime.totalMinutes = ((year - 1) * WORLD_MINUTES_PER_YEAR)
-    + ((week - 1) * WORLD_DAYS_PER_WEEK * WORLD_MINUTES_PER_DAY)
-    + ((day - 1) * WORLD_MINUTES_PER_DAY)
-    + (hour * 60) + minute;
-  setEncounterEvent(e, `时间调整为：${formatWorldDate(worldTimeParts(e.worldTime.totalMinutes))}`);
+  e.worldTime.totalSeconds = ((year - 1) * WORLD_MINUTES_PER_YEAR * 60)
+    + ((week - 1) * WORLD_DAYS_PER_WEEK * WORLD_MINUTES_PER_DAY * 60)
+    + ((day - 1) * WORLD_MINUTES_PER_DAY * 60)
+    + (hour * 3600) + (minute * 60) + second;
+  setEncounterEvent(e, `时间调整为：${formatWorldDate(worldTimeParts(e.worldTime.totalSeconds))}`);
   renderEncounter(); scheduleAutosave();
 }
 
@@ -574,7 +670,7 @@ function mapById(id) {
   return state.maps.find((m) => m.id === id);
 }
 
-function makeMapEntry(name, dataUrl, w, h, gridSize, cells, cellStates) {
+function makeMapEntry(name, dataUrl, w, h, gridSize, cells, cellStates, cellVariants) {
   return {
     id: 'm' + (uid++),
     name: name || '未命名地图',
@@ -584,9 +680,11 @@ function makeMapEntry(name, dataUrl, w, h, gridSize, cells, cellStates) {
     gridSize: gridSize || 50,
     cells: Array.isArray(cells) ? cells.map((r) => r.slice()) : null,
     cellStates: cellStates && typeof cellStates === 'object' ? { ...cellStates } : {},
+    cellVariants: cellVariants && typeof cellVariants === 'object' ? { ...cellVariants } : {},
     // 原始底图快照：编辑器橡皮只还原到这份快照，不破坏原地图
     baseCells: Array.isArray(cells) ? cells.map((r) => r.slice()) : null,
     baseCellStates: cellStates && typeof cellStates === 'object' ? { ...cellStates } : {},
+    baseCellVariants: cellVariants && typeof cellVariants === 'object' ? { ...cellVariants } : {},
     doodles: [],
     fog: {},
     tokens: [],
@@ -594,8 +692,8 @@ function makeMapEntry(name, dataUrl, w, h, gridSize, cells, cellStates) {
   };
 }
 
-function addMap(name, dataUrl, w, h, gridSize, cells, cellStates) {
-  const m = makeMapEntry(name, dataUrl, w, h, gridSize, cells, cellStates);
+function addMap(name, dataUrl, w, h, gridSize, cells, cellStates, cellVariants) {
+  const m = makeMapEntry(name, dataUrl, w, h, gridSize, cells, cellStates, cellVariants);
   state.maps.push(m);
   switchMap(m.id);
   fitView();
@@ -651,18 +749,6 @@ const AVATAR_DB = 'dnd-board-assets';
 const AVATAR_HD_MAX = 2048;      // 高清上限：上传图最高保留 2048px
 const AVATAR_DISPLAY_MAX = 512;  // 显示上限：地图/卡片渲染时自动降到 512px，避免大纹理拖图卡顿
 const AVATAR_LOW_MAX = 128;      // 低清显示版：关高清时地图棋子使用，恢复以前的轻量纹理
-const AVATAR_SOURCE_MAP = window.__PORTRAIT_PATHS__ || {
-  '地精喽啰':'立绘/妖精/地精/地精喽啰.png','地精老大':'立绘/妖精/地精/地精老大.png',
-  '地精咒术师':'立绘/妖精/地精/地精咒术师.png','地精武者':'立绘/妖精/地精/地精武者.png',
-  '大地精长官':'立绘/妖精/大地精/大地精长官.png','座狼':'立绘/妖精/座狼/座狼.png',
-  '青年红龙':'立绘/龙类/红龙/青年红龙.png','巨魔':'立绘/巨人/巨魔/巨魔.png',
-  '巨魔断肢':'立绘/巨人/巨魔/巨魔断肢.png','酒馆老板-马库斯':'立绘/NPC/短团·烬鳞讨伐/酒馆老板-马库斯.png',
-  '难民-莉娅':'立绘/NPC/短团·烬鳞讨伐/难民-莉娅.png','地精幼崽':'立绘/NPC/短团·烬鳞讨伐/地精幼崽.png',
-  '熔岩魔蝠':'立绘/元素/魔蝠/熔岩魔蝠.png','火蜥蜴火蛇':'立绘/元素/火蜥蜴/火蜥蜴火蛇.png',
-  '吉斯洋基龙巫':'立绘/异怪/吉斯洋基龙巫.png',
-  '吉斯洋基武者':'立绘/异怪/吉斯洋基武者.png',
-  '吉斯洋基骑士':'立绘/异怪/吉斯洋基骑士.png'
-};
 const avatarCache = new Map();
 const avatarLowCache = new Map(); // iconImgId -> 128px 低清版
 const avatarLodEls = new Map();  // iconImgId -> Set<DOM元素>，用于缩放时切换画质
@@ -740,13 +826,15 @@ function processAvatarFile(file, cb) {
 // 把头像应用到元素：先显示缩略图，再异步从 IndexedDB 换成高清图
 function portraitAssetUrl(path) {
   if (!path) return '';
-  return /^(?:data:|blob:|https?:|\/)/.test(path) ? path : '../棋子库/' + String(path).replace(/^棋子库\//, '');
+  if (/^(?:data:|blob:|https?:|\/)/.test(path)) return path;
+  const relativePath = String(path).replace(/^(?:\.\.\/)?(?:(?:asset|assets)\/)?棋子库\//, '');
+  return '../asset/棋子库/' + relativePath;
 }
 
 function applyAvatar(el, iconImg, iconImgId, iconImgHd, iconImgPath) {
   if (iconImg) el.style.backgroundImage = `url("${iconImg}")`;
   if (hdEnabled && iconImgHd) el.style.backgroundImage = `url("${iconImgHd}")`;
-  if (hdEnabled && iconImgPath) {
+  if (iconImgPath) {
     el.style.backgroundSize = '116.3% 116.3%';
     el.style.backgroundPosition = 'center';
     el.style.backgroundImage = `url("${portraitAssetUrl(iconImgPath)}")`;
@@ -871,11 +959,11 @@ async function avatarGetLow(id) {
   return null;
 }
 
-// 自适应画质：关闭高清时使用 128px 缩略图；开启后换项目原图或 512px 显示版
+// 自适应画质：关闭高清时优先使用 128px 缓存；没有缓存则直接使用项目原图。
 function applyTokenAvatar(el, t) {
   if (t.iconImg) el.style.backgroundImage = `url("${t.iconImg}")`;
   if (hdEnabled && t.iconImgHd) el.style.backgroundImage = `url("${t.iconImgHd}")`;
-  if (hdEnabled && t.iconImgPath) el.style.backgroundImage = `url("${portraitAssetUrl(t.iconImgPath)}")`;
+  if (t.iconImgPath) el.style.backgroundImage = `url("${portraitAssetUrl(t.iconImgPath)}")`;
   const assetKey = t.iconImgId || (t.iconImgPath ? 'path:' + t.iconImgPath : (t.iconImgHd ? 'embedded:' + t.id : ''));
   if (!assetKey) return;
   el.dataset.avatarId = assetKey;
@@ -894,6 +982,16 @@ function refreshAvatarLodElement(el, t) {
         el.dataset.lodUrl = low;
         el.style.backgroundImage = `url("${low}")`;
       }
+      return;
+    }
+    // 正式棋子库只保存项目内路径；若没有低清缓存，直接回退到原图。
+    if (t.iconImgPath) {
+      const src = portraitAssetUrl(t.iconImgPath);
+      el.dataset.lodUrl = src;
+      el.style.backgroundSize = '116.3% 116.3%';
+      el.style.backgroundPosition = 'center';
+      el.style.backgroundImage = `url("${src}")`;
+      return;
     } else {
       if (t.iconImg) el.style.backgroundImage = `url("${t.iconImg}")`;
       if (t.iconImgId && !avatarLowCache.has(t.iconImgId)) {
@@ -967,7 +1065,7 @@ function setHd(on) {
   try { localStorage.setItem('sangduoer-hd-toggle', hdEnabled ? '1' : '0'); } catch (e) { /* 忽略 */ }
   const cb = $('#hd-toggle-check');
   if (cb) cb.checked = hdEnabled;
-  toast(hdEnabled ? '高清：开（所有棋子立即渲染高清）' : '高清：关（已全部切换为缩略图）');
+  toast(hdEnabled ? '高清：开（所有棋子立即渲染高清）' : '高清：关（优先使用低清缓存）');
   refreshAvatarLOD();
   renderLibrary();
   updateDetail();
@@ -993,13 +1091,14 @@ async function prewarmAvatarCache() {
   }
 }
 
-/* ==================== 战役管理 ==================== */
+/* ==================== 战役保存与读取 ==================== */
 
-const CAMPAIGN_DB = 'dnd-board-campaigns';
+// 旧版浏览器战役库只用于首次迁移；正式战役全部读取绑定文件夹。
+const LEGACY_CAMPAIGN_DB = 'dnd-board-campaigns';
 
-function campaignIdbOpen() {
+function legacyCampaignIdbOpen() {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open(CAMPAIGN_DB, 1);
+    const req = indexedDB.open(LEGACY_CAMPAIGN_DB, 1);
     req.onupgradeneeded = () => {
       if (!req.result.objectStoreNames.contains('campaigns')) req.result.createObjectStore('campaigns');
     };
@@ -1008,31 +1107,8 @@ function campaignIdbOpen() {
   });
 }
 
-function campaignPut(id, name, snap) {
-  return campaignIdbOpen().then((db) => new Promise((resolve, reject) => {
-    const tx = db.transaction('campaigns', 'readwrite');
-    const rec = { id, name, savedAt: Date.now(), state: snap };
-    tx.objectStore('campaigns').put(rec, id);
-    tx.oncomplete = () => resolve(rec);
-    tx.onerror = () => reject(tx.error);
-  })).then((rec) => {
-    // 绑定项目文件夹后，每个战役同步一份到 主控台/状态/战役/<战役名>/存档.json
-    if (projectDirHandle && rec) writeCampaignFile(rec);
-    return rec;
-  });
-}
-
-function campaignGet(id) {
-  return campaignIdbOpen().then((db) => new Promise((resolve, reject) => {
-    const tx = db.transaction('campaigns', 'readonly');
-    const req = tx.objectStore('campaigns').get(id);
-    req.onsuccess = () => resolve(req.result || null);
-    req.onerror = () => reject(req.error);
-  }));
-}
-
-function campaignList() {
-  return campaignIdbOpen().then((db) => new Promise((resolve, reject) => {
+function legacyCampaignList() {
+  return legacyCampaignIdbOpen().then((db) => new Promise((resolve, reject) => {
     const tx = db.transaction('campaigns', 'readonly');
     const req = tx.objectStore('campaigns').getAll();
     req.onsuccess = () => resolve(req.result || []);
@@ -1040,20 +1116,24 @@ function campaignList() {
   }));
 }
 
-function campaignDelete(id) {
-  return campaignIdbOpen().then((db) => new Promise((resolve, reject) => {
-    const tx = db.transaction('campaigns', 'readwrite');
-    tx.objectStore('campaigns').delete(id);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  }));
+async function campaignPut(id, name, snap, options) {
+  return writeCampaignRecord(id, name, snap, options);
+}
+
+async function campaignGet(id) {
+  const list = await campaignList();
+  return list.find((item) => item.id === id) || null;
+}
+
+async function campaignList() {
+  if (!projectDirHandle || !(await hasSaveFolderPermission())) return [];
+  return readCampaignRecords();
 }
 
 async function openCampaignModal() {
+  if (!(await ensureSaveFolderAccess(true))) return;
+  await readCampaignRecords(true);
   $('#campaign-modal').hidden = false;
-  // 与项目文件夹双向同步：两种打开方式绑同一个文件夹时，战役就是同一批
-  await syncCampaignsFromFiles();
-  await syncCampaignsToFiles();
   await renderCampaignList();
 }
 
@@ -1070,7 +1150,7 @@ async function renderCampaignList() {
   if (!list.length) {
     const d = document.createElement('div');
     d.className = 'campaign-empty';
-    d.textContent = '还没有战役，点「＋ 新建战役」开始';
+    d.textContent = '这个“存档”文件夹中还没有战役。';
     box.appendChild(d);
     return;
   }
@@ -1086,112 +1166,28 @@ async function renderCampaignList() {
     name.textContent = c.name;
     const info = document.createElement('span');
     info.className = 'campaign-info';
-    const savedAt = c.savedAt ? new Date(c.savedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) : '—';
+    const savedAt = c.savedAt ? new Date(c.savedAt).toLocaleString('zh-CN') : '—';
     info.textContent = `${maps} 地图 · ${tokens} 棋子 · 保存于 ${savedAt}`;
     const open = document.createElement('button');
     open.className = 'primary';
-    open.textContent = '打开';
+    open.textContent = '读取';
     open.addEventListener('click', () => openCampaign(c.id));
-    const save = document.createElement('button');
-    save.textContent = '保存';
-    save.addEventListener('click', () => saveToCampaign(c.id));
-    const rename = document.createElement('button');
-    rename.textContent = '重命名';
-    rename.addEventListener('click', async () => {
-      const n = prompt('战役名称', c.name);
-      if (n === null || !n.trim()) return;
-      const oldName = c.name;
-      const cur = await campaignGet(c.id);
-      if (cur) {
-        cur.name = n.trim();
-        await campaignPut(c.id, cur.name, cur.state);
-        if (projectDirHandle && oldName !== cur.name) await deleteCampaignFolder(oldName);
-        if (c.id === state.campaignId) state.campaignName = cur.name;
-        await renderCampaignList();
-      }
-    });
-    const del = document.createElement('button');
-    del.className = 'danger';
-    del.textContent = '删除';
-    del.addEventListener('click', async () => {
-      if (!confirm(`删除战役「${c.name}」？存档将无法恢复。`)) return;
-      if (projectDirHandle) await deleteCampaignFolder(c.name);
-      await campaignDelete(c.id);
-      if (state.campaignId === c.id) {
-        state.campaignId = null;
-        state.campaignName = '默认战役';
-        scheduleAutosave();
-      }
-      await renderCampaignList();
-    });
-    const exp = document.createElement('button');
-    exp.textContent = '导出';
-    exp.addEventListener('click', () => exportCampaign(c.id));
-    row.append(name, info, open, save, rename, exp, del);
+    row.append(name, info, open);
     box.appendChild(row);
   });
-}
-
-async function saveToCampaign(id) {
-  const cur = await campaignGet(id);
-  if (!cur) { toast('战役不存在'); return; }
-  await campaignPut(id, cur.name, stateStorageSnapshot());
-  state.campaignId = id;
-  state.campaignName = cur.name;
-  scheduleAutosave();
-  await renderCampaignList();
-  toast(`已保存到战役「${cur.name}」`);
-}
-
-// 当前战役自动保存：进入战役后，每次改动延迟 2 秒自动写入战役库（IndexedDB）
-async function persistActiveCampaign() {
-  if (!state.campaignId) return;
-  const id = state.campaignId;
-  const name = state.campaignName || '未命名战役';
-  try {
-    await campaignPut(id, name, stateStorageSnapshot());
-    if ($('#campaign-modal') && !$('#campaign-modal').hidden) renderCampaignList();
-  } catch (e) {
-    console.warn('战役自动保存失败', e);
-  }
 }
 
 async function openCampaign(id) {
   const c = await campaignGet(id);
   if (!c) return;
-  // 打开的就是当前战役：直接用当前最新状态，不回退到可能较旧的快照
-  if (c.id === state.campaignId) {
-    closeCampaignModal();
-    hideCover();
-    toast(`已在战役「${c.name}」中，保持当前进度`);
-    return;
-  }
-  if (!confirm(`打开战役「${c.name}」？当前未保存的内容将被替换。`)) return;
-  if (!applySavedState(c.state)) { toast('战役数据读取失败'); return; }
-  await renderCampaignList();
-  applyAllState();
-  scheduleAutosave();
-  persistToProject();
+  const loaded = await loadFolderSave({
+    name: c.name,
+    path: c._path,
+    folderName: c._folderName,
+  });
+  if (!loaded) return;
   closeCampaignModal();
   hideCover();
-  toast(`已打开战役「${c.name}」`);
-}
-
-async function newCampaign() {
-  const name = prompt('新战役名称', `战役 ${new Date().toLocaleDateString('zh-CN')}`);
-  if (name === null || !name.trim()) return;
-  const id = 'c' + (uid++);
-  const snap = stateStorageSnapshot();
-  snap.campaignId = id;
-  snap.campaignName = name.trim();
-  await campaignPut(id, name.trim(), snap);
-  state.campaignId = id;
-  state.campaignName = name.trim();
-  scheduleAutosave();
-  persistToProject();
-  await renderCampaignList();
-  hideCover();
-  toast(`已新建战役「${name.trim()}」`);
 }
 
 function hideCover() {
@@ -1224,59 +1220,11 @@ function newCampaignState(name, id) {
     fogOn: false,
     campaignId: id,
     campaignName: name,
-    library: Array.isArray(state.library) ? state.library.map(normalizeLibPreset) : [],
+    sharedResources: Array.isArray(state.sharedResources) ? state.sharedResources.map((link) => ({ ...link })) : [],
+    sharedNotes: typeof state.sharedNotes === 'string' ? state.sharedNotes.slice(0, 4000) : '',
     selectedId: null,
     encounter: defaultEncounterState(),
   };
-}
-
-async function exportCampaign(id) {
-  const c = await campaignGet(id);
-  if (!c) return;
-  const json = JSON.stringify({
-    app: 'dnd-board',
-    kind: 'campaign',
-    campaignId: c.id,
-    name: c.name,
-    savedAt: c.savedAt,
-    state: c.state,
-  }, null, 2);
-  const blob = new Blob([json], { type: 'application/json' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = `${c.name}-战役.json`;
-  a.click();
-  URL.revokeObjectURL(a.href);
-  if (projectDirHandle) {
-    await writeProjectText('主控台/状态/导出/' + safeCampaignFolderName(c.name) + '-战役.json', json);
-    toast(`已导出战役「${c.name}」：已下载，并存入项目文件夹 主控台/状态/导出/`);
-  } else {
-    toast(`已导出战役「${c.name}」`);
-  }
-}
-
-function importCampaign(file) {
-  const reader = new FileReader();
-  reader.onload = async () => {
-    try {
-      const s = JSON.parse(reader.result);
-      let c = null;
-      if (s && s.kind === 'campaign' && s.state && Array.isArray(s.state.maps)) {
-        c = { id: s.campaignId || 'c' + (uid++), name: s.name || '导入战役', savedAt: s.savedAt || Date.now(), state: s.state };
-      } else if (s && Array.isArray(s.maps)) {
-        const name = prompt('导入的战役名称', s.campaignName || file.name.replace(/\.json$/i, ''));
-        if (name === null || !name.trim()) return;
-        c = { id: 'c' + (uid++), name: name.trim(), savedAt: Date.now(), state: s };
-      }
-      if (!c) throw new Error('bad');
-      await campaignPut(c.id, c.name, c.state);
-      await renderCampaignList();
-      toast(`已导入战役「${c.name}」`);
-    } catch (e) {
-      toast('导入失败：不是有效的战役/存档文件');
-    }
-  };
-  reader.readAsText(file);
 }
 
 /* ==================== DOM 引用 ==================== */
@@ -1288,7 +1236,7 @@ const turnPathCtx = turnPathCanvas ? turnPathCanvas.getContext('2d') : null;
 
 /* ==================== 地图 ==================== */
 
-function setMap(dataUrl, w, h, cells, cellStates) {
+function setMap(dataUrl, w, h, cells, cellStates, cellVariants) {
   const m = activeMap();
   if (!m) return;
   m.mapData = dataUrl;
@@ -1301,6 +1249,10 @@ function setMap(dataUrl, w, h, cells, cellStates) {
   if (cellStates && typeof cellStates === 'object') {
     m.cellStates = { ...cellStates };
     m.baseCellStates = { ...cellStates };
+  }
+  if (cellVariants && typeof cellVariants === 'object') {
+    m.cellVariants = { ...cellVariants };
+    m.baseCellVariants = { ...cellVariants };
   }
   world.style.width = w + 'px';
   world.style.height = h + 'px';
@@ -1331,8 +1283,9 @@ function importMapFile(f) {
       if (!s.mapW || !s.mapH || !s.gridSize || (!s.mapData && !Array.isArray(s.grid))) throw new Error('bad format');
       const cells = Array.isArray(s.grid) ? s.grid.map((r) => r.slice()) : null;
       const cellStates = s.cellStates && typeof s.cellStates === 'object' ? { ...s.cellStates } : {};
-      const dataUrl = cells ? renderCellsToDataUrl(cells, cellStates, s.gridSize) : s.mapData;
-      const m = addMap(s.mapName || '导入地图', dataUrl, s.mapW, s.mapH, s.gridSize, cells, cellStates);
+      const cellVariants = s.cellVariants && typeof s.cellVariants === 'object' ? { ...s.cellVariants } : {};
+      const dataUrl = cells ? renderCellsToDataUrl(cells, cellStates, s.gridSize, cellVariants) : s.mapData;
+      const m = addMap(s.mapName || '导入地图', dataUrl, s.mapW, s.mapH, s.gridSize, cells, cellStates, cellVariants);
       if (m && Array.isArray(s.tokens)) {
         s.tokens.forEach((raw) => {
           if (!raw || typeof raw !== 'object') return;
@@ -1451,6 +1404,25 @@ const TILE_LABELS = {
   spikes: '尖刺', pit: '深坑', bush: '灌木', tree: '树', mushroom: '蘑菇',
 };
 
+function materialVariantsFor(id) {
+  const variants = window.SundollTileRenderer?.getVariants?.(id);
+  return Array.isArray(variants) ? variants : [];
+}
+
+function normalizeMaterialVariant(id, value) {
+  const variants = materialVariantsFor(id);
+  if (!variants.length) return null;
+  const index = Number.parseInt(value, 10);
+  // 旧地图没有记录此字段时，固定使用样式 I，不再由坐标随机决定。
+  return Number.isInteger(index) && index >= 0 && index < variants.length ? index : 0;
+}
+
+function editTileOptions(id) {
+  const variants = materialVariantsFor(id);
+  if (!variants.length) return [{ id, variant: null, label: TILE_LABELS[id] || id }];
+  return variants.map((variant) => ({ id, variant: variant.index, label: variant.label }));
+}
+
 function cellStateDefs(tile) {
   return INTERACT_TYPES[tile] ? INTERACT_TYPES[tile].states : null;
 }
@@ -1465,7 +1437,12 @@ function stableRand(x, y, salt) {
 
 function drawCell(g, px, py, s, id, state, options = {}) {
   const x = Math.round(px / s), y = Math.round(py / s);
-  if (window.SundollTileRenderer?.drawMaterial(g, px, py, s, id, { x, y, neighbors: options.neighbors })) return;
+  if (window.SundollTileRenderer?.drawMaterial(g, px, py, s, id, {
+    x,
+    y,
+    neighbors: options.neighbors,
+    variant: options.variant,
+  })) return;
   const cx = px + s / 2, cy = py + s / 2;
   g.fillStyle = CELL_BASE[id] || CELL_BASE.floor;
   g.fillRect(px, py, s, s);
@@ -1881,7 +1858,7 @@ function drawCell(g, px, py, s, id, state, options = {}) {
   }
 }
 
-function renderCellsToDataUrl(cells, cellStates, s) {
+function renderCellsToDataUrl(cells, cellStates, s, cellVariants = {}) {
   const rows = cells.length, cols = cells[0].length;
   const c = document.createElement('canvas');
   c.width = cols * s;
@@ -1896,7 +1873,11 @@ function renderCellsToDataUrl(cells, cellStates, s) {
         west: x > 0 ? cells[y][x - 1] : 'void',
         east: x < cols - 1 ? cells[y][x + 1] : 'void',
       };
-      drawCell(g, x * s, y * s, s, id, cellStates[`${x},${y}`] || null, { neighbors });
+      const key = `${x},${y}`;
+      drawCell(g, x * s, y * s, s, id, cellStates[key] || null, {
+        neighbors,
+        variant: normalizeMaterialVariant(id, cellVariants[key]),
+      });
     }
   }
   return c.toDataURL('image/png');
@@ -1916,6 +1897,22 @@ function hpColor(pct) {
 
 /* ==================== 棋子数据 ==================== */
 
+function normalizeCondition(condition) {
+  const source = condition && typeof condition === 'object' ? condition : {};
+  const key = String(source.key || 'custom').slice(0, 32) || 'custom';
+  const meta = CONDITION_META[key] || {};
+  const rawTurns = Number(source.remainingTurns);
+  return {
+    id: String(source.id || 'cond' + (uid++)),
+    key,
+    label: String(source.label || meta.label || '自定义状态').slice(0, 24),
+    icon: String(source.icon || meta.icon || '◆').slice(0, 4),
+    color: String(source.color || meta.color || '#a8b3c7').slice(0, 24),
+    remainingTurns: Number.isFinite(rawTurns) && rawTurns > 0 ? Math.min(999, Math.trunc(rawTurns)) : null,
+    visibility: source.visibility === 'gm' ? 'gm' : 'public',
+  };
+}
+
 function normalizeSheet(t) {
   const hpMax = Math.max(1, Math.min(99999, parseInt(t.hpMax, 10) || 10));
   const hp = Math.max(0, Math.min(99999, Number.isFinite(parseInt(t.hp, 10)) ? parseInt(t.hp, 10) : hpMax));
@@ -1932,6 +1929,10 @@ function normalizeSheet(t) {
     hp,
     hpMax,
     ac: Math.max(0, Math.min(99, parseInt(t.ac, 10) || 10)),
+    conditions: Array.isArray(t.conditions) ? t.conditions.slice(0, 20).map(normalizeCondition) : [],
+    publicNote: typeof t.publicNote === 'string' ? t.publicNote.slice(0, 240) : '',
+    gmNote: typeof t.gmNote === 'string' ? t.gmNote.slice(0, 500) : '',
+    hiddenFromPlayers: t.hiddenFromPlayers === true,
     x: Number.isFinite(Number(t.x)) ? Number(t.x) : 0,
     y: Number.isFinite(Number(t.y)) ? Number(t.y) : 0,
     owner: typeof t.owner === 'string' ? t.owner.slice(0, 24) : '',
@@ -1976,6 +1977,27 @@ function createTokenEl(t) {
   }
 
   el.appendChild(circle);
+  if (t.hiddenFromPlayers) el.classList.add('gm-hidden-token');
+  const visibleConditions = (t.conditions || []).filter((condition) => condition.visibility !== 'gm');
+  if (visibleConditions.length) {
+    const badges = document.createElement('div');
+    badges.className = 'token-condition-badges';
+    visibleConditions.slice(0, 3).forEach((condition) => {
+      const badge = document.createElement('span');
+      badge.className = 'token-condition-badge';
+      badge.style.setProperty('--condition-color', condition.color || '#a8b3c7');
+      badge.textContent = condition.icon || '◆';
+      badge.title = `${condition.label}${condition.remainingTurns ? ` · 剩余 ${condition.remainingTurns} 回合` : ''}`;
+      badges.appendChild(badge);
+    });
+    if (visibleConditions.length > 3) {
+      const more = document.createElement('span');
+      more.className = 'token-condition-badge more';
+      more.textContent = `+${visibleConditions.length - 3}`;
+      badges.appendChild(more);
+    }
+    el.appendChild(badges);
+  }
 
   // 骑乘：坐骑上叠加骑手小圆 + 🐎 标记
   if (m && t.size >= 2) {
@@ -2428,6 +2450,96 @@ function transferToken(id, targetId, copy) {
 
 /* ==================== 右侧详情 ==================== */
 
+function renderDetailConditions(t) {
+  const box = $('#detail-conditions');
+  if (!box) return;
+  box.innerHTML = '';
+  if (!Array.isArray(t.conditions) || !t.conditions.length) {
+    box.innerHTML = '<span class="condition-empty">暂无状态</span>';
+    return;
+  }
+  t.conditions.forEach((condition) => {
+    const chip = document.createElement('span');
+    chip.className = 'condition-chip';
+    chip.style.setProperty('--condition-color', condition.color || '#a8b3c7');
+    chip.title = condition.visibility === 'gm' ? '仅 GM 可见' : '玩家可见';
+    const label = document.createElement('span');
+    label.textContent = `${condition.icon || '◆'} ${condition.label}${condition.remainingTurns ? ` · ${condition.remainingTurns}回合` : ''}`;
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'condition-visibility';
+    toggle.textContent = condition.visibility === 'gm' ? 'GM' : '公';
+    toggle.title = '切换玩家可见性';
+    toggle.addEventListener('click', () => {
+      condition.visibility = condition.visibility === 'gm' ? 'public' : 'gm';
+      renderDetailConditions(t);
+      renderTokens();
+      scheduleAutosave();
+    });
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'condition-remove';
+    remove.textContent = '×';
+    remove.title = '移除状态';
+    remove.addEventListener('click', () => {
+      t.conditions = t.conditions.filter((item) => item.id !== condition.id);
+      renderDetailConditions(t);
+      renderTokens();
+      scheduleAutosave();
+    });
+    chip.append(label, toggle, remove);
+    box.appendChild(chip);
+  });
+}
+
+function populateConditionSelect() {
+  const select = $('#detail-condition-select');
+  if (!select || select.options.length) return;
+  select.innerHTML = '<option value="">选择状态…</option>';
+  Object.entries(CONDITION_META).forEach(([key, meta]) => {
+    const option = document.createElement('option');
+    option.value = key;
+    option.textContent = `${meta.icon} ${meta.label}`;
+    select.appendChild(option);
+  });
+  const custom = document.createElement('option');
+  custom.value = 'custom';
+  custom.textContent = '◆ 自定义状态…';
+  select.appendChild(custom);
+}
+
+function addSelectedCondition() {
+  const t = state.selectedId ? findToken(state.selectedId) : null;
+  const select = $('#detail-condition-select');
+  if (!t || !select || !select.value) return;
+  const key = select.value;
+  const meta = CONDITION_META[key] || {};
+  let label = meta.label || '';
+  let icon = meta.icon || '◆';
+  if (key === 'custom') {
+    label = prompt('状态名称', '')?.trim() || '';
+    if (!label) return;
+    icon = prompt('状态图标（可留空）', '◆')?.slice(0, 4) || '◆';
+  }
+  const rawTurns = Number($('#detail-condition-turns').value);
+  const existing = (t.conditions || []).find((condition) => condition.key === key && condition.label === label);
+  const condition = normalizeCondition({
+    ...(existing || {}), key, label, icon,
+    remainingTurns: Number.isFinite(rawTurns) && rawTurns > 0 ? rawTurns : null,
+    visibility: existing?.visibility || 'public',
+  });
+  if (existing) Object.assign(existing, condition);
+  else {
+    if (!Array.isArray(t.conditions)) t.conditions = [];
+    t.conditions.push(condition);
+  }
+  $('#detail-condition-select').value = '';
+  $('#detail-condition-turns').value = '';
+  renderDetailConditions(t);
+  renderTokens();
+  scheduleAutosave();
+}
+
 function updateDetail() {
   const t = state.selectedId ? findToken(state.selectedId) : null;
   $('#detail-empty').hidden = !!t;
@@ -2456,6 +2568,9 @@ function updateDetail() {
   const dl = $('#owner-list');
   if (dl) {
     const owners = new Set();
+    streamPlayers.filter((player) => player && player.online).forEach((player) => {
+      if (player.name) owners.add(player.name.trim());
+    });
     (state.maps || []).forEach((m) => (m.tokens || []).forEach((x) => {
       if ((x.owner || '').trim()) owners.add(x.owner.trim());
     }));
@@ -2480,6 +2595,10 @@ function updateDetail() {
   const pct = t.hpMax > 0 ? clamp((t.hp / t.hpMax) * 100, 0, 100) : 0;
   $('#detail-hp-bar').style.width = pct + '%';
   $('#detail-hp-bar').style.background = hpColor(pct);
+  $('#detail-public-note').value = t.publicNote || '';
+  $('#detail-gm-note').value = t.gmNote || '';
+  $('#detail-hidden-players').checked = t.hiddenFromPlayers === true;
+  renderDetailConditions(t);
   renderMountBox(t);
 
   // 移到其他地图的下拉框（不含当前地图）
@@ -2523,9 +2642,27 @@ function doRoll(expr) {
   const sum = chosen.reduce((a, b) => a + b, 0) + parsed.mod;
   const label = parsed.label;
   const detail = chosen.join(' + ') + (parsed.mod ? (parsed.mod > 0 ? ` + ${parsed.mod}` : ` ${parsed.mod}`) : '');
-  // DM 自己的骰子动画：只在本机显示，不广播
+  // GM 默认只在本机显示；勾选“广播结果”后才发送给玩家。
   playDiceFx(parsed.sides, label, sum, { dice: chosen.slice() });
   addLogLine(label, detail, sum);
+  const broadcastBox = $('#dice-broadcast');
+  if (broadcastBox && broadcastBox.checked) {
+    const rid = `gm-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    hostLocalRolls.add(rid);
+    sendHostAction({
+      op: 'roll', rid, expr: label, detail, total: sum, sides: parsed.sides, dice: chosen.slice(),
+    }).then((result) => {
+      if (!result.ok || result.data?.ok === false) {
+        hostLocalRolls.delete(rid);
+        toast(`⚠ 公开骰子失败：${result.data?.error || '服务器未连接'}`);
+      } else {
+        toast(`🎲 已向玩家公开 ${label} = ${sum}`);
+      }
+    }).catch(() => {
+      hostLocalRolls.delete(rid);
+      toast('⚠ 公开骰子失败：服务器未连接');
+    });
+  }
 }
 
 function addLogLine(label, detail, total) {
@@ -2546,7 +2683,8 @@ function playDiceFx(sides, label, total, opts) {
 
 function stateStorageReplacer(key, value) {
   if (key === 'turnPath' && this === state.encounter) return undefined;
-  if (key === 'library' && this === state) return [];
+  // 棋子库是全局数据，只写入“存档/棋子库/棋子库.json”。
+  if (key === 'library' && this === state) return undefined;
   if ((key === 'iconImgHd' || key === 'iconImg') && this && this.iconImgPath) return null;
   return value;
 }
@@ -2559,25 +2697,268 @@ function stateStorageSnapshot() {
   return JSON.parse(stateStorageJson());
 }
 
+function normalizeServerBase(value) {
+  let raw = String(value || '').trim();
+  if (!raw) return '';
+  if (!/^[a-z][a-z\d+.-]*:\/\//i.test(raw)) raw = `http://${raw}`;
+  try {
+    const url = new URL(raw);
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) return '';
+    url.search = '';
+    url.hash = '';
+    url.pathname = url.pathname.replace(/\/+$/, '');
+    return url.toString().replace(/\/$/, '');
+  } catch (e) {
+    return '';
+  }
+}
+
+function queryServerBase() {
+  try {
+    return normalizeServerBase(new URLSearchParams(location.search).get('server'));
+  } catch (e) {
+    return '';
+  }
+}
+
+function savedServerBase() {
+  try { return normalizeServerBase(localStorage.getItem(SERVER_URL_KEY)); } catch (e) { return ''; }
+}
+
+function configuredServerBase() {
+  return queryServerBase() || savedServerBase();
+}
+
+function saveApiBase() {
+  return configuredServerBase() || (location.protocol === 'file:' ? 'http://127.0.0.1:8090' : location.origin);
+}
+
+// 主控台可能由 file:// 打开，也可能由自定义端口/Tunnel 的同源地址打开。
+// 所有联机请求都从同一个入口计算，避免写死 localhost:8090。
+function serverApiBase() {
+  return saveApiBase();
+}
+
+function isLoopbackHost(hostname) {
+  return ['localhost', '127.0.0.1', '::1'].includes(String(hostname || '').toLowerCase());
+}
+
+function playerViewerUrl() {
+  const room = streamInfo?.roomCode ? `?room=${encodeURIComponent(streamInfo.roomCode)}` : '';
+  const pageIsHttp = location.protocol === 'http:' || location.protocol === 'https:';
+  if (pageIsHttp && !isLoopbackHost(location.hostname)) {
+    return `${location.origin}/主控台/玩家.html${room}`;
+  }
+  const configured = configuredServerBase();
+  if (configured) {
+    try {
+      const configuredUrl = new URL(configured);
+      if (!isLoopbackHost(configuredUrl.hostname)) return `${configured}/主控台/玩家.html${room}`;
+    } catch (e) { /* 回退到局域网地址 */ }
+  }
+  const ip = streamInfo?.ip || '127.0.0.1';
+  const port = streamInfo?.port || 8090;
+  return `http://${ip}:${port}/主控台/玩家.html${room}`;
+}
+
+function updateServerUrlUi() {
+  const input = $('#server-url-input');
+  const hint = $('#server-url-hint');
+  const override = queryServerBase() || savedServerBase();
+  if (input && document.activeElement !== input) input.value = override;
+  if (!hint) return;
+  const base = serverApiBase();
+  hint.textContent = location.protocol === 'file:' && !override
+    ? `当前使用默认地址 ${base}；填写后会保存到本机。`
+    : `当前 API：${base}${queryServerBase() ? '（来自 URL 参数）' : ''}`;
+}
+
+function applyServerUrlSetting() {
+  const input = $('#server-url-input');
+  const raw = input?.value.trim() || '';
+  if (raw && !normalizeServerBase(raw)) {
+    toast('服务器地址无效：请填写 http:// 或 https:// 地址');
+    return;
+  }
+  try {
+    if (raw) localStorage.setItem(SERVER_URL_KEY, normalizeServerBase(raw));
+    else localStorage.removeItem(SERVER_URL_KEY);
+  } catch (e) {
+    toast('无法保存服务器地址，请检查浏览器存储权限');
+    return;
+  }
+  // URL 参数优先级最高；清空时一并移除本页的 server 参数，避免继续连接旧地址。
+  try {
+    const url = new URL(location.href);
+    if (!raw) url.searchParams.delete('server');
+    window.location.href = url.toString();
+  } catch (e) {
+    window.location.reload();
+  }
+}
+
+function sendHostAction(action) {
+  return fetch(`${serverApiBase()}/api/host-action`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action }),
+  }).then(async (res) => ({ ok: res.ok, data: await res.json().catch(() => ({})) }));
+}
+
+function updateSaveStatus(label, kind = '') {
+  const el = $('#save-status');
+  if (!el) return;
+  el.textContent = label;
+  el.className = `save-status${kind ? ` ${kind}` : ''}`;
+}
+
+function folderSaveSnapshot() {
+  return stateStorageSnapshot();
+}
+
+function queueCurrentFolderSave(options = {}) {
+  const campaignId = state.campaignId;
+  if (!campaignId) {
+    updateSaveStatus('临时进度 · 仅浏览器缓存', 'error');
+    return Promise.resolve(false);
+  }
+  const campaignName = state.campaignName || '未命名战役';
+  const snapshot = folderSaveSnapshot();
+  const makeBackup = options.backup === true;
+  folderSaveQueue = folderSaveQueue.catch(() => false).then(async () => {
+    if (!projectDirHandle || !(await hasSaveFolderPermission())) {
+      updateSaveStatus('未写入“存档”文件夹 · 请重新授权', 'error');
+      return false;
+    }
+    updateSaveStatus('正在写入存档文件夹…', 'busy');
+    try {
+      await writeLibraryFile(loadLibrary());
+      const record = await campaignPut(campaignId, campaignName, snapshot, { backup: makeBackup });
+      lastFolderSaveAt = Number(record?.savedAt) || Date.now();
+      try { localStorage.setItem('dnd-board-last-folder-save-at', String(lastFolderSaveAt)); } catch (e) { /* 忽略 */ }
+      updateSaveStatus(`文件夹已保存 ${new Date(lastFolderSaveAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`, 'ok');
+      if ($('#campaign-modal') && !$('#campaign-modal').hidden) renderCampaignList();
+      return true;
+    } catch (error) {
+      console.warn('写入存档文件夹失败', error);
+      updateSaveStatus('写入失败 · 浏览器恢复点已保存', 'error');
+      return false;
+    }
+  });
+  return folderSaveQueue;
+}
+
+async function loadFolderSave(item, confirmLoad = true) {
+  if (!item?.path) return false;
+  try {
+    const text = await readBoundText(item.path);
+    const data = parseCampaignFile(text, item.folderName || '');
+    if (!data?.state) {
+      toast('存档文件无效或已经损坏');
+      return false;
+    }
+    if (confirmLoad && !confirm(`读取存档「${item.name}」？当前未保存内容会被替换。`)) return false;
+    if (state.campaignId) await writeRecoverySnapshot('读取前恢复点', folderSaveSnapshot());
+    if (!applySavedState(data.state)) throw new Error('invalid state');
+    applyAllState();
+    loadLinks();
+    renderLinks();
+    localStorage.setItem(STORAGE_KEY, stateStorageJson());
+    localStorage.setItem('dnd-board-local-save-at', String(Date.now()));
+    updateSaveStatus(`已读取 ${item.name}`, 'ok');
+    toast(`已读取存档「${item.name}」`);
+    streamDirty = true;
+    return true;
+  } catch (error) {
+    console.warn('读取文件夹存档失败', error);
+    toast('读取存档失败：请确认文件夹权限');
+    return false;
+  }
+}
+
+async function restoreFolderIfAvailable() {
+  if (!projectDirHandle) {
+    updateSaveStatus('仅浏览器缓存 · 请连接“存档”文件夹', 'error');
+    return;
+  }
+  if (!(await hasSaveFolderPermission())) {
+    updateSaveStatus('“存档”文件夹待授权', 'error');
+    return;
+  }
+  if (!state.campaignId) {
+    updateSaveStatus('存档文件夹已连接', 'ok');
+    return;
+  }
+  const record = await campaignGet(state.campaignId);
+  if (!record?.state) {
+    updateSaveStatus('文件夹已连接 · 等待首次保存', 'ok');
+    return;
+  }
+  let localSavedAt = 0;
+  try { localSavedAt = Number(localStorage.getItem('dnd-board-local-save-at')) || 0; } catch (e) { /* 忽略 */ }
+  if (!localStorage.getItem(STORAGE_KEY) || !state.maps.length) {
+    applySavedState(record.state);
+    applyAllState();
+    loadLinks();
+    renderLinks();
+    updateSaveStatus(`已从文件夹恢复 ${new Date(record.savedAt).toLocaleTimeString('zh-CN')}`, 'ok');
+    return;
+  }
+  if (record.savedAt > localSavedAt + 1000 && confirm('检测到更新的文件夹存档，是否读取？')) {
+    await writeRecoverySnapshot('读取前恢复点', folderSaveSnapshot());
+    applySavedState(record.state);
+    applyAllState();
+    loadLinks();
+    renderLinks();
+    localStorage.setItem(STORAGE_KEY, stateStorageJson());
+    toast('已读取更新的文件夹存档');
+    updateSaveStatus('已读取文件夹存档', 'ok');
+  } else if (localSavedAt > record.savedAt + 1000) {
+    if (confirm('浏览器恢复点比正式文件更新，是否补写到存档文件夹？')) {
+      await queueCurrentFolderSave();
+    } else {
+      updateSaveStatus('浏览器恢复点较新 · 尚未写入文件夹', 'error');
+    }
+  } else {
+    updateSaveStatus('存档文件夹已连接', 'ok');
+  }
+}
+
 function scheduleAutosave(markStream = true) {
   if (markStream) streamDirty = true;
   clearTimeout(autosaveTimer);
   autosaveTimer = setTimeout(saveNow, 600);
-  clearTimeout(campaignSaveTimer);
-  campaignSaveTimer = setTimeout(persistActiveCampaign, 1200);
 }
 
-function saveNow() {
+function saveNow(options = {}) {
   try {
     // 棋子库有独立存档；本回合路径属于联机临时显示，不写入战役存档。
     const compact = stateStorageJson();
     localStorage.setItem(STORAGE_KEY, compact);
-    if (projectDirHandle) persistToProject();
+    localStorage.setItem('dnd-board-local-save-at', String(Date.now()));
+    if (projectDirHandle) queueCurrentFolderSave({ backup: options.backup === true });
+    else updateSaveStatus('仅浏览器缓存 · 请连接“存档”文件夹', 'error');
     return true;
   } catch (e) {
     toast('⚠ 自动保存失败：地图图片可能太大（>5MB）');
     return false;
   }
+}
+
+async function saveNowWithFeedback() {
+  if (!(await ensureSaveFolderAccess(true))) return;
+  if (!state.campaignId) {
+    const name = prompt('给这个存档起个名字', `战役 ${new Date().toLocaleDateString('zh-CN')}`);
+    if (name === null || !name.trim()) return;
+    state.campaignId = 'c' + (uid++);
+    state.campaignName = name.trim();
+  }
+  if (!saveNow({ backup: true })) {
+    toast('保存失败');
+    return;
+  }
+  const ok = await folderSaveQueue;
+  toast(ok ? `✅ 已保存「${state.campaignName}」` : '仅保存了浏览器恢复点；请重新授权“存档”文件夹');
 }
 
 function loadSaved() {
@@ -2596,6 +2977,10 @@ function applySavedState(s) {
     state.fogOn = !!s.fogOn;
     state.campaignId = s.campaignId || null;
     state.campaignName = s.campaignName || '默认战役';
+    state.sharedResources = Array.isArray(s.sharedResources)
+      ? s.sharedResources.map(normalizeLink).filter(Boolean) : [];
+    state.sharedNotes = typeof s.sharedNotes === 'string' ? s.sharedNotes.slice(0, 4000) : '';
+    userLinks = state.sharedResources.slice();
     state.selectedId = null;
     state.encounter = normalizeEncounter(s.encounter);
     if (!loadLibrary().length && Array.isArray(s.library) && s.library.length) {
@@ -2605,10 +2990,12 @@ function applySavedState(s) {
     }
 
     const normalizeToken = (t) => {
-      const mappedPath = canonicalPortraitPath(AVATAR_SOURCE_MAP[t.name] || t.iconImgPath);
-      if (mappedPath) {
-        t.iconImgPath = mappedPath;
+      const portraitPath = canonicalPortraitPath(t.iconImgPath);
+      if (portraitPath) {
+        t.iconImgPath = portraitPath;
+        t.iconImg = null;
         t.iconImgHd = null;
+        t.iconImgId = null;
       }
       if (typeof t.size !== 'number') t.size = 1;
       if (typeof t.hp !== 'number') t.hp = t.hpMax || 10;
@@ -2627,8 +3014,10 @@ function applySavedState(s) {
         gridSize: m.gridSize || 50,
         cells: Array.isArray(m.cells) ? m.cells.map((r) => r.slice()) : null,
         cellStates: m.cellStates && typeof m.cellStates === 'object' ? { ...m.cellStates } : {},
+        cellVariants: m.cellVariants && typeof m.cellVariants === 'object' ? { ...m.cellVariants } : {},
         baseCells: Array.isArray(m.baseCells) ? m.baseCells.map((r) => r.slice()) : (Array.isArray(m.cells) ? m.cells.map((r) => r.slice()) : null),
         baseCellStates: m.baseCellStates && typeof m.baseCellStates === 'object' ? { ...m.baseCellStates } : (m.cellStates && typeof m.cellStates === 'object' ? { ...m.cellStates } : {}),
+        baseCellVariants: m.baseCellVariants && typeof m.baseCellVariants === 'object' ? { ...m.baseCellVariants } : (m.cellVariants && typeof m.cellVariants === 'object' ? { ...m.cellVariants } : {}),
         doodles: Array.isArray(m.doodles) ? m.doodles : [],
         fog: m.fog && typeof m.fog === 'object' ? { ...m.fog } : {},
         tokens: Array.isArray(m.tokens) ? m.tokens.map(normalizeToken) : [],
@@ -2647,8 +3036,10 @@ function applySavedState(s) {
       legacy.tokens = Array.isArray(s.tokens) ? s.tokens.map(normalizeToken) : [];
       legacy.cells = null;
       legacy.cellStates = {};
+      legacy.cellVariants = {};
       legacy.baseCells = null;
       legacy.baseCellStates = {};
+      legacy.baseCellVariants = {};
       legacy.doodles = [];
       legacy.fog = {};
       legacy.cam = s.cam || legacy.cam;
@@ -2676,6 +3067,7 @@ function applyAllState() {
   $('#fog-toggle').checked = state.fogOn;
   $('#snap-toggle').checked = state.snap;
   renderLibrary();
+  renderSharedNotes();
   syncMapSelect();
   applyActiveMap();
 }
@@ -2704,109 +3096,6 @@ function applyActiveMap() {
   updateDetail();
 }
 
-function exportState() {
-  const blob = new Blob([stateStorageJson(2)], { type: 'application/json' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = '完整存档备份.json';
-  a.click();
-  URL.revokeObjectURL(a.href);
-  toast('已导出存档文件');
-}
-
-function importState(file) {
-  const reader = new FileReader();
-  reader.onload = () => {
-    try {
-      const s = JSON.parse(reader.result);
-      if (!Array.isArray(s.maps) && !Array.isArray(s.tokens)) throw new Error('缺少数据');
-      if (Array.isArray(s.library)) {
-        state.library = s.library.map(normalizeLibPreset);
-        saveLibrary();
-      }
-      if (applySavedState(s)) {
-        localStorage.setItem(STORAGE_KEY, stateStorageJson());
-        applyAllState();
-        toast('备份已导入');
-      } else {
-        toast('导入失败：文件格式不正确');
-      }
-    } catch (e) {
-      toast('导入失败：文件格式不正确');
-    }
-  };
-  reader.readAsText(file);
-}
-
-/* ==================== 完整备份 / 恢复（全部数据一套带走） ==================== */
-
-async function exportFullBackup() {
-  const campaigns = await campaignList();
-  let links = null;
-  try { links = JSON.parse(localStorage.getItem('sangduoer-links-v1')); } catch (e) { /* 忽略 */ }
-  const data = {
-    app: 'sangduoer-full-backup',
-    version: 1,
-    savedAt: Date.now(),
-    state,
-    library: loadLibrary(),
-    links,
-    campaigns,
-  };
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = '桑哆尔完整备份.json';
-  a.click();
-  URL.revokeObjectURL(a.href);
-  toast('已导出完整备份（主控台 / 战役 / 棋子库 / 常用网站）');
-}
-
-function importFullBackup(file) {
-  const reader = new FileReader();
-  reader.onload = () => {
-    (async () => {
-      try {
-        const d = JSON.parse(reader.result);
-        if (!d || !d.state || !Array.isArray(d.campaigns)) throw new Error('bad');
-        if (!confirm('用备份替换当前全部数据（主控台状态、战役、棋子库、常用网站）？')) return;
-        if (!applySavedState(d.state)) throw new Error('state');
-        // 战役
-        const db = await new Promise((res, rej) => {
-          const r = indexedDB.open('dnd-board-campaigns', 1);
-          r.onsuccess = () => res(r.result);
-          r.onerror = () => rej(r.error);
-        });
-        await new Promise((res, rej) => {
-          const tx = db.transaction('campaigns', 'readwrite');
-          tx.objectStore('campaigns').clear();
-          d.campaigns.forEach((c) => { if (c && c.id) tx.objectStore('campaigns').put(c, c.id); });
-          tx.oncomplete = () => res();
-          tx.onerror = () => rej(tx.error);
-        });
-        // 棋子库
-        if (Array.isArray(d.library)) saveLibrary(d.library);
-        // 常用网站
-        if (d.links) {
-          try { localStorage.setItem('sangduoer-links-v1', JSON.stringify(d.links)); } catch (e) { /* 忽略 */ }
-        }
-        applyAllState();
-        renderLibrary();
-        toast('完整备份已恢复');
-      } catch (e) {
-        toast('恢复失败：文件格式不正确');
-      }
-    })();
-  };
-  reader.readAsText(file);
-}
-
-function resetAll() {
-  if (!confirm('确定清空所有数据（地图和棋子）？')) return;
-  localStorage.removeItem(STORAGE_KEY);
-  location.reload();
-}
-
 /* ==================== Toast ==================== */
 
 function toast(msg) {
@@ -2820,6 +3109,7 @@ function toast(msg) {
 /* ==================== 事件 ==================== */
 
 function bindEvents() {
+  populateConditionSelect();
   // 地图
   $('#file-map').addEventListener('change', (e) => {
     if (e.target.files[0]) loadMapFromFile(e.target.files[0]);
@@ -2845,16 +3135,13 @@ function bindEvents() {
     if (e.target === $('#stitch-modal')) closeStitchModal();
   });
 
-  // 战役管理
-  $('#btn-campaign-new').addEventListener('click', newCampaign);
-  $('#btn-campaign-import').addEventListener('click', () => $('#file-map-folder').click());
-  $('#btn-campaign-import-backup').addEventListener('click', () => $('#file-campaign-import').click());
   // 封面页
   $('#cover-continue').addEventListener('click', () => {
     hideCover();
     toast(state.campaignId ? `已继续战役「${state.campaignName || ''}」` : '已继续上次临时进度');
   });
   $('#cover-new').addEventListener('click', async () => {
+    if (!(await ensureSaveFolderAccess(true))) return;
     const name = prompt('新战役名称', `战役 ${new Date().toLocaleDateString('zh-CN')}`);
     if (name === null || !name.trim()) return;
     const id = 'c' + (uid++);
@@ -2873,7 +3160,6 @@ function bindEvents() {
     state.encounter = defaultEncounterState();
     applyAllState();
     scheduleAutosave();
-    persistToProject();
     hideCover();
     toast(`已新建战役「${name.trim()}」，从空白地图开始`);
   });
@@ -2882,9 +3168,10 @@ function bindEvents() {
     hideCover();
     toast('已进入临时战役（不写入战役存档）');
   });
-  $('#file-campaign-import').addEventListener('change', (e) => {
-    if (e.target.files[0]) importCampaign(e.target.files[0]);
-    e.target.value = '';
+  $('#btn-save-folder-change').addEventListener('click', async () => {
+    if (!(await bindProjectFolder())) return;
+    await readCampaignRecords(true);
+    await renderCampaignList();
   });
   $('#btn-campaign-close').addEventListener('click', closeCampaignModal);
   $('#btn-mount-cancel').addEventListener('click', () => { $('#mount-modal').hidden = true; });
@@ -2906,6 +3193,7 @@ function bindEvents() {
     saveLinks();
     renderLinks();
   });
+  $('#shared-note').addEventListener('input', (e) => updateSharedNotes(e.target.value));
   $('#campaign-modal').addEventListener('click', (e) => {
     if (e.target === $('#campaign-modal')) closeCampaignModal();
   });
@@ -3279,6 +3567,33 @@ function bindEvents() {
     scheduleAutosave();
     toast(t.owner ? `「${t.name}」现在归「${t.owner}」操作` : `「${t.name}」改回 GM 控制`);
   });
+  $('#btn-detail-condition-add').addEventListener('click', addSelectedCondition);
+  $('#detail-condition-turns').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') addSelectedCondition();
+  });
+  $('#detail-public-note').addEventListener('input', (e) => {
+    const t = state.selectedId && findToken(state.selectedId);
+    if (!t) return;
+    t.publicNote = e.target.value.slice(0, 240);
+    scheduleAutosave();
+  });
+  $('#detail-gm-note').addEventListener('input', (e) => {
+    const t = state.selectedId && findToken(state.selectedId);
+    if (!t) return;
+    t.gmNote = e.target.value.slice(0, 500);
+    scheduleAutosave(false);
+  });
+  $('#detail-hidden-players').addEventListener('change', (e) => {
+    const t = state.selectedId && findToken(state.selectedId);
+    if (!t) return;
+    t.hiddenFromPlayers = e.target.checked;
+    if (currentTurnIncludesToken(t.id)) bumpEncounterTurn(encounterState());
+    renderTokens();
+    renderEncounter();
+    updateDetail();
+    scheduleAutosave();
+    toast(t.hiddenFromPlayers ? `「${t.name}」已对玩家隐藏` : `「${t.name}」已对玩家显示`);
+  });
   $('#detail-hp-current').addEventListener('input', (e) => {
     const t = state.selectedId && findToken(state.selectedId);
     if (!t) return;
@@ -3342,7 +3657,6 @@ function bindEvents() {
   $('#btn-lib-add').addEventListener('click', () => openLibEditor('new'));
   $('#btn-lib-save').addEventListener('click', saveLibEditor);
   $('#btn-lib-cancel').addEventListener('click', closeLibEditor);
-  $('#btn-lib-persist').addEventListener('click', persistLibraryButton);
   $('#btn-lib-icon').addEventListener('click', () => $('#file-lib-icon').click());
   $('#file-lib-icon').addEventListener('change', (e) => {
     const f = e.target.files[0];
@@ -3364,6 +3678,7 @@ function bindEvents() {
   $('#btn-save-to-lib').addEventListener('click', () => {
     const t = state.selectedId && findToken(state.selectedId);
     if (!t) return;
+    const portraitPath = canonicalPortraitPath(t.iconImgPath);
     state.library.push({
       id: 'l' + (uid++),
       name: t.name,
@@ -3371,9 +3686,9 @@ function bindEvents() {
       category: '其他',
       icon: t.icon || '',
       iconImg: t.iconImg || null,
-      iconImgHd: (AVATAR_SOURCE_MAP[t.name] || t.iconImgPath) ? null : (t.iconImgHd || null),
-      iconImgPath: canonicalPortraitPath(AVATAR_SOURCE_MAP[t.name] || t.iconImgPath),
-      iconImgId: t.iconImgId || null,
+      iconImgHd: portraitPath ? null : (t.iconImgHd || null),
+      iconImgPath: portraitPath,
+      iconImgId: portraitPath ? null : (t.iconImgId || null),
       size: t.size || 1,
       hpMax: t.hpMax || 10,
       ac: typeof t.ac === 'number' ? t.ac : 10,
@@ -3383,17 +3698,24 @@ function bindEvents() {
     scheduleAutosave();
     toast(`「${t.name}」已存入棋子库`);
   });
-  $('#btn-lib-sync').addEventListener('click', () => {
+  $('#btn-lib-sync').addEventListener('click', async () => {
+    const synced = await syncLibraryWithFolder();
+    if (synced) {
+      toast('已从“存档”中的棋子库同步');
+      return;
+    }
     state.library = loadLibrary();
     renderLibrary();
-    toast('棋子库已同步');
+    toast('未连接正式存档，已使用浏览器恢复缓存');
   });
-  window.addEventListener('focus', () => {
+  window.addEventListener('focus', async () => {
+    // 已连接正式存档时，焦点切回也只从全局文件同步，避免旧浏览器缓存反向覆盖。
+    if (await syncLibraryWithFolder()) return;
     const fresh = loadLibrary();
     if (JSON.stringify(fresh) !== JSON.stringify(state.library)) {
       state.library = fresh;
       renderLibrary();
-      toast('棋子库已自动同步');
+      toast('棋子库已从浏览器恢复缓存同步');
     }
   });
 
@@ -3439,7 +3761,16 @@ function bindEvents() {
       const mode = button.dataset.playMode === 'turn' ? 'turn' : 'free';
       if (e.playMode === mode) return;
       e.playMode = mode;
-      if (mode === 'turn' && !e.currentEntryId) e.currentEntryId = e.entries[0]?.id || null;
+      if (mode === 'turn') {
+        const wasRunning = !!e.worldTime.runningSince;
+        materializeWorldTime(e);
+        e.worldTime.resumeAfterTurn = wasRunning;
+        e.worldTime.runningSince = null;
+        if (!e.currentEntryId) e.currentEntryId = e.entries[0]?.id || null;
+      } else if (e.worldTime.resumeAfterTurn) {
+        e.worldTime.runningSince = Date.now();
+        e.worldTime.resumeAfterTurn = false;
+      }
       bumpEncounterTurn(e);
       setEncounterEvent(e, mode === 'turn' ? '已切换为回合制' : '已切换为自由模式');
       renderEncounter(); scheduleAutosave();
@@ -3471,15 +3802,15 @@ function bindEvents() {
     renderEncounter(); scheduleAutosave();
   });
   $('#btn-init-timer').addEventListener('click', setWorldClockRunning);
-  $('#btn-time-short-rest').addEventListener('click', () => advanceWorldTime(60, '完成短休：世界时间 +1 小时'));
-  $('#btn-time-long-rest').addEventListener('click', () => advanceWorldTime(8 * 60, '完成长休：世界时间 +8 小时'));
+  $('#btn-time-short-rest').addEventListener('click', () => advanceWorldTime(60 * 60, '完成短休：世界时间 +1 小时'));
+  $('#btn-time-long-rest').addEventListener('click', () => advanceWorldTime(8 * 60 * 60, '完成长休：世界时间 +8 小时'));
   $('#btn-time-apply').addEventListener('click', setWorldTimeFromInputs);
   ['time-year', 'time-week', 'time-day', 'time-clock'].forEach((id) => {
     $(`#${id}`).addEventListener('keydown', (event) => { if (event.key === 'Enter') setWorldTimeFromInputs(); });
   });
   $('#btn-time-reset').addEventListener('click', () => {
     const e = encounterState();
-    e.worldTime.totalMinutes = 8 * 60;
+    e.worldTime.totalSeconds = 8 * 60 * 60;
     e.worldTime.runningSince = null;
     setEncounterEvent(e, '世界时间已重置');
     renderEncounter(); scheduleAutosave();
@@ -3507,15 +3838,6 @@ function bindEvents() {
   });
   $('#dice-expr').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#btn-roll').click(); });
 
-  $('#file-import').addEventListener('change', (e) => {
-    if (e.target.files[0]) importState(e.target.files[0]);
-    e.target.value = '';
-  });
-  $('#file-backup-all').addEventListener('change', (e) => {
-    if (e.target.files[0]) importFullBackup(e.target.files[0]);
-    e.target.value = '';
-  });
-
   // 顶栏下拉菜单
   const closeAllMenus = () => {
     document.querySelectorAll('.dropdown-menu').forEach((m) => { m.hidden = true; });
@@ -3542,20 +3864,15 @@ function bindEvents() {
         break;
       }
       case 'delete-map': deleteActiveMap(); break;
-      case 'save': toast(saveNow() ? '已保存到本机浏览器' : '保存失败'); break;
-      case 'export': exportState(); break;
-      case 'import': $('#file-import').click(); break;
-      case 'backup-all': exportFullBackup(); break;
-      case 'restore-all': $('#file-backup-all').click(); break;
-      case 'bind-folder': bindProjectFolder(); break;
+      case 'save': saveNowWithFeedback(); break;
+      case 'load': openCampaignModal(); break;
       case 'perf-diag': openPerfDiag(); break;
       case 'stream': toggleStream(); break;
       case 'stream-copy': copyStreamUrl(); break;
       case 'server-check': serverCheck(); break;
       case 'server-copy': copyServerCmd(); break;
+      case 'server-url-apply': applyServerUrlSetting(); break;
       case 'stream-push': streamPushData(); break;
-      case 'campaigns': openCampaignModal(); break;
-      case 'reset': resetAll(); break;
     }
   };
   document.querySelectorAll('.dropdown-btn').forEach((btn) => {
@@ -3612,6 +3929,10 @@ function placeToken() {
     hpMax,
     hp: hpMax,
     ac,
+    conditions: [],
+    publicNote: '',
+    gmNote: '',
+    hiddenFromPlayers: false,
     x: clamp(finalX, margin, m.mapW - margin),
     y: clamp(finalY, margin, m.mapH - margin),
     owner: '',
@@ -3629,24 +3950,48 @@ function placeToken() {
 const LINKS_KEY = 'sangduoer-links-v1';
 let userLinks = null;
 
+function normalizeLink(link) {
+  if (!link || typeof link !== 'object') return null;
+  const name = String(link.name || '').trim().slice(0, 60);
+  const url = String(link.url || '').trim();
+  if (!name || !/^https?:\/\//i.test(url)) return null;
+  try {
+    const parsed = new URL(url);
+    if (!['http:', 'https:'].includes(parsed.protocol)) return null;
+  } catch (e) {
+    return null;
+  }
+  return { id: String(link.id || 'link' + (uid++)), name, url: url.slice(0, 500) };
+}
+
 function loadLinks() {
+  const saved = Array.isArray(state.sharedResources) ? state.sharedResources.map(normalizeLink).filter(Boolean) : [];
+  if (saved.length) {
+    userLinks = saved;
+    return;
+  }
   try {
     const raw = localStorage.getItem(LINKS_KEY);
     if (raw) {
       const arr = JSON.parse(raw);
       if (Array.isArray(arr) && arr.length) {
-        userLinks = arr.filter((l) => l && l.name && l.url).map((l) => ({ name: String(l.name), url: String(l.url) }));
+        userLinks = arr.map(normalizeLink).filter(Boolean);
+        state.sharedResources = userLinks.map((link) => ({ ...link }));
       }
     }
   } catch (e) { /* 忽略 */ }
   if (!userLinks) {
-    userLinks = [{ name: '5E 不全书', url: 'https://5echm.kagangtuya.top/' }];
-    try { localStorage.setItem(LINKS_KEY, JSON.stringify(userLinks)); } catch (e) { /* 忽略 */ }
+    userLinks = [normalizeLink({ name: '5E 不全书', url: 'https://5echm.kagangtuya.top/' })].filter(Boolean);
+    state.sharedResources = userLinks.map((link) => ({ ...link }));
+    try { localStorage.setItem(LINKS_KEY, JSON.stringify(state.sharedResources)); } catch (e) { /* 忽略 */ }
   }
 }
 
 function saveLinks() {
-  try { localStorage.setItem(LINKS_KEY, JSON.stringify(userLinks || [])); } catch (e) { /* 忽略 */ }
+  userLinks = (userLinks || []).map(normalizeLink).filter(Boolean);
+  state.sharedResources = userLinks.map((link) => ({ ...link }));
+  try { localStorage.setItem(LINKS_KEY, JSON.stringify(state.sharedResources)); } catch (e) { /* 忽略 */ }
+  scheduleAutosave();
 }
 
 function renderLinks() {
@@ -3659,7 +4004,7 @@ function renderLinks() {
     const a = document.createElement('a');
     a.href = l.url;
     a.target = '_blank';
-    a.rel = 'noopener';
+    a.rel = 'noopener noreferrer';
     a.textContent = l.name;
     a.title = l.url;
     const del = document.createElement('button');
@@ -3672,12 +4017,28 @@ function renderLinks() {
   });
 }
 
+function renderSharedNotes() {
+  const editor = $('#shared-note');
+  if (editor && document.activeElement !== editor) editor.value = state.sharedNotes || '';
+  const count = $('#shared-note-count');
+  if (count) count.textContent = `${(state.sharedNotes || '').length}/4000`;
+}
+
+function updateSharedNotes(value) {
+  state.sharedNotes = String(value || '').slice(0, 4000);
+  renderSharedNotes();
+  clearTimeout(sharedNoteTimer);
+  sharedNoteTimer = setTimeout(() => scheduleAutosave(), 180);
+}
+
 function addLink(name, url) {
   const n = (name || '').trim();
   let u = (url || '').trim();
   if (!n || !u) { toast('请填写网站名称和网址'); return; }
   if (!/^https?:\/\//i.test(u)) u = 'https://' + u;
-  userLinks.push({ name: n, url: u });
+  const link = normalizeLink({ name: n, url: u });
+  if (!link) { toast('网址必须以 http:// 或 https:// 开头'); return; }
+  userLinks.push(link);
   saveLinks();
   renderLinks();
   toast(`已添加「${n}」`);
@@ -3839,7 +4200,7 @@ async function ensureBgmServerUrl(i) {
     else if (it.url) file = await (await fetch(it.url)).blob();
     if (!file) return null;
     const buf = await file.arrayBuffer();
-    const res = await fetch('/api/music?name=' + encodeURIComponent(it.name), {
+    const res = await fetch(`${serverApiBase()}/api/music?name=` + encodeURIComponent(it.name), {
       method: 'POST',
       headers: { 'Content-Type': 'application/octet-stream' },
       body: buf,
@@ -3856,14 +4217,15 @@ async function broadcastBgm(action) {
   if (!url) return;
   bgmServerUrl = url;
   bgmPlaying = action !== 'pause' && action !== 'stop';
-  fetch('/api/action', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      player: 'dm',
-      action: { op: 'bgm', action, track: bgmList[bgmIndex].name, url, time: Math.round(bgmAudio.currentTime || 0) },
-    }),
-  }).catch(() => {});
+  sendHostAction({
+    op: 'bgm',
+    action,
+    track: bgmList[bgmIndex].name,
+    url,
+    time: Math.round(bgmAudio.currentTime || 0),
+  }).then((result) => {
+    if (!result.ok || result.data?.ok === false) toast('⚠ BGM 未广播');
+  }).catch(() => toast('⚠ BGM 未广播'));
 }
 
 bgmAudio.addEventListener('ended', () => nextBgm());
@@ -3895,20 +4257,85 @@ $('#bgm-volume').addEventListener('input', (e) => {
 
 /* ==================== 简易联机（主机推送观战） ==================== */
 
+function tokenIsFullyFogged(m, token) {
+  if (!state.fogOn || !m || !m.fog || !Object.keys(m.fog).length) return false;
+  const grid = Number(m.gridSize) || 50;
+  const size = token.size >= 2 ? 2 : 1;
+  const col = Math.floor(Number(token.x || 0) / grid);
+  const row = Math.floor(Number(token.y || 0) / grid);
+  const startCol = size >= 2 ? col - 1 : col;
+  const startRow = size >= 2 ? row - 1 : row;
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      if (!m.fog[`${startCol + x},${startRow + y}`]) return false;
+    }
+  }
+  return true;
+}
+
 function buildStreamPayload() {
   // 玩家只需要当前地图；其余楼层和棋子库不应占用联机带宽。
   const m = activeMap();
+  const publicTokenEntries = [];
+  const visibleTokenIds = new Set();
+  if (m) {
+    (m.tokens || []).forEach((token) => {
+      if (token.hiddenFromPlayers || tokenIsFullyFogged(m, token)) return;
+      const friendly = token.type === 'pc' || token.type === 'ally';
+      const publicToken = {
+        id: token.id,
+        name: token.name,
+        type: token.type,
+        icon: token.icon,
+        iconImg: token.iconImg,
+        iconImgHd: token.iconImgHd,
+        iconImgPath: token.iconImgPath,
+        size: token.size,
+        x: token.x,
+        y: token.y,
+        owner: token.owner,
+        mountId: token.mountId || null,
+        conditions: (token.conditions || []).filter((condition) => condition.visibility !== 'gm').map((condition) => ({ ...condition })),
+        publicNote: token.publicNote || '',
+      };
+      if (friendly) {
+        publicToken.hp = token.hp;
+        publicToken.hpMax = token.hpMax;
+        publicToken.ac = token.ac;
+      }
+      publicTokenEntries.push(publicToken);
+      visibleTokenIds.add(token.id);
+    });
+  }
+  const visibleTokenSet = new Set(publicTokenEntries.map((token) => token.id));
+  publicTokenEntries.forEach((token) => {
+    if (!token.mountId || !visibleTokenSet.has(token.mountId)) delete token.mountId;
+  });
+  const publicMap = m ? {
+    id: m.id,
+    name: m.name,
+    mapData: m.mapData || null,
+    mapW: m.mapW,
+    mapH: m.mapH,
+    gridSize: m.gridSize,
+    doodles: Array.isArray(m.doodles) ? m.doodles.map((stroke) => ({ ...stroke })) : [],
+    fog: m.fog && typeof m.fog === 'object' ? { ...m.fog } : {},
+    tokens: publicTokenEntries,
+  } : null;
   const p = {
-    maps: m ? [m] : [],
+    maps: publicMap ? [publicMap] : [],
     activeMapId: state.activeMapId,
     snap: state.snap,
     showGrid: state.showGrid,
     showNames: state.showNames,
     fogOn: state.fogOn,
     campaignName: state.campaignName,
-    encounter: publicEncounterState(),
+    sharedResources: (userLinks || []).map((link) => ({ ...link })),
+    sharedNotes: String(state.sharedNotes || '').slice(0, 4000),
+    encounter: publicEncounterState(visibleTokenIds),
   };
-  p._links = (userLinks || []).map((l) => ({ name: l.name, url: l.url }));
+  // 兼容尚未更新的观战页面；新页面使用 sharedResources。
+  p._links = p.sharedResources.map((l) => ({ name: l.name, url: l.url }));
   if (bgmServerUrl && bgmIndex >= 0 && bgmList[bgmIndex]) {
     p._bgm = {
       action: bgmPlaying ? 'play' : 'pause',
@@ -3924,12 +4351,37 @@ function buildStreamPayload() {
 // 玩家动作到达主机：服务器已立即广播，不再回声式发送整张状态。
 function applyRemoteAction(a) {
   if (!a) return;
+  if (a.op === 'endTurn') {
+    const e = encounterState();
+    if (Number(e.turnSerial) !== Number(a.turnSerial)) return;
+    e.currentEntryId = a.nextEntryId || e.currentEntryId;
+    e.round = Math.max(1, Number(a.round) || e.round);
+    e.turnSerial = Math.max(1, Number(a.nextTurnSerial) || (e.turnSerial + 1));
+    e.turnPath = emptyTurnPath();
+    materializeWorldTime(e);
+    if (Number.isFinite(Number(a.worldTimeSeconds))) e.worldTime.totalSeconds = Math.max(0, Math.trunc(Number(a.worldTimeSeconds)));
+    e.worldTime.runningSince = null;
+    setEncounterEvent(e, `玩家结束回合：${initiativeEntryLabel(currentInitiativeEntry(e))}`);
+    renderEncounter();
+    renderTokens();
+    renderTurnPath();
+    scheduleAutosave(false);
+    return;
+  }
   if (a.op === 'roll') {
+    if (a.rid && hostLocalRolls.has(a.rid)) {
+      hostLocalRolls.delete(a.rid);
+      return;
+    }
     // 玩家掷骰：进主控台骰子记录，并弹提示
     const who = a.name || '玩家';
     playDiceFx(a.sides || 20, a.expr || '', a.total, { dice: a.dice, pick: a.pick, mode: a.mode });
     addLogLine(`${who} · ${a.expr || ''}`, a.detail || '', a.total);
     toast(`🎲 ${who} 掷出 ${a.total}（${a.expr || ''}）`);
+    return;
+  }
+  if (a.op === 'announce') {
+    toast(`📣 ${a.text || 'GM 发布了一条公告'}`);
     return;
   }
   if (a.op === 'doodle') {
@@ -3977,7 +4429,7 @@ function applyRemoteAction(a) {
 
 async function mergePlayerStateFromServer() {
   try {
-    const res = await fetch('http://localhost:8090/api/state');
+    const res = await fetch(`${serverApiBase()}/api/state`);
     if (!res.ok) return;
     const s = await res.json();
     if (!s || !Array.isArray(s.maps)) return;
@@ -4021,7 +4473,7 @@ function startStreamClient() {
   if (streamES) {
     try { streamES.close(); } catch (e) { /* 忽略 */ }
   }
-  streamES = new EventSource('http://localhost:8090/api/events');
+  streamES = new EventSource(`${serverApiBase()}/api/events`);
   streamES.onopen = () => { mergePlayerStateFromServer(); };
   streamES.onmessage = (e) => {
     try {
@@ -4046,7 +4498,7 @@ async function streamPush() {
   if (!streamOn || streamPushing) return;
   streamPushing = true;
   try {
-    const res = await fetch('http://localhost:8090/api/state', {
+    const res = await fetch(`${serverApiBase()}/api/state`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(buildStreamPayload()),
@@ -4081,6 +4533,41 @@ function updateStreamUi() {
   if (toggleBtn) toggleBtn.textContent = streamOn ? '⛔ 关闭玩家模式' : '📡 开启玩家模式（主机推送）';
   const dd = $('#btn-stream-dd');
   if (dd) dd.textContent = streamOn ? '📡 联机已开 ▾' : '📡 联机 ▾';
+  const netInfo = $('#net-info');
+  const netPlayerList = $('#net-player-list');
+  if (netInfo) {
+    if (!streamInfo) {
+      netInfo.textContent = '尚未连接服务器';
+      if (netPlayerList) netPlayerList.textContent = '';
+    }
+    else netInfo.textContent = `房间码：${streamInfo.roomCode || '—'}\n在线玩家：${streamInfo.playerCount || 0}\n服务器：${serverApiBase()}\n玩家入口：${playerViewerUrl()}`;
+  }
+  updateServerUrlUi();
+}
+
+async function refreshStreamPlayers() {
+  if (!streamOn) return;
+  try {
+    const res = await fetch(`${serverApiBase()}/api/players`);
+    if (!res.ok) return;
+    const data = await res.json();
+    const list = $('#net-player-list');
+    if (list) {
+      streamPlayers = Array.isArray(data.players) ? data.players : [];
+      list.innerHTML = '';
+      streamPlayers.forEach((player) => {
+        const row = document.createElement('div');
+        row.className = `net-player-row${player.online ? ' online' : ''}`;
+        row.textContent = `${player.online ? '●' : '○'} ${player.name || '未命名玩家'} · ${player.online ? (player.status === 'ready' ? '已准备' : '在线') : '离线'}`;
+        list.appendChild(row);
+      });
+      if (!list.children.length) list.textContent = '暂无玩家加入';
+      if (state.selectedId) updateDetail();
+    }
+    const onlineCount = (data.players || []).filter((player) => player.online).length;
+    if (streamInfo) streamInfo = { ...streamInfo, playerCount: onlineCount };
+    updateStreamUi();
+  } catch (e) { /* 服务器断开时由主状态推送逻辑提示 */ }
 }
 
 async function copyStreamUrl() {
@@ -4088,7 +4575,7 @@ async function copyStreamUrl() {
     toast('请先开启玩家模式');
     return;
   }
-  const url = `http://${streamInfo.ip}:${streamInfo.port || 8090}/主控台/观战.html?v=24`;
+  const url = playerViewerUrl();
   try {
     await navigator.clipboard.writeText(url);
     toast('已复制玩家观看地址：' + url);
@@ -4102,11 +4589,13 @@ async function serverCheck() {
   try {
     const ctl = new AbortController();
     const t = setTimeout(() => ctl.abort(), 2500);
-    const res = await fetch('http://localhost:8090/api/info', { signal: ctl.signal });
+    const res = await fetch(`${serverApiBase()}/api/info`, { signal: ctl.signal });
     clearTimeout(t);
     const info = await res.json();
-    const ip = (info.ips || []).find((x) => x !== '127.0.0.1') || 'localhost';
-    toast(`✅ 服务器在线：玩家打开 http://${ip}:${info.port || 8090}/主控台/观战.html?v=24`);
+    const oldInfo = streamInfo;
+    streamInfo = { ...(oldInfo || {}), ip: (info.ips || []).find((x) => x !== '127.0.0.1') || 'localhost', port: info.port || 8090, roomCode: info.roomCode || '', playerCount: info.playerCount || 0 };
+    toast(`✅ 服务器在线：玩家打开 ${playerViewerUrl()}`);
+    if (!oldInfo) streamInfo = null;
   } catch (e) {
     toast('❌ 服务器未启动：请双击项目里的「启动桑哆尔」一键启动');
   }
@@ -4115,7 +4604,7 @@ async function serverCheck() {
 // 复制启动命令（Windows / macOS 自动识别）
 async function copyServerCmd() {
   const isWin = /Windows/i.test(navigator.userAgent);
-  const cmd = isWin ? 'python 主控台\\联机服务器.py' : 'python3 主控台/联机服务器.py';
+  const cmd = isWin ? 'py -3 start_server.py' : 'python3 start_server.py';
   try {
     await navigator.clipboard.writeText(cmd);
     toast('已复制启动命令：' + cmd);
@@ -4136,6 +4625,7 @@ async function toggleStream() {
   if (streamOn) {
     streamOn = false;
     clearInterval(streamTimer);
+    clearInterval(streamPlayersTimer);
     if (streamES) { streamES.close(); streamES = null; }
     try { localStorage.removeItem('sangduoer-stream-on'); } catch (e) { /* 忽略 */ }
     streamInfo = null;
@@ -4146,19 +4636,23 @@ async function toggleStream() {
   try {
     const ctl = new AbortController();
     const t = setTimeout(() => ctl.abort(), 2500);
-    const res = await fetch('http://localhost:8090/api/info', { signal: ctl.signal });
+    const res = await fetch(`${serverApiBase()}/api/info`, { signal: ctl.signal });
     clearTimeout(t);
     const info = await res.json();
     streamOn = true;
     try { localStorage.setItem('sangduoer-stream-on', '1'); } catch (e) { /* 忽略 */ }
     clearInterval(streamTimer);
     streamTimer = setInterval(streamTick, 250);
+    clearInterval(streamPlayersTimer);
+    streamPlayersTimer = setInterval(refreshStreamPlayers, 5000);
     startStreamClient();
     streamPush();
     const ip = (info.ips || []).find((x) => x !== '127.0.0.1') || 'localhost';
-    streamInfo = { ip, port: info.port || 8090 };
+    streamInfo = { ip, port: info.port || 8090, roomCode: info.roomCode || '', playerCount: info.playerCount || 0 };
     updateStreamUi();
-    toast(`📡 玩家模式已开启：改动最快约0.3秒推送，玩家打开 http://${ip}:${info.port || 8090}/主控台/观战.html?v=24`);
+    refreshStreamPlayers();
+    const room = info.roomCode ? `?room=${encodeURIComponent(info.roomCode)}` : '';
+    toast(`📡 玩家模式已开启：改动最快约0.3秒推送，玩家打开 http://${ip}:${info.port || 8090}/主控台/玩家.html${room}`);
   } catch (e) {
     toast('📡 服务器未启动：请双击项目里的「启动桑哆尔」一键启动，再点一次开启');
   }
@@ -4173,17 +4667,21 @@ async function restoreStreamFromStorage() {
   startStreamClient();
   await mergePlayerStateFromServer();
   streamTimer = setInterval(streamTick, 250);
+  clearInterval(streamPlayersTimer);
+  streamPlayersTimer = setInterval(refreshStreamPlayers, 5000);
   streamPush();
   try {
     const ctl = new AbortController();
     const t = setTimeout(() => ctl.abort(), 2500);
-    const res = await fetch('http://localhost:8090/api/info', { signal: ctl.signal });
+    const res = await fetch(`${serverApiBase()}/api/info`, { signal: ctl.signal });
     clearTimeout(t);
     const info = await res.json();
     const ip = (info.ips || []).find((x) => x !== '127.0.0.1') || 'localhost';
-    streamInfo = { ip, port: info.port || 8090 };
+    streamInfo = { ip, port: info.port || 8090, roomCode: info.roomCode || '', playerCount: info.playerCount || 0 };
     updateStreamUi();
-    toast(`📡 已自动恢复玩家模式：玩家打开 http://${ip}:${info.port || 8090}/主控台/观战.html?v=24`);
+    refreshStreamPlayers();
+    const room = info.roomCode ? `?room=${encodeURIComponent(info.roomCode)}` : '';
+    toast(`📡 已自动恢复玩家模式：玩家打开 http://${ip}:${info.port || 8090}/主控台/玩家.html${room}`);
   } catch (e) {
     updateStreamUi();
     toast('📡 已自动恢复玩家模式：正在等待联机服务器启动，启动后会自动推送');
@@ -4281,24 +4779,26 @@ function canonicalPortraitPath(value) {
 
 function normalizeLibPreset(p) {
   // 棋子库与地图单位保持同一套极简字段。
-  const portraitPath = canonicalPortraitPath(AVATAR_SOURCE_MAP[p.name] || p.iconImgPath);
+  const portraitPath = canonicalPortraitPath(p.iconImgPath);
+  const isPathBacked = !!portraitPath;
   return {
     id: p.id || 'l' + (uid++),
     name: p.name || '未命名',
     type: ['pc', 'enemy', 'npc', 'ally'].includes(p.type) ? p.type : 'npc',
     category: (p.category || '').trim() || '其他',
     icon: p.icon || '',
-    iconImg: p.iconImg || null,
-    iconImgHd: portraitPath ? null : (p.iconImgHd || null),
+    // 已有项目原图时不再把缩略图和 IndexedDB id 重复写进正式棋子库。
+    iconImg: isPathBacked ? null : (p.iconImg || null),
+    iconImgHd: isPathBacked ? null : (p.iconImgHd || null),
     iconImgPath: portraitPath,
-    iconImgId: p.iconImgId || null,
+    iconImgId: isPathBacked ? null : (p.iconImgId || null),
     size: p.size === 2 ? 2 : 1,
     hpMax: Math.max(1, parseInt(p.hpMax, 10) || 10),
     ac: Math.max(0, Math.min(99, Number.isFinite(parseInt(p.ac, 10)) ? parseInt(p.ac, 10) : 10)),
   };
 }
 
-/* ============ 棋子库永久保存到文件（File System Access API） ============ */
+/* ============ 全局棋子库保存到“存档”文件夹 ============ */
 
 const FILE_DB = 'dnd-board-files';
 let libFileTimer = null;
@@ -4330,26 +4830,82 @@ function idbFilesSet(key, value) {
   }));
 }
 
-/* ==================== 项目文件夹绑定（自动写盘） ==================== */
+/* ==================== “存档”文件夹（唯一正式存档） ==================== */
 
-let projectDirHandle = null;
+const SAVE_HANDLE_KEY = 'save-root-dir-v2';
+const SAVE_ROOT_DIR = '存档';
+const SAVE_CAMPAIGN_DIR = '战役';
+const SAVE_LIBRARY_DIR = '棋子库';
+const SAVE_LIBRARY_FILE = SAVE_LIBRARY_DIR + '/棋子库.json';
+const SAVE_INDEX_FILE = '存档索引.json';
+let projectDirHandle = null; // 兼容旧变量名：现在始终代表用户选中的“存档”文件夹本身。
+let campaignRecordsCache = null;
 
 async function loadProjectDirHandle() {
-  try { projectDirHandle = await idbFilesGet('project-dir'); } catch (e) { projectDirHandle = null; }
+  try {
+    projectDirHandle = await idbFilesGet(SAVE_HANDLE_KEY);
+  } catch (e) {
+    projectDirHandle = null;
+  }
+  campaignRecordsCache = null;
   return projectDirHandle;
 }
 
-async function bindProjectFolder() {
-  if (!window.showDirectoryPicker) { toast('当前浏览器不支持文件夹绑定，请用 Chrome / Edge'); return; }
+async function hasSaveFolderPermission() {
+  if (!projectDirHandle) return false;
+  try { return await projectDirHandle.queryPermission({ mode: 'readwrite' }) === 'granted'; }
+  catch (e) { return false; }
+}
+
+async function ensureSaveFolderAccess(requestPermission = false) {
+  if (!projectDirHandle) {
+    if (!requestPermission) return false;
+    return bindProjectFolder();
+  }
   try {
-    const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
-    await idbFilesSet('project-dir', handle);
-    projectDirHandle = handle;
-    await persistToProject();
-    await syncCampaignsToFiles();
-    toast('✅ 已绑定项目文件夹，之后每次改动都会自动写盘');
+    let permission = await projectDirHandle.queryPermission({ mode: 'readwrite' });
+    if (permission !== 'granted' && requestPermission) {
+      permission = await projectDirHandle.requestPermission({ mode: 'readwrite' });
+    }
+    if (permission !== 'granted') {
+      updateSaveStatus('“存档”文件夹待授权', 'error');
+      if (requestPermission) toast('请重新授权存档文件夹');
+      return false;
+    }
+    await ensureSaveFolderStructure();
+    return true;
   } catch (e) {
-    if (e && e.name !== 'AbortError') toast('绑定失败：' + (e.message || e));
+    updateSaveStatus('“存档”文件夹不可用', 'error');
+    return false;
+  }
+}
+
+async function bindProjectFolder() {
+  if (!window.showDirectoryPicker) {
+    toast('当前浏览器不支持文件夹存档，请在主机上使用 Chrome / Edge');
+    return false;
+  }
+  try {
+    alert('请选择项目根目录中名为“存档”的文件夹。\n\n程序会直接使用该文件夹，不会再额外创建嵌套目录。');
+    const handle = await window.showDirectoryPicker({ id: 'sangduoer-save-root-v2', mode: 'readwrite' });
+    if (handle.name !== SAVE_ROOT_DIR) {
+      toast('请选择名称正好为“存档”的文件夹');
+      return false;
+    }
+    projectDirHandle = handle;
+    campaignRecordsCache = null;
+    await idbFilesSet(SAVE_HANDLE_KEY, handle);
+    await ensureSaveFolderStructure();
+    const migrated = await migrateLegacyCampaigns();
+    await syncLibraryWithFolder();
+    await restoreFolderIfAvailable();
+    if (state.campaignId && !(await campaignGet(state.campaignId))) await campaignPut(state.campaignId, state.campaignName, folderSaveSnapshot(), { backup: false });
+    updateSaveStatus('存档文件夹已连接', 'ok');
+    toast(`✅ 已连接“存档”文件夹${migrated ? `；已迁移 ${migrated} 个旧战役` : ''}`);
+    return true;
+  } catch (e) {
+    if (e && e.name !== 'AbortError') toast('连接“存档”文件夹失败：' + (e.message || e));
+    return false;
   }
 }
 
@@ -4362,19 +4918,15 @@ async function getDirHandle(root, relPath, create = true) {
   return cur;
 }
 
-async function queryProjectPerm() {
+async function ensureSaveFolderStructure() {
   if (!projectDirHandle) return false;
-  try {
-    let perm = await projectDirHandle.queryPermission({ mode: 'readwrite' });
-    if (perm !== 'granted') perm = await projectDirHandle.requestPermission({ mode: 'readwrite' });
-    return perm === 'granted';
-  } catch (e) {
-    return false;
-  }
+  await getDirHandle(projectDirHandle, SAVE_CAMPAIGN_DIR);
+  await getDirHandle(projectDirHandle, SAVE_LIBRARY_DIR);
+  return true;
 }
 
-async function readProjectText(relPath) {
-  if (!projectDirHandle || !(await queryProjectPerm())) return null;
+async function readBoundText(relPath) {
+  if (!projectDirHandle || !(await hasSaveFolderPermission())) return null;
   try {
     const idx = relPath.lastIndexOf('/');
     const dirPath = idx >= 0 ? relPath.slice(0, idx) : '';
@@ -4388,13 +4940,19 @@ async function readProjectText(relPath) {
   }
 }
 
-async function listProjectDir(relPath) {
-  if (!projectDirHandle || !(await queryProjectPerm())) return [];
+async function listBoundEntries(relPath, kind) {
+  if (!projectDirHandle || !(await hasSaveFolderPermission())) return [];
   try {
     const dir = relPath ? await getDirHandle(projectDirHandle, relPath, false) : projectDirHandle;
     const out = [];
     for await (const [name, handle] of dir.entries()) {
-      if (handle.kind === 'directory') out.push(name);
+      if (handle.kind !== kind) continue;
+      if (kind === 'file') {
+        const file = await handle.getFile();
+        out.push({ name, lastModified: file.lastModified, size: file.size });
+      } else {
+        out.push({ name });
+      }
     }
     return out;
   } catch (e) {
@@ -4402,8 +4960,16 @@ async function listProjectDir(relPath) {
   }
 }
 
-async function writeProjectText(relPath, text) {
-  if (!projectDirHandle) return false;
+async function listBoundDirs(relPath) {
+  return (await listBoundEntries(relPath, 'directory')).map((entry) => entry.name);
+}
+
+async function listBoundFiles(relPath) {
+  return listBoundEntries(relPath, 'file');
+}
+
+async function writeBoundText(relPath, text) {
+  if (!projectDirHandle || !(await hasSaveFolderPermission())) return false;
   try {
     const idx = relPath.lastIndexOf('/');
     const dirPath = idx >= 0 ? relPath.slice(0, idx) : '';
@@ -4420,187 +4986,298 @@ async function writeProjectText(relPath, text) {
   }
 }
 
+async function deleteBoundEntry(relPath, recursive = false) {
+  if (!projectDirHandle || !(await hasSaveFolderPermission())) return false;
+  try {
+    const idx = relPath.lastIndexOf('/');
+    const dirPath = idx >= 0 ? relPath.slice(0, idx) : '';
+    const name = idx >= 0 ? relPath.slice(idx + 1) : relPath;
+    const dir = dirPath ? await getDirHandle(projectDirHandle, dirPath, false) : projectDirHandle;
+    await dir.removeEntry(name, { recursive });
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
 function safeCampaignFolderName(name) {
   return String(name || '未命名战役').replace(/[\\/:*?"<>|]/g, '_').trim() || '未命名战役';
 }
 
-/* ==================== 战役文件夹存档（绑定项目文件夹后生效） ==================== */
+function safeCampaignId(id) {
+  return String(id || 'default').replace(/[^\w\-]/g, '').slice(0, 80) || 'default';
+}
 
-const CAMPAIGN_DIR = '主控台/状态/战役';
+function campaignFolderName(id, name) {
+  return `${safeCampaignId(id)}-${safeCampaignFolderName(name)}`;
+}
 
-async function writeCampaignFile(record) {
-  if (!projectDirHandle || !record) return;
+function parseCampaignFile(text, folderName = '') {
+  if (!text) return null;
   try {
-    const text = JSON.stringify({
-      app: 'dnd-board',
-      kind: 'campaign',
-      campaignId: record.id,
-      name: record.name,
-      savedAt: record.savedAt,
-      state: record.state,
-    }, null, 2);
-    await writeProjectText(CAMPAIGN_DIR + '/' + safeCampaignFolderName(record.name) + '/存档.json', text);
-  } catch (e) {
-    console.warn('写战役文件夹失败', e);
+    const data = JSON.parse(text);
+    if (data && data.state && Array.isArray(data.state.maps)) {
+      const id = data.campaignId || data.state.campaignId || folderName || 'default';
+      const name = data.campaignName || data.name || data.state.campaignName || folderName || '默认战役';
+      return { id, name, savedAt: Number(data.savedAt) || 0, state: data.state };
+    }
+    if (data && Array.isArray(data.maps)) {
+      return {
+        id: data.campaignId || folderName || 'default',
+        name: data.campaignName || folderName || '默认战役',
+        savedAt: Number(data.savedAt) || 0,
+        state: data,
+      };
+    }
+  } catch (e) { /* 损坏文件由调用方忽略 */ }
+  return null;
+}
+
+function campaignPackage(id, name, snapshot, savedAt = Date.now()) {
+  const stateCopy = JSON.parse(JSON.stringify(snapshot));
+  stateCopy.campaignId = id;
+  stateCopy.campaignName = name;
+  delete stateCopy.library;
+  return {
+    format: 'sangduoer-campaign',
+    schemaVersion: 4,
+    savedAt,
+    campaignId: id,
+    campaignName: name,
+    state: stateCopy,
+  };
+}
+
+async function readCampaignRecords(force = false) {
+  if (!force && Array.isArray(campaignRecordsCache)) return campaignRecordsCache.slice();
+  const folders = await listBoundDirs(SAVE_CAMPAIGN_DIR);
+  const byId = new Map();
+  for (const folderName of folders) {
+    const path = `${SAVE_CAMPAIGN_DIR}/${folderName}/当前存档.json`;
+    const parsed = parseCampaignFile(await readBoundText(path), folderName);
+    if (!parsed) continue;
+    const record = { ...parsed, _folderName: folderName, _path: path };
+    const previous = byId.get(record.id);
+    if (!previous || record.savedAt >= previous.savedAt) byId.set(record.id, record);
   }
+  campaignRecordsCache = [...byId.values()].sort((a, b) => b.savedAt - a.savedAt);
+  return campaignRecordsCache.slice();
 }
 
-async function deleteCampaignFolder(name) {
-  if (!projectDirHandle) return;
-  try {
-    const dir = await getDirHandle(projectDirHandle, CAMPAIGN_DIR, false);
-    await dir.removeEntry(safeCampaignFolderName(name), { recursive: true });
-  } catch (e) { /* 文件夹可能不存在，忽略 */ }
+async function trimAutomaticBackups(folderName) {
+  const dir = `${SAVE_CAMPAIGN_DIR}/${folderName}/自动备份`;
+  const files = (await listBoundFiles(dir)).filter((item) => item.name.endsWith('.json'));
+  files.sort((a, b) => b.lastModified - a.lastModified);
+  for (const old of files.slice(10)) await deleteBoundEntry(`${dir}/${old.name}`);
 }
 
-async function readCampaignsFromFiles() {
-  const out = [];
-  const names = await listProjectDir(CAMPAIGN_DIR);
-  for (const n of names) {
-    const text = await readProjectText(CAMPAIGN_DIR + '/' + n + '/存档.json');
-    if (!text) continue;
-    try {
-      const d = JSON.parse(text);
-      if (d && d.kind === 'campaign' && d.state && Array.isArray(d.state.maps)) {
-        out.push({ id: d.campaignId || n, name: d.name || n, savedAt: d.savedAt || 0, state: d.state });
-      } else if (d && Array.isArray(d.maps)) {
-        // 兼容旧格式：文件夹里直接放的是主控台状态
-        out.push({ id: d.campaignId || n, name: d.campaignName || n, savedAt: 0, state: d });
-      }
-    } catch (e) { /* 跳过损坏文件 */ }
-  }
-  return out;
-}
-
-async function syncCampaignsFromFiles() {
-  if (!projectDirHandle) return 0;
-  const files = await readCampaignsFromFiles();
-  const idb = await campaignList();
-  const byId = new Map(idb.map((c) => [c.id, c]));
-  let n = 0;
-  for (const fc of files) {
-    if (!fc.id) continue;
-    const ex = byId.get(fc.id);
-    if (!ex || (fc.savedAt || 0) > (ex.savedAt || 0)) {
-      await campaignPut(fc.id, fc.name, fc.state);
-      n++;
+async function copyCampaignHistory(sourceFolder, targetFolder) {
+  if (!sourceFolder || sourceFolder === targetFolder) return;
+  for (const dirName of ['自动备份']) {
+    const sourceDir = `${SAVE_CAMPAIGN_DIR}/${sourceFolder}/${dirName}`;
+    const targetDir = `${SAVE_CAMPAIGN_DIR}/${targetFolder}/${dirName}`;
+    const files = (await listBoundFiles(sourceDir)).filter((item) => item.name.endsWith('.json'));
+    for (const file of files) {
+      const text = await readBoundText(`${sourceDir}/${file.name}`);
+      if (text) await writeBoundText(`${targetDir}/${file.name}`, text);
     }
   }
-  if (n) toast(`已从项目文件夹同步 ${n} 个战役`);
-  return n;
 }
 
-async function syncCampaignsToFiles() {
-  if (!projectDirHandle) return 0;
-  const idb = await campaignList();
-  for (const c of idb) await writeCampaignFile(c);
-  return idb.length;
+async function writeSaveIndex(records) {
+  const campaigns = Array.isArray(records) ? records : await readCampaignRecords();
+  const data = {
+    format: 'sangduoer-save-index',
+    schemaVersion: 2,
+    updatedAt: Date.now(),
+    campaigns: campaigns.map((item) => ({
+      id: item.id,
+      name: item.name,
+      savedAt: item.savedAt,
+      folder: item._folderName,
+    })),
+  };
+  await writeBoundText(SAVE_INDEX_FILE, JSON.stringify(data, null, 2));
 }
 
-// 把主控台状态写入项目文件夹：当前状态 + 当前战役快照（绑定根目录后）
-async function persistToProject() {
-  if (!projectDirHandle) return;
-  const text = stateStorageJson(2);
-  await writeProjectText('主控台/状态/当前状态.json', text);
-  if (state.campaignId) {
-    await writeProjectText('主控台/状态/战役/' + safeCampaignFolderName(state.campaignName) + '/存档.json', text);
+async function writeCampaignRecord(id, name, snapshot, options = {}) {
+  if (!(await ensureSaveFolderAccess(false))) throw new Error('save folder unavailable');
+  const cleanId = safeCampaignId(id);
+  const cleanName = String(name || '未命名战役').trim().slice(0, 120) || '未命名战役';
+  const existing = await campaignGet(cleanId);
+  const folderName = campaignFolderName(cleanId, cleanName);
+  const currentPath = `${SAVE_CAMPAIGN_DIR}/${folderName}/当前存档.json`;
+  const previousText = existing ? await readBoundText(existing._path) : await readBoundText(currentPath);
+  const savedAt = Number(options.savedAt) || Date.now();
+  if (options.backup === true && previousText) {
+    await writeBoundText(`${SAVE_CAMPAIGN_DIR}/${folderName}/自动备份/${savedAt}.json`, previousText);
+  }
+  const packageData = campaignPackage(cleanId, cleanName, snapshot, savedAt);
+  if (!(await writeBoundText(currentPath, JSON.stringify(packageData, null, 2)))) throw new Error('write failed');
+  if (existing && existing._folderName !== folderName) {
+    await copyCampaignHistory(existing._folderName, folderName);
+    await deleteBoundEntry(`${SAVE_CAMPAIGN_DIR}/${existing._folderName}`, true);
+  }
+  await trimAutomaticBackups(folderName);
+  const record = { id: cleanId, name: cleanName, savedAt, state: packageData.state, _folderName: folderName, _path: currentPath };
+  campaignRecordsCache = [record, ...(campaignRecordsCache || []).filter((item) => item.id !== cleanId)]
+    .sort((a, b) => b.savedAt - a.savedAt);
+  await writeSaveIndex(campaignRecordsCache);
+  return record;
+}
+
+async function writeRecoverySnapshot(label, snapshot) {
+  if (!(await ensureSaveFolderAccess(false))) throw new Error('save folder unavailable');
+  if (!state.campaignId) throw new Error('temporary campaign');
+  const record = await campaignGet(state.campaignId);
+  const folderName = record?._folderName || campaignFolderName(state.campaignId, state.campaignName);
+  const savedAt = Date.now();
+  const packageData = campaignPackage(state.campaignId, state.campaignName || '未命名战役', snapshot, savedAt);
+  const fileName = `${safeCampaignFolderName(label)}-${savedAt}.json`;
+  const ok = await writeBoundText(`${SAVE_CAMPAIGN_DIR}/${folderName}/自动备份/${fileName}`, JSON.stringify(packageData, null, 2));
+  if (!ok) throw new Error('write failed');
+  await trimAutomaticBackups(folderName);
+  return true;
+}
+
+async function migrateLegacyCampaigns() {
+  const existingIds = new Set((await readCampaignRecords(true)).map((item) => item.id));
+  const candidates = new Map();
+  let legacy = [];
+  try { legacy = await legacyCampaignList(); } catch (e) { /* 旧库不存在 */ }
+  legacy.forEach((item) => {
+    if (!item?.id || !item.state || !Array.isArray(item.state.maps) || existingIds.has(item.id)) return;
+    const candidate = {
+      id: item.id,
+      name: item.name || item.state.campaignName || '迁移战役',
+      savedAt: Number(item.savedAt) || 0,
+      state: item.state,
+    };
+    const previous = candidates.get(candidate.id);
+    if (!previous || candidate.savedAt > previous.savedAt) candidates.set(candidate.id, candidate);
+  });
+  let migrated = 0;
+  for (const item of candidates.values()) {
+    await writeCampaignRecord(item.id, item.name, item.state, { backup: false, savedAt: item.savedAt || Date.now() });
+    migrated++;
+  }
+  return migrated;
+}
+
+function libraryPackage(list, savedAt = Date.now()) {
+  return {
+    format: 'sangduoer-library',
+    schemaVersion: 1,
+    savedAt,
+    presets: (list || []).map(normalizeLibPreset),
+  };
+}
+
+async function readLibraryFile() {
+  const text = await readBoundText(SAVE_LIBRARY_FILE);
+  if (!text) return null;
+  try {
+    const data = JSON.parse(text);
+    if (!data || data.format !== 'sangduoer-library' || !Array.isArray(data.presets)) return null;
+    return {
+      savedAt: Number(data.savedAt) || 0,
+      presets: data.presets.map(normalizeLibPreset),
+    };
+  } catch (e) {
+    return null;
   }
 }
 
-function libraryFileContent(list) {
-  return '// 桑哆尔的世界 · 棋子库数据文件（程序自动写入，请勿手改）\nwindow.__LIBRARY_FILE__ = ' +
-    JSON.stringify(list, null, 1) + ';\n';
-}
-
-async function writeLibraryFile(list) {
+async function writeLibraryFile(list, savedAt) {
+  if (!projectDirHandle) return 'unset';
+  if (!(await hasSaveFolderPermission())) return 'denied';
   try {
-    const handle = await idbFilesGet('library-file');
-    if (!handle) return 'unset';
-    // 后台自动保存只检查权限，不反复请求权限。
-    const perm = await handle.queryPermission({ mode: 'readwrite' });
-    if (perm !== 'granted') return 'denied';
-    const w = await handle.createWritable();
-    await w.write(libraryFileContent(list));
-    await w.close();
-    return 'ok';
+    const stamp = Number(savedAt) || Number(localStorage.getItem(LIBRARY_SAVED_AT_KEY)) || Date.now();
+    const ok = await writeBoundText(SAVE_LIBRARY_FILE, JSON.stringify(libraryPackage(list, stamp), null, 2));
+    return ok ? 'ok' : 'error';
   } catch (e) {
     console.warn('写入棋子库文件失败', e);
     return 'error';
   }
 }
 
+function setLibraryCache(list, savedAt) {
+  const data = (list || []).map(normalizeLibPreset);
+  state.library = data;
+  try {
+    localStorage.setItem(LIBRARY_KEY, JSON.stringify(data));
+    localStorage.setItem(LIBRARY_SAVED_AT_KEY, String(Number(savedAt) || Date.now()));
+  } catch (e) { /* 浏览器缓存失败时仍保留本次会话 */ }
+  return data;
+}
+
+async function syncLibraryWithFolder() {
+  if (!projectDirHandle || !(await hasSaveFolderPermission())) {
+    updateLibPersistStatus('unset');
+    return false;
+  }
+  const disk = await readLibraryFile();
+  let local = loadLibrary();
+  let localSavedAt = Number(localStorage.getItem(LIBRARY_SAVED_AT_KEY)) || 0;
+  if (disk) {
+    // 绑定文件夹后，磁盘中的全局库是唯一正式来源。浏览器缓存仅用于文件缺失时的首次迁移，
+    // 不能在重新连接或切换存档目录时反向覆盖另一份正式棋子库。
+    setLibraryCache(disk.presets, disk.savedAt || Date.now());
+  } else {
+    if (!local.length) {
+      const legacyCampaign = (await readCampaignRecords(true)).find((record) => Array.isArray(record.state?.library) && record.state.library.length);
+      if (legacyCampaign) {
+        local = legacyCampaign.state.library.map(normalizeLibPreset);
+        localSavedAt = Number(legacyCampaign.savedAt) || Date.now();
+        setLibraryCache(local, localSavedAt);
+      }
+    }
+    if (!localSavedAt) {
+      localSavedAt = Date.now();
+      setLibraryCache(local, localSavedAt);
+    }
+    const result = await writeLibraryFile(local, localSavedAt);
+    if (result !== 'ok') {
+      updateLibPersistStatus(result);
+      return false;
+    }
+  }
+  if ($('#lib-list')) renderLibrary();
+  updateLibPersistStatus('ok');
+  return true;
+}
+
 function scheduleLibraryFileWrite() {
   clearTimeout(libFileTimer);
   libFileTimer = setTimeout(async () => {
     const list = typeof presets !== 'undefined' ? presets : state.library;
-    const r = await writeLibraryFile(list);
-    updateLibPersistStatus(r);
+    const result = await writeLibraryFile(list);
+    updateLibPersistStatus(result);
   }, 400);
 }
 
 function updateLibPersistStatus(st) {
   const el = $('#lib-persist-status') || $('#persist-status');
   if (!el) return;
-  if (st === 'ok') { el.textContent = '已固定 · 自动保存中'; el.classList.add('on'); }
-  else if (st === 'denied') { el.textContent = '权限被拒 · 点📌重新固定'; el.classList.remove('on'); }
-  else if (st === 'error') { el.textContent = '写入失败 · 点📌重新固定'; el.classList.remove('on'); }
-  else { el.textContent = '未固定'; el.classList.remove('on'); }
-}
-
-async function persistLibraryButton() {
-  try {
-    const handle = await window.showSaveFilePicker({
-      suggestedName: '棋子库数据.js',
-      types: [{ description: 'JavaScript 数据文件', accept: { 'text/javascript': ['.js'] } }],
-    });
-    await idbFilesSet('library-file', handle);
-    const list = typeof presets !== 'undefined' ? presets : state.library;
-    const r = await writeLibraryFile(list);
-    updateLibPersistStatus(r);
-    toast(r === 'ok' ? '✅ 已永久保存：以后每次修改棋子库都会自动写入这个文件' : '保存失败，请重试');
-  } catch (e) {
-    if (e && e.name !== 'AbortError') toast('未能选择保存位置：' + (e.message || e));
-  }
+  if (st === 'ok') { el.textContent = '已保存到“存档”'; el.classList.add('on'); }
+  else if (st === 'denied') { el.textContent = '“存档”文件夹待授权'; el.classList.remove('on'); }
+  else if (st === 'error') { el.textContent = '棋子库写入失败'; el.classList.remove('on'); }
+  else { el.textContent = '随“存档”文件夹保存'; el.classList.remove('on'); }
 }
 
 async function initLibPersistStatus() {
-  try {
-    const handle = await idbFilesGet('library-file');
-    if (!handle) { updateLibPersistStatus('unset'); return; }
-    const perm = await handle.queryPermission({ mode: 'readwrite' });
-    updateLibPersistStatus(perm === 'granted' ? 'ok' : 'unset');
-  } catch (e) {
-    updateLibPersistStatus('unset');
-  }
-}
-
-const LIBRARY_EXPANSION_KEY = 'sangduoer-library-expansion-familiars-v4';
-const LIBRARY_EXPANSION_NAMES = new Set(['法师之手','滚珠袋','铁蒺藜','捕兽夹','炼金火','酸液瓶','妖精马','天马','梦魇','巨鹿坐骑','忒修斯','黑胡桃','潘塞尔','拉斐尔','猫头鹰','猫','渡鸦','蝙蝠','鼠','蜘蛛','蛙','蜥蜴','蟹','隼','章鱼','毒蛇','食人鱼','海马','鼬']);
-
-function mergeBundledLibraryExpansion(list) {
-  if (localStorage.getItem(LIBRARY_EXPANSION_KEY) === '1') return list;
-  list = list.filter((p) => !(p.category === '魔宠/寻找魔宠' && (p.name === '老鼠' || p.name === '蟾蜍')));
-  const names = new Set(list.map((p) => p.name));
-  (window.__LIBRARY_FILE__ || []).forEach((p) => {
-    if (LIBRARY_EXPANSION_NAMES.has(p.name) && !names.has(p.name)) list.push(normalizeLibPreset(p));
-  });
-  try {
-    localStorage.setItem(LIBRARY_KEY, JSON.stringify(list));
-    localStorage.setItem(LIBRARY_EXPANSION_KEY, '1');
-  } catch (e) { /* 仍可在本次会话使用 */ }
-  return list;
+  updateLibPersistStatus(projectDirHandle && await hasSaveFolderPermission() ? 'ok' : 'unset');
 }
 
 function loadLibrary() {
   try {
     const raw = localStorage.getItem(LIBRARY_KEY);
     const arr = raw ? JSON.parse(raw) : [];
-    if (Array.isArray(arr) && arr.length) return mergeBundledLibraryExpansion(arr.map(normalizeLibPreset));
+    if (Array.isArray(arr) && arr.length) return arr.map(normalizeLibPreset);
   } catch (e) { /* 损坏则回退到文件 */ }
-  if (Array.isArray(window.__LIBRARY_FILE__) && window.__LIBRARY_FILE__.length) {
-    const arr = window.__LIBRARY_FILE__.map(normalizeLibPreset);
+  if (BUNDLED_LIBRARY.length) {
+    const arr = BUNDLED_LIBRARY.map(normalizeLibPreset);
     try { localStorage.setItem(LIBRARY_KEY, JSON.stringify(arr)); } catch (e) { /* ignore */ }
-    try { localStorage.setItem(LIBRARY_EXPANSION_KEY, '1'); } catch (e) { /* ignore */ }
     return arr;
   }
   return [];
@@ -4609,12 +5286,13 @@ function loadLibrary() {
 function saveLibrary(list) {
   const data = (list || state.library).map(normalizeLibPreset);
   state.library = data;
+  const savedAt = Date.now();
   try {
     localStorage.setItem(LIBRARY_KEY, JSON.stringify(data));
+    localStorage.setItem(LIBRARY_SAVED_AT_KEY, String(savedAt));
   } catch (e) {
     toast('⚠ 棋子库保存失败：浏览器存储空间不足');
   }
-  window.__LIBRARY_FILE__ = data;
   scheduleLibraryFileWrite();
 }
 
@@ -4723,6 +5401,7 @@ function placePresetOnMap(id) {
   const m = activeMap();
   const p = state.library.find((x) => x.id === id);
   if (!m || !p) return;
+  const portraitPath = canonicalPortraitPath(p.iconImgPath);
   const rect = board.getBoundingClientRect();
   const px = rect.left + rect.width / 2;
   const py = rect.top + rect.height / 2;
@@ -4737,9 +5416,9 @@ function placePresetOnMap(id) {
     type: p.type,
     icon: p.icon,
     iconImg: p.iconImg,
-    iconImgHd: (AVATAR_SOURCE_MAP[p.name] || p.iconImgPath) ? null : (p.iconImgHd || null),
-    iconImgPath: canonicalPortraitPath(AVATAR_SOURCE_MAP[p.name] || p.iconImgPath),
-    iconImgId: p.iconImgId || null,
+    iconImgHd: portraitPath ? null : (p.iconImgHd || null),
+    iconImgPath: portraitPath,
+    iconImgId: portraitPath ? null : (p.iconImgId || null),
     size: p.size,
     hpMax: p.hpMax,
     hp: p.hpMax,
@@ -4833,7 +5512,7 @@ function openLibEditor(id) {
     $('#lib-ac').value = typeof p.ac === 'number' ? p.ac : 10;
     $('#lib-size').value = String(p.size);
     $('#lib-icon').value = p.icon || '';
-    const editPath = canonicalPortraitPath(AVATAR_SOURCE_MAP[p.name] || p.iconImgPath);
+    const editPath = canonicalPortraitPath(p.iconImgPath);
     libAvatar = p.iconImg || p.iconImgHd || editPath || p.iconImgId
       ? { iconImgId: p.iconImgId || null, iconImg: p.iconImg || null, iconImgHd: editPath ? null : (p.iconImgHd || null), iconImgPath: editPath }
       : null;
@@ -4929,7 +5608,7 @@ function cycleCell(col, row, dir = 1) {
   if (state.markMode) {
     if (m.cellStates[key] === 'marked') delete m.cellStates[key];
     else m.cellStates[key] = 'marked';
-    m.mapData = renderCellsToDataUrl(m.cells, m.cellStates, m.gridSize);
+    m.mapData = renderCellsToDataUrl(m.cells, m.cellStates, m.gridSize, m.cellVariants);
     updateWorldBackground();
     scheduleAutosave();
     toast(m.cellStates[key] === 'marked' ? '已标记该格子' : '已取消标记');
@@ -4941,7 +5620,7 @@ function cycleCell(col, row, dir = 1) {
   const idx = defs.findIndex((d) => d.key === cur);
   const next = defs[(idx + dir + defs.length) % defs.length];
   m.cellStates[key] = next.key;
-  m.mapData = renderCellsToDataUrl(m.cells, m.cellStates, m.gridSize);
+  m.mapData = renderCellsToDataUrl(m.cells, m.cellStates, m.gridSize, m.cellVariants);
   updateWorldBackground();
   scheduleAutosave();
   const def = INTERACT_TYPES[tile];
@@ -4972,9 +5651,14 @@ function paintCellAt(e) {
   const target = isErase
     ? ((m.baseCells && m.baseCells[row] && typeof m.baseCells[row][col] === 'string') ? m.baseCells[row][col] : 'void')
     : editTile;
-  if (m.cells[row][col] === target) {
-    // 涂同样的格子：无变化则跳过；橡皮在底图已一致时也跳过（不产生撤销记录）
-    if (!isErase || cellMatchesBase(m, col, row)) return;
+  const currentVariant = normalizeMaterialVariant(m.cells[row][col], (m.cellVariants || {})[key]);
+  const targetVariant = isErase
+    ? normalizeMaterialVariant(target, (m.baseCellVariants || {})[key])
+    : normalizeMaterialVariant(target, editVariant);
+  const hasState = Object.prototype.hasOwnProperty.call(m.cellStates || {}, key);
+  if (m.cells[row][col] === target && currentVariant === targetVariant) {
+    // 同一地块也允许切换材质样式；只有样式和状态均未变化时才跳过。
+    if ((!isErase && !hasState) || (isErase && cellMatchesBase(m, col, row))) return;
   }
   mapEditHistory.push({
     id: m.id,
@@ -4982,12 +5666,18 @@ function paintCellAt(e) {
     row,
     old: m.cells[row][col],
     oldState: Object.prototype.hasOwnProperty.call(m.cellStates || {}, key) ? m.cellStates[key] : undefined,
+    oldVariant: Object.prototype.hasOwnProperty.call(m.cellVariants || {}, key) ? m.cellVariants[key] : undefined,
   });
   if (mapEditHistory.length > 200) mapEditHistory.shift();
   m.cells[row][col] = target;
-  if (isErase) restoreCellState(m, col, row);
-  else delete (m.cellStates || {})[key];
-  m.mapData = renderCellsToDataUrl(m.cells, m.cellStates, m.gridSize);
+  if (isErase) {
+    restoreCellState(m, col, row);
+    restoreCellVariant(m, col, row);
+  } else {
+    delete (m.cellStates || {})[key];
+    setCellVariant(m, key, target, editVariant);
+  }
+  m.mapData = renderCellsToDataUrl(m.cells, m.cellStates, m.gridSize, m.cellVariants);
   updateWorldBackground();
   scheduleAutosave();
 }
@@ -4998,7 +5688,10 @@ function cellMatchesBase(m, col, row) {
   const base = m.baseCellStates || {};
   const curHas = Object.prototype.hasOwnProperty.call(cur, key);
   const baseHas = Object.prototype.hasOwnProperty.call(base, key);
-  return curHas === baseHas && (!curHas || cur[key] === base[key]);
+  const tile = m.cells[row] && m.cells[row][col];
+  const currentVariant = normalizeMaterialVariant(tile, (m.cellVariants || {})[key]);
+  const baseVariant = normalizeMaterialVariant(tile, (m.baseCellVariants || {})[key]);
+  return curHas === baseHas && (!curHas || cur[key] === base[key]) && currentVariant === baseVariant;
 }
 
 function restoreCellState(m, col, row) {
@@ -5010,6 +5703,22 @@ function restoreCellState(m, col, row) {
   } else {
     delete (m.cellStates || {})[key];
   }
+}
+
+function setCellVariant(m, key, tile, variant) {
+  const normalized = normalizeMaterialVariant(tile, variant);
+  if (normalized === null) {
+    delete (m.cellVariants || {})[key];
+    return;
+  }
+  if (!m.cellVariants) m.cellVariants = {};
+  m.cellVariants[key] = normalized;
+}
+
+function restoreCellVariant(m, col, row) {
+  const key = `${col},${row}`;
+  const tile = m.cells[row] && m.cells[row][col];
+  setCellVariant(m, key, tile, (m.baseCellVariants || {})[key]);
 }
 
 function mapPaintUndo() {
@@ -5026,7 +5735,13 @@ function mapPaintUndo() {
     } else {
       delete (m.cellStates || {})[key];
     }
-    m.mapData = renderCellsToDataUrl(m.cells, m.cellStates, m.gridSize);
+    if (h.oldVariant !== undefined) {
+      if (!m.cellVariants) m.cellVariants = {};
+      m.cellVariants[key] = h.oldVariant;
+    } else {
+      delete (m.cellVariants || {})[key];
+    }
+    m.mapData = renderCellsToDataUrl(m.cells, m.cellStates, m.gridSize, m.cellVariants);
     updateWorldBackground();
     scheduleAutosave();
     toast('已撤销一步');
@@ -5045,22 +5760,24 @@ function buildEditPalettes() {
     tileBox.appendChild(head);
     const row = document.createElement('div');
     row.className = 'tile-row';
-    group.tiles.forEach((id) => {
+    group.tiles.flatMap(editTileOptions).forEach((option) => {
+      const { id, variant, label: optionLabel } = option;
       const b = document.createElement('button');
       b.className = 'tile-btn';
       b.dataset.tile = id;
-      b.title = TILE_LABELS[id] || id;
+      b.dataset.variant = variant ?? '';
+      b.title = optionLabel;
       const cv = document.createElement('canvas');
       cv.width = 40;
       cv.height = 40;
-      drawCell(cv.getContext('2d'), 2, 2, 36, id, null);
+      drawCell(cv.getContext('2d'), 2, 2, 36, id, null, { variant });
       const label = document.createElement('span');
       label.className = 'tile-label';
-      label.textContent = TILE_LABELS[id] || id;
+      label.textContent = option.label;
       b.append(cv, label);
       b.addEventListener('click', () => {
-        if (editTile === id && boardTool === 'tile-paint') boardTool = null;
-        else { editTile = id; boardTool = 'tile-paint'; }
+        if (editTile === id && editVariant === variant && boardTool === 'tile-paint') boardTool = null;
+        else { editTile = id; editVariant = variant; boardTool = 'tile-paint'; }
         syncBoardTools();
       });
       row.appendChild(b);
@@ -5071,7 +5788,8 @@ function buildEditPalettes() {
 
 function syncPalettes() {
   document.querySelectorAll('#map-edit-tiles .tile-btn').forEach((b) => {
-    b.classList.toggle('active', boardTool === 'tile-paint' && b.dataset.tile === editTile);
+    const variant = b.dataset.variant === '' ? null : Number(b.dataset.variant);
+    b.classList.toggle('active', boardTool === 'tile-paint' && b.dataset.tile === editTile && variant === editVariant);
   });
 }
 
@@ -5261,7 +5979,7 @@ function renderFog() {
   if (!m || !state.fogOn) return;
   const cols = Math.floor(m.mapW / m.gridSize);
   const rows = Math.floor(m.mapH / m.gridSize);
-  g.fillStyle = 'rgba(8,10,16,.92)';
+  g.fillStyle = 'rgba(8,10,16,.985)';
   for (const key of Object.keys(m.fog)) {
     const [x, y] = key.split(',').map(Number);
     if (x >= 0 && y >= 0 && x < cols && y < rows) {
@@ -5434,17 +6152,6 @@ function closeStitchModal() {
 /* ==================== 启动 ==================== */
 
 bindEvents();
-loadProjectDirHandle();
-(async () => {
-  await loadProjectDirHandle();
-  if (projectDirHandle) {
-    try {
-      if (await projectDirHandle.queryPermission({ mode: 'readwrite' }) === 'granted') {
-        await syncCampaignsFromFiles();
-      }
-    } catch (e) { /* 未授权就等用户打开战役管理时再同步 */ }
-  }
-})();
 loadBgmDirHandle();
 try {
   const hdMigration = localStorage.getItem('sangduoer-hd-default-v2');
@@ -5462,15 +6169,18 @@ if (hdToggleCheck) hdToggleCheck.checked = hdEnabled;
 const appVersionEl = $('#app-version');
 if (appVersionEl) appVersionEl.textContent = APP_VERSION;
 updateStreamUi();
+function flushPendingAutosave() {
+  if (!autosaveTimer) return;
+  clearTimeout(autosaveTimer);
+  autosaveTimer = null;
+  saveNow();
+}
 window.addEventListener('pagehide', () => {
-  if (campaignSaveTimer) { clearTimeout(campaignSaveTimer); persistActiveCampaign(); }
+  flushPendingAutosave();
   if (streamOn) streamPush();
 });
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'hidden' && campaignSaveTimer) {
-    clearTimeout(campaignSaveTimer);
-    persistActiveCampaign();
-  }
+  if (document.visibilityState === 'hidden') flushPendingAutosave();
 });
 const loaded = loadSaved();
 if (loaded) {
@@ -5486,12 +6196,29 @@ if (sharedLib.length) {
   saveLibrary();
 }
 renderLibrary();
-initLibPersistStatus();
 restoreStreamFromStorage();
 // 左侧面板默认全部折叠
 document.querySelectorAll('#left-panel .card').forEach((c) => c.classList.add('collapsed'));
 loadLinks();
 renderLinks();
+(async () => {
+  await loadProjectDirHandle();
+  if (projectDirHandle && await hasSaveFolderPermission()) {
+    try {
+      await ensureSaveFolderStructure();
+      await migrateLegacyCampaigns();
+      await syncLibraryWithFolder();
+      await restoreFolderIfAvailable();
+      await initLibPersistStatus();
+    } catch (e) {
+      console.warn('初始化存档文件夹失败', e);
+      updateSaveStatus('存档文件夹不可用 · 仅浏览器缓存', 'error');
+    }
+  } else {
+    updateLibPersistStatus(projectDirHandle ? 'denied' : 'unset');
+    updateSaveStatus(projectDirHandle ? '“存档”文件夹待授权' : '仅浏览器缓存 · 请连接“存档”文件夹', 'error');
+  }
+})();
 // 人物卡默认收起，选中棋子时自动展开
 const unitCard = document.querySelector('#unit-card');
 if (unitCard) unitCard.classList.add('collapsed');

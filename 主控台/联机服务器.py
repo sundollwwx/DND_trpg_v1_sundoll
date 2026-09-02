@@ -3,16 +3,36 @@
 """
 桑哆尔的世界 · 简易联机服务器（零依赖，Python 3.6+）
 用法：在项目根目录运行  python3 主控台/联机服务器.py [端口]
+      或运行  python3 start_server.py --port 8092 --bind 0.0.0.0
 默认端口 8090。启动后：
   主机（你）：浏览器打开 http://localhost:8090/主控台/主控台.html 或本地双击主控台，
               在「📡 联机 → 开启玩家模式」开启推送。
-  玩家：同一 WiFi 下用浏览器打开 http://<本机IP>:端口/主控台/观战.html
+  玩家：同一 WiFi 下用浏览器打开 http://<本机IP>:端口/主控台/玩家.html
 """
-import os, sys, json, time, socket, threading, re, base64, hashlib, math
+import os, sys, json, time, socket, threading, re, base64, hashlib, math, secrets
 from urllib.parse import urlparse, parse_qs, unquote_to_bytes
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
-PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8090
+def cli_options():
+    """保持旧的 ``python 联机服务器.py 8090`` 用法，同时支持跨平台自定义端口。"""
+    port = 8090
+    bind = '0.0.0.0'
+    i = 1
+    while i < len(sys.argv):
+        arg = sys.argv[i]
+        if arg in ('--port', '-p') and i + 1 < len(sys.argv):
+            i += 1
+            port = int(sys.argv[i])
+        elif arg in ('--bind', '-b') and i + 1 < len(sys.argv):
+            i += 1
+            bind = str(sys.argv[i])
+        elif not arg.startswith('-') and i == 1:
+            port = int(arg)
+        i += 1
+    return port, bind
+
+
+PORT, BIND_HOST = cli_options()
 # 服务器可能放在项目根目录或 主控台/ 下：始终以“项目根目录”为网站根目录
 BASE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(BASE) if os.path.basename(BASE) == '主控台' else BASE
@@ -22,18 +42,114 @@ LOCK = threading.Lock()
 RECENT_ACTIONS = []   # 玩家动作（带自增 seq），用于主机合并
 NEXT_SEQ = 1
 MAX_RECENT = 500
+MAX_BODY = 12 * 1024 * 1024
 PATCH_FIELDS = {'hp', 'hpMax', 'ac'}
 MAX_MOVE_POINTS = 60
 MAX_TURN_PATH_POINTS = 200
+MAX_ACTION_BODY = 512 * 1024
+ACTION_WINDOW_MS = 1000
+MAX_ACTIONS_PER_WINDOW = 40
+ASSET_ROOT = os.path.join(ROOT, '.sundoll-cache', '联机资源')
 MUSIC_EXTS = ('.mp3', '.m4a', '.wav', '.ogg', '.flac', '.aac', '.opus', '.webm')
-# 联机媒体只留在服务器内存中。状态里改为内容哈希 URL，浏览器可长期缓存，
+# 地图和头像转换为内容哈希 URL，浏览器可长期缓存；资源同时写入磁盘，
 # 不再把 Base64 地图和头像塞进每一条 SSE 消息。
 ASSETS = {}           # {sha256: (mime, bytes)}
 DATA_URL_RE = re.compile(r'^data:([^;,]+)?(;base64)?,(.*)$', re.S)
 
+SESSION_ID = secrets.token_hex(8)
+ROOM_CODE = secrets.token_hex(3).upper()
+STATE_REVISION = 0
+SESSIONS = {}         # {sessionToken: {playerId, name, status, lastSeen}}
+ACTION_IDS = {}       # {actionId: seq}，防止网络重试重复执行
+MAX_ACTION_IDS = 2000
+ACTION_RATE = {}      # {sessionToken: [最近请求时间戳]}
+HOST_ACTIONS = {'roll', 'announce', 'bgm'}
+
+
+def is_local_request(handler):
+    host = handler.client_address[0] if handler.client_address else ''
+    if host in ('127.0.0.1', '::1', 'localhost', '::ffff:127.0.0.1'):
+        return True
+    # 主机也可能通过自己的局域网/Radmin 地址打开页面；TCP 来源仍是本机地址。
+    # 远程玩家的来源地址不会出现在本机网卡列表中。
+    try:
+        return host in get_ips()
+    except Exception:
+        return False
+
+
+def consume_action_slot(session_token):
+    now = int(time.time() * 1000)
+    cutoff = now - ACTION_WINDOW_MS
+    recent = [stamp for stamp in ACTION_RATE.get(session_token, []) if stamp > cutoff]
+    if len(recent) >= MAX_ACTIONS_PER_WINDOW:
+        ACTION_RATE[session_token] = recent
+        return False
+    recent.append(now)
+    ACTION_RATE[session_token] = recent
+    return True
+
+
+def finite_int(value, minimum=None, maximum=None, fallback=None):
+    number = finite_number(value)
+    if number is None:
+        return fallback
+    value = int(number)
+    if minimum is not None:
+        value = max(minimum, value)
+    if maximum is not None:
+        value = min(maximum, value)
+    return value
+
+
+def asset_file(key):
+    if not re.fullmatch(r'[0-9a-f]{64}', str(key or '')):
+        return None
+    return os.path.join(ASSET_ROOT, key)
+
+
+def persist_asset(key, mime, raw):
+    """把资源原子写入磁盘缓存；失败时仍允许本次联机使用内存缓存。"""
+    path = asset_file(key)
+    if not path:
+        return
+    try:
+        os.makedirs(ASSET_ROOT, exist_ok=True)
+        if not os.path.isfile(path):
+            temp_path = path + '.tmp'
+            with open(temp_path, 'wb') as f:
+                f.write(raw)
+                f.flush()
+            os.replace(temp_path, path)
+        with open(path + '.json', 'w', encoding='utf-8') as f:
+            json.dump({'mime': mime, 'size': len(raw)}, f, ensure_ascii=False)
+    except OSError:
+        try:
+            if os.path.isfile(path + '.tmp'):
+                os.remove(path + '.tmp')
+        except OSError:
+            pass
+
+
+def load_disk_asset(key):
+    path = asset_file(key)
+    if not path or not os.path.isfile(path):
+        return None
+    try:
+        with open(path, 'rb') as f:
+            raw = f.read()
+        mime = 'application/octet-stream'
+        meta_path = path + '.json'
+        if os.path.isfile(meta_path):
+            with open(meta_path, 'r', encoding='utf-8') as f:
+                mime = str((json.load(f) or {}).get('mime') or mime)
+        return mime, raw
+    except (OSError, ValueError, TypeError):
+        return None
+
 
 def cache_data_url(value):
-    """把 data URL 放入内存缓存，返回可缓存的同源资源地址。"""
+    """把 data URL 放入可持久化的资源缓存，返回同源资源地址。"""
     if not isinstance(value, str):
         return value
     m = DATA_URL_RE.match(value)
@@ -48,6 +164,7 @@ def cache_data_url(value):
         return value
     key = hashlib.sha256(raw).hexdigest()
     ASSETS[key] = (mime, raw)
+    persist_asset(key, mime, raw)
     return '/api/assets/' + key
 
 
@@ -205,6 +322,25 @@ def apply_action(state, action):
     if not isinstance(action, dict):
         return False
     op = action.get('op')
+    if op == 'endTurn':
+        encounter = encounter_state(state)
+        serial = finite_number(action.get('turnSerial'))
+        next_id = action.get('nextEntryId')
+        next_serial = finite_number(action.get('nextTurnSerial'))
+        if encounter.get('playMode') != 'turn' or serial is None or next_serial is None:
+            return False
+        if int(serial) != encounter_turn_serial(state) or not next_id:
+            return False
+        if not any(isinstance(entry, dict) and entry.get('id') == next_id for entry in encounter.get('entries', [])):
+            return False
+        encounter['currentEntryId'] = next_id
+        encounter['round'] = max(1, int(finite_number(action.get('round')) or encounter.get('round', 1)))
+        encounter['turnSerial'] = max(1, int(next_serial))
+        encounter['turnPath'] = {'mapId': None, 'tokenId': None, 'points': []}
+        world = encounter.setdefault('worldTime', {})
+        world['totalSeconds'] = max(0, int(finite_number(action.get('worldTimeSeconds')) or world.get('totalSeconds', 0)))
+        world['runningSince'] = None
+        return True
     m, t = find_token(state, action.get('tokenId'))
     if not m or not t:
         return False
@@ -247,13 +383,8 @@ def apply_action(state, action):
                 return False
             serial = int(serial)
             if serial != encounter_turn_serial(state):
-                t['x'] = point['x']
-                t['y'] = point['y']
-                for r in m.get('tokens', []) or []:
-                    if r.get('mountId') == t.get('id'):
-                        r['x'] = t['x']
-                        r['y'] = t['y']
-                return True
+                # 过期动作可能在主机上传新快照时被重放；不能让旧回合覆盖新状态。
+                return False
             raw_path = action.get('path')
             if raw_path is None:
                 raw_path = []
@@ -308,6 +439,55 @@ def apply_action(state, action):
         return True
     return False
 
+
+def state_snapshot(now=None):
+    """返回带联机元数据的快照；调用方须在 LOCK 内调用。"""
+    if STATE is None:
+        return None
+    snapshot = dict(STATE)
+    snapshot['_sessionId'] = SESSION_ID
+    snapshot['_roomCode'] = ROOM_CODE
+    snapshot['_stateRevision'] = STATE_REVISION
+    snapshot['_serverNow'] = int(now or time.time() * 1000)
+    return snapshot
+
+
+def touch_session(token, status=None):
+    session = SESSIONS.get(str(token or ''))
+    if not session:
+        return None
+    session['lastSeen'] = int(time.time() * 1000)
+    if status is not None:
+        session['status'] = str(status or 'online')[:24]
+    return session
+
+
+def session_from_request(data):
+    token = str((data or {}).get('sessionToken') or '').strip()
+    if not token:
+        return None
+    return touch_session(token)
+
+
+def online_players():
+    cutoff = int(time.time() * 1000) - 35000
+    result = []
+    for session in SESSIONS.values():
+        item = dict(session)
+        item['online'] = int(session.get('lastSeen', 0)) >= cutoff
+        item.pop('token', None)
+        result.append(item)
+    result.sort(key=lambda item: (not item.get('online'), item.get('name', '').lower()))
+    return result
+
+
+def sse_bytes(event, event_id=None):
+    lines = []
+    if event_id is not None:
+        lines.append('id: %s' % event_id)
+    lines.append('data: ' + json.dumps(event, ensure_ascii=False, separators=(',', ':')))
+    return ('\n'.join(lines) + '\n\n').encode('utf-8')
+
 def get_ips():
     ips = set()
     try:
@@ -324,8 +504,8 @@ def get_ips():
     ips.add('127.0.0.1')
     return sorted(ips)
 
-def broadcast(data):
-    payload = ('data: ' + json.dumps(data, ensure_ascii=False) + '\n\n').encode('utf-8')
+def broadcast(data, event_id=None):
+    payload = sse_bytes(data, event_id)
     with LOCK:
         clients = list(CLIENTS)
     for wfile, lock in clients:
@@ -335,7 +515,10 @@ def broadcast(data):
                 wfile.flush()
         except Exception:
             with LOCK:
-                CLIENTS.remove((wfile, lock))
+                try:
+                    CLIENTS.remove((wfile, lock))
+                except ValueError:
+                    pass
 
 class Handler(SimpleHTTPRequestHandler):
     def __init__(self, *a, **kw):
@@ -372,6 +555,11 @@ class Handler(SimpleHTTPRequestHandler):
             with LOCK:
                 asset = ASSETS.get(key)
             if not asset:
+                asset = load_disk_asset(key)
+                if asset:
+                    with LOCK:
+                        ASSETS[key] = asset
+            if not asset:
                 self._send_json({'ok': False, 'error': 'asset not found'}, 404)
                 return
             mime, raw = asset
@@ -382,9 +570,9 @@ class Handler(SimpleHTTPRequestHandler):
             self._cors()
             self.end_headers()
             self.wfile.write(raw)
-        elif self.path == '/api/state':
+        elif path == '/api/state':
             with LOCK:
-                self._send_json(STATE if STATE is not None else {})
+                self._send_json(state_snapshot() or {})
         elif self.path.startswith('/api/actions'):
             qs = parse_qs(urlparse(self.path).query)
             try:
@@ -393,9 +581,39 @@ class Handler(SimpleHTTPRequestHandler):
                 after = 0
             with LOCK:
                 acts = [a for a in RECENT_ACTIONS if a.get('seq', 0) > after]
-            self._send_json({'actions': acts})
+                revision = STATE_REVISION
+            self._send_json({'actions': acts, 'stateRevision': revision})
         elif self.path == '/api/info':
-            self._send_json({'port': PORT, 'ips': get_ips(), 'name': '桑哆尔联机'})
+            with LOCK:
+                players = online_players()
+                revision = STATE_REVISION
+            self._send_json({
+                'port': PORT,
+                'bind': BIND_HOST,
+                'ips': get_ips(),
+                'name': '桑哆尔联机',
+                'sessionId': SESSION_ID,
+                'roomCode': ROOM_CODE,
+                'stateRevision': revision,
+                'playerCount': len([p for p in players if p.get('online')]),
+                'endpoints': {'host': '/主控台/主控台.html', 'player': '/主控台/玩家.html'},
+            })
+        elif path == '/api/players':
+            with LOCK:
+                self._send_json({'ok': True, 'players': online_players()})
+        elif path == '/api/session':
+            token = (parse_qs(urlparse(self.path).query).get('token') or [''])[0]
+            with LOCK:
+                session = touch_session(token)
+                if not session:
+                    self._send_json({'ok': False, 'error': 'session not found'}, 404)
+                    return
+                public_session = dict(session)
+                public_session.pop('token', None)
+                self._send_json({'ok': True, 'session': public_session, 'roomCode': ROOM_CODE})
+        elif path == '/api/health':
+            with LOCK:
+                self._send_json({'ok': True, 'state': STATE is not None, 'stateRevision': STATE_REVISION, 'clients': len(CLIENTS), 'players': len(SESSIONS)})
         elif self.path == '/api/events':
             self.stream_events()
         elif self.path == '/' or self.path == '/index.html':
@@ -404,7 +622,7 @@ class Handler(SimpleHTTPRequestHandler):
             self._cors()
             self.end_headers()
             host = 'http://localhost:%d/主控台/主控台.html' % PORT
-            viewer = 'http://localhost:%d/主控台/观战.html' % PORT
+            viewer = 'http://localhost:%d/主控台/玩家.html' % PORT
             self.wfile.write((
                 '<meta charset="utf-8"><title>桑哆尔联机服务器</title>'
                 '<body style="background:#101218;color:#e8eaf0;font-family:sans-serif;padding:40px">'
@@ -417,15 +635,112 @@ class Handler(SimpleHTTPRequestHandler):
         else:
             super().do_GET()
 
-    def do_POST(self):
-        if self.path == '/api/state':
-            global STATE
+    def _read_json_body(self, limit=MAX_BODY):
+        try:
             length = int(self.headers.get('Content-Length') or 0)
-            body = self.rfile.read(length) if length else b'{}'
+        except (TypeError, ValueError):
+            raise ValueError('invalid content length')
+        if length > limit:
+            raise OverflowError('request body too large')
+        body = self.rfile.read(length) if length else b'{}'
+        return json.loads(body.decode('utf-8'))
+
+    def do_POST(self):
+        global STATE, STATE_REVISION, NEXT_SEQ
+        if self.path == '/api/session':
             try:
-                data = json.loads(body.decode('utf-8'))
-            except Exception:
+                data = self._read_json_body(64 * 1024)
+            except OverflowError:
+                self._send_json({'ok': False, 'error': '请求过大'}, 413)
+                return
+            except (ValueError, TypeError, json.JSONDecodeError):
+                self._send_json({'ok': False, 'error': '加入信息无效'}, 400)
+                return
+            if not isinstance(data, dict):
+                self._send_json({'ok': False, 'error': '加入信息无效'}, 400)
+                return
+            room = str(data.get('roomCode') or '').strip().upper()
+            nickname = str(data.get('nickname') or '').strip()[:24]
+            resume = str(data.get('sessionToken') or '').strip()
+            if room and room != ROOM_CODE:
+                self._send_json({'ok': False, 'error': '房间码不正确'}, 403)
+                return
+            if not nickname and resume:
+                with LOCK:
+                    existing = touch_session(resume)
+                    if existing:
+                        public_session = dict(existing)
+                        public_session.pop('token', None)
+                        public_session['sessionToken'] = resume
+                        self._send_json({'ok': True, 'session': public_session, 'roomCode': ROOM_CODE})
+                        return
+            if not nickname:
+                self._send_json({'ok': False, 'error': '请填写玩家名'}, 400)
+                return
+            with LOCK:
+                now = int(time.time() * 1000)
+                active_same_name = next((s for s in SESSIONS.values()
+                                         if s.get('name') == nickname and now - int(s.get('lastSeen', 0)) < 35000), None)
+                if active_same_name and not (resume and active_same_name.get('token') == resume):
+                    self._send_json({'ok': False, 'error': '这个名字已经在线，请换一个名字'}, 409)
+                    return
+                if resume and resume in SESSIONS:
+                    session = touch_session(resume, 'online')
+                    session['name'] = nickname
+                    public_session = dict(session)
+                    public_session.pop('token', None)
+                    public_session['sessionToken'] = resume
+                    self._send_json({'ok': True, 'session': public_session, 'roomCode': ROOM_CODE})
+                    return
+                token = secrets.token_urlsafe(24)
+                session = {
+                    'token': token,
+                    'playerId': 'p' + secrets.token_hex(6),
+                    'name': nickname,
+                    'status': 'online',
+                    'lastSeen': now,
+                }
+                SESSIONS[token] = session
+            broadcast({'type': 'presence', 'players': online_players()})
+            public_session = dict(session)
+            public_session.pop('token', None)
+            public_session['sessionToken'] = token
+            self._send_json({'ok': True, 'session': public_session, 'roomCode': ROOM_CODE})
+        elif self.path == '/api/presence':
+            try:
+                data = self._read_json_body(64 * 1024)
+            except OverflowError:
+                self._send_json({'ok': False, 'error': '请求过大'}, 413)
+                return
+            except (ValueError, TypeError, json.JSONDecodeError):
+                self._send_json({'ok': False, 'error': '状态信息无效'}, 400)
+                return
+            if not isinstance(data, dict):
+                self._send_json({'ok': False, 'error': '状态信息无效'}, 400)
+                return
+            with LOCK:
+                session = touch_session(data.get('sessionToken'), data.get('status') or 'online')
+                if not session:
+                    self._send_json({'ok': False, 'error': '会话已失效'}, 401)
+                    return
+                players = online_players()
+            broadcast({'type': 'presence', 'players': players})
+            self._send_json({'ok': True, 'players': players})
+        elif self.path == '/api/state':
+            # 这是 GM 上传公共快照的入口。玩家端只读，不能借它覆盖房间状态。
+            if not is_local_request(self):
+                self._send_json({'ok': False, 'error': 'state api is host-only'}, 403)
+                return
+            try:
+                data = self._read_json_body(MAX_BODY)
+            except OverflowError:
+                self._send_json({'ok': False, 'error': 'state too large'}, 413)
+                return
+            except (ValueError, TypeError, json.JSONDecodeError):
                 self._send_json({'ok': False, 'error': 'bad json'}, 400)
+                return
+            if not isinstance(data, dict):
+                self._send_json({'ok': False, 'error': 'state must be an object'}, 400)
                 return
             with LOCK:
                 seq0 = 0
@@ -439,12 +754,24 @@ class Handler(SimpleHTTPRequestHandler):
                     if act.get('seq', 0) > seq0:
                         apply_action(STATE, act)
                 STATE['_streamSeq'] = RECENT_ACTIONS[-1]['seq'] if RECENT_ACTIONS else 0
+                STATE_REVISION += 1
+                STATE['_stateRevision'] = STATE_REVISION
+                STATE['_sessionId'] = SESSION_ID
+                STATE['_roomCode'] = ROOM_CODE
                 # 观战端用服务器时钟作为世界时间运行快照的锚点，避免各设备系统时钟不同。
                 STATE['_serverNow'] = int(time.time() * 1000)
-            broadcast({'type': 'state', 'state': STATE})
-            self._send_json({'ok': True})
+                snapshot = dict(STATE)
+            state_event_id = RECENT_ACTIONS[-1].get('seq', 0) if RECENT_ACTIONS else None
+            broadcast({'type': 'state', 'state': snapshot}, state_event_id)
+            self._send_json({'ok': True, 'stateRevision': STATE_REVISION})
         elif self.path.startswith('/api/music'):
+            if not is_local_request(self):
+                self._send_json({'ok': False, 'error': 'music api is host-only'}, 403)
+                return
             length = int(self.headers.get('Content-Length') or 0)
+            if length > 80 * 1024 * 1024:
+                self._send_json({'ok': False, 'error': 'file too large'}, 413)
+                return
             data = self.rfile.read(length) if length else b''
             qs = parse_qs(urlparse(self.path).query)
             name = (qs.get('name') or [''])[0]
@@ -464,16 +791,74 @@ class Handler(SimpleHTTPRequestHandler):
                 f.write(data)
             clean_music_cache(d)
             self._send_json({'ok': True, 'url': '/音乐缓存/' + name})
-        elif self.path == '/api/action':
-            global NEXT_SEQ
-            length = int(self.headers.get('Content-Length') or 0)
-            body = self.rfile.read(length) if length else b'{}'
+        elif self.path == '/api/host-action':
+            # GM 的公开骰子/公告只能从主机本机发出；私密骰子不进入网络。
+            if not is_local_request(self):
+                self._send_json({'ok': False, 'error': 'host action is local-only'}, 403)
+                return
             try:
-                data = json.loads(body.decode('utf-8'))
-            except Exception:
+                data = self._read_json_body(64 * 1024)
+            except OverflowError:
+                self._send_json({'ok': False, 'error': '请求过大'}, 413)
+                return
+            except (ValueError, TypeError, json.JSONDecodeError):
                 self._send_json({'ok': False, 'error': 'bad json'}, 400)
                 return
-            player = str(data.get('player') or '').strip()
+            action = data.get('action') if isinstance(data, dict) else None
+            if not isinstance(action, dict) or action.get('op') not in HOST_ACTIONS:
+                self._send_json({'ok': False, 'error': '不支持的 GM 动作'}, 400)
+                return
+            public_action = {'op': action.get('op'), 'name': 'GM'}
+            if action.get('op') == 'roll':
+                public_action.update({
+                    'rid': str(action.get('rid') or '')[:96],
+                    'expr': str(action.get('expr') or '')[:40],
+                    'detail': str(action.get('detail') or '')[:600],
+                    'total': finite_int(action.get('total'), -99999, 99999, 0),
+                    'sides': finite_int(action.get('sides'), 2, 1000, 20),
+                    'dice': [finite_int(x, 1, 1000, 1) for x in (action.get('dice') or [])[:100]],
+                })
+            elif action.get('op') == 'bgm':
+                bgm_action = str(action.get('action') or '').strip().lower()
+                if bgm_action not in ('play', 'pause', 'stop'):
+                    self._send_json({'ok': False, 'error': 'BGM 动作无效'}, 400)
+                    return
+                bgm_url = str(action.get('url') or '').strip()[:2048]
+                if bgm_url and not (bgm_url.startswith('/') or re.match(r'^https?://', bgm_url, re.I)):
+                    self._send_json({'ok': False, 'error': 'BGM 地址无效'}, 400)
+                    return
+                public_action.update({
+                    'action': bgm_action,
+                    'track': str(action.get('track') or '')[:120],
+                    'url': bgm_url,
+                    'time': finite_int(action.get('time'), 0, 86400, 0),
+                })
+            else:
+                public_action['text'] = str(action.get('text') or '').strip()[:1000]
+                if not public_action['text']:
+                    self._send_json({'ok': False, 'error': '公告内容为空'}, 400)
+                    return
+            broadcast({'type': 'action', 'seq': 0, 'action': public_action})
+            self._send_json({'ok': True})
+        elif self.path == '/api/action':
+            try:
+                data = self._read_json_body(MAX_ACTION_BODY)
+            except OverflowError:
+                self._send_json({'ok': False, 'error': '请求过大'}, 413)
+                return
+            except (ValueError, TypeError, json.JSONDecodeError):
+                self._send_json({'ok': False, 'error': 'bad json'}, 400)
+                return
+            if not isinstance(data, dict):
+                self._send_json({'ok': False, 'error': 'bad json'}, 400)
+                return
+            session_token = str(data.get('sessionToken') or '').strip()
+            with LOCK:
+                session = session_from_request(data)
+            if not session_token or not session:
+                self._send_json({'ok': False, 'error': '需要有效的玩家会话，请重新加入'}, 401)
+                return
+            player = str((session or {}).get('name') or data.get('player') or '').strip()
             action = data.get('action') or {}
             if not player:
                 self._send_json({'ok': False, 'error': '缺少玩家名'}, 400)
@@ -481,18 +866,96 @@ class Handler(SimpleHTTPRequestHandler):
             if not isinstance(action, dict):
                 self._send_json({'ok': False, 'error': '动作数据无效'}, 400)
                 return
+            action_id = str(data.get('actionId') or action.get('actionId') or '').strip()[:96]
+            if action_id:
+                with LOCK:
+                    duplicate_seq = ACTION_IDS.get(action_id)
+                if duplicate_seq is not None:
+                    self._send_json({'ok': True, 'seq': duplicate_seq, 'duplicate': True})
+                    return
+            with LOCK:
+                if not consume_action_slot(session_token):
+                    self._send_json({'ok': False, 'error': '操作过于频繁，请稍后再试'}, 429)
+                    return
+            if action.get('op') in ('ping', 'requestRest'):
+                ev = {'type': 'action', 'seq': 0, 'action': dict(action)}
+                ev['action']['name'] = player
+                broadcast(ev)
+                if action_id:
+                    with LOCK:
+                        ACTION_IDS[action_id] = 0
+                self._send_json({'ok': True})
+                return
+            if action.get('op') == 'endTurn':
+                with LOCK:
+                    if STATE is None:
+                        self._send_json({'ok': False, 'error': '主机尚未推送状态'}, 400)
+                        return
+                    encounter = encounter_state(STATE)
+                    entries = encounter.get('entries', []) or []
+                    current_index = next((i for i, entry in enumerate(entries)
+                                          if isinstance(entry, dict) and entry.get('id') == encounter.get('currentEntryId')), -1)
+                    if encounter.get('playMode') != 'turn' or current_index < 0:
+                        self._send_json({'ok': False, 'error': '当前不是可结束的回合'}, 409)
+                        return
+                    current_entry = entries[current_index]
+                    current_token = find_token(STATE, current_entry.get('tokenId'))[1]
+                    if not current_token or not can_control(STATE, current_token, player):
+                        self._send_json({'ok': False, 'error': '还没有轮到你的角色'}, 403)
+                        return
+                    next_index = (current_index + 1) % len(entries)
+                    next_entry = entries[next_index]
+                    next_round = max(1, int(encounter.get('round', 1))) + (1 if next_index == 0 else 0)
+                    world = encounter.get('worldTime') if isinstance(encounter.get('worldTime'), dict) else {}
+                    total_seconds = max(0, int(finite_number(world.get('totalSeconds')) or 0))
+                    running_since = finite_number(world.get('runningSince'))
+                    if running_since:
+                        total_seconds += max(0, int((time.time() * 1000 - running_since) / 1000))
+                    seconds_per_round = max(1, int(finite_number(encounter.get('secondsPerRound')) or 6))
+                    if next_index == 0:
+                        total_seconds += seconds_per_round
+                    end_action = {
+                        'op': 'endTurn',
+                        'name': player,
+                        'turnSerial': encounter_turn_serial(STATE),
+                        'nextEntryId': next_entry.get('id'),
+                        'nextTurnSerial': encounter_turn_serial(STATE) + 1,
+                        'round': next_round,
+                        'worldTimeSeconds': total_seconds,
+                    }
+                    if not apply_action(STATE, end_action):
+                        self._send_json({'ok': False, 'error': '回合状态已变化，请重新操作'}, 409)
+                        return
+                    STATE_REVISION += 1
+                    STATE['_stateRevision'] = STATE_REVISION
+                    seq = NEXT_SEQ
+                    NEXT_SEQ += 1
+                    STATE['_streamSeq'] = seq
+                    end_action['seq'] = seq
+                    if action_id:
+                        end_action['actionId'] = action_id
+                        ACTION_IDS[action_id] = seq
+                    RECENT_ACTIONS.append(end_action)
+                    if len(RECENT_ACTIONS) > MAX_RECENT:
+                        del RECENT_ACTIONS[:len(RECENT_ACTIONS) - MAX_RECENT]
+                    ev = {'type': 'action', 'seq': seq, 'revision': STATE_REVISION, 'action': dict(end_action)}
+                broadcast(ev, seq)
+                self._send_json({'ok': True, 'seq': seq, 'stateRevision': STATE_REVISION})
+                return
             # 掷骰：不修改状态、不写入动作历史，只广播一次让所有人看到
             if action.get('op') == 'roll':
                 ev = {'type': 'action', 'seq': 0, 'action': dict(action)}
                 ev['action']['name'] = player
                 broadcast(ev)
+                if action_id:
+                    with LOCK:
+                        ACTION_IDS[action_id] = 0
                 self._send_json({'ok': True})
                 return
             # BGM：不修改状态，只广播让玩家端跟随播放
             if action.get('op') == 'bgm':
-                ev = {'type': 'action', 'seq': 0, 'action': dict(action)}
-                broadcast(ev)
-                self._send_json({'ok': True})
+                # BGM 是主持人的本机动作；玩家端即使伪造请求也不应改变所有人的音乐。
+                self._send_json({'ok': False, 'error': 'BGM 只能由主控台广播'}, 403)
                 return
             # 涂鸦：直接更新对应地图的涂鸦列表并广播
             if action.get('op') == 'doodle':
@@ -506,9 +969,14 @@ class Handler(SimpleHTTPRequestHandler):
                         self._send_json({'ok': False, 'error': '涂鸦数据无效'}, 400)
                         return
                     m['doodles'] = action['doodles']
+                    STATE_REVISION += 1
+                    STATE['_stateRevision'] = STATE_REVISION
                 ev = {'type': 'action', 'seq': 0, 'action': dict(action)}
                 ev['action']['name'] = player
                 broadcast(ev)
+                if action_id:
+                    with LOCK:
+                        ACTION_IDS[action_id] = 0
                 self._send_json({'ok': True})
                 return
             with LOCK:
@@ -533,16 +1001,26 @@ class Handler(SimpleHTTPRequestHandler):
                 if not apply_action(STATE, action):
                     self._send_json({'ok': False, 'error': '不支持的动作'}, 400)
                     return
+                STATE_REVISION += 1
+                STATE['_stateRevision'] = STATE_REVISION
                 seq = NEXT_SEQ
                 NEXT_SEQ += 1
+                STATE['_streamSeq'] = seq
                 act = dict(action)
                 act['seq'] = seq
+                if action_id:
+                    act['actionId'] = action_id
                 RECENT_ACTIONS.append(act)
                 if len(RECENT_ACTIONS) > MAX_RECENT:
                     del RECENT_ACTIONS[:len(RECENT_ACTIONS) - MAX_RECENT]
-                ev = {'type': 'action', 'seq': seq, 'action': dict(action)}
-            broadcast(ev)
-            self._send_json({'ok': True, 'seq': seq})
+                ev = {'type': 'action', 'seq': seq, 'revision': STATE_REVISION, 'action': dict(action)}
+                if action_id:
+                    ACTION_IDS[action_id] = seq
+                    if len(ACTION_IDS) > MAX_ACTION_IDS:
+                        for old_id in list(ACTION_IDS)[:len(ACTION_IDS) - MAX_ACTION_IDS]:
+                            ACTION_IDS.pop(old_id, None)
+            broadcast(ev, seq if seq else None)
+            self._send_json({'ok': True, 'seq': seq, 'stateRevision': STATE_REVISION})
         else:
             self._send_json({'ok': False, 'error': 'not found'}, 404)
 
@@ -556,15 +1034,27 @@ class Handler(SimpleHTTPRequestHandler):
         lock = threading.Lock()
         with LOCK:
             CLIENTS.append((self.wfile, lock))
-            initial = dict(STATE) if STATE is not None else None
-            if initial is not None:
-                # 新观战端可能在状态最后一次变更很久之后才接入，需要以本次发送时刻校准世界时间。
-                initial['_serverNow'] = int(time.time() * 1000)
+            initial = state_snapshot()
+            try:
+                last_id = int(self.headers.get('Last-Event-ID') or 0)
+            except (TypeError, ValueError):
+                last_id = 0
+            recent = list(RECENT_ACTIONS)
+            first_recent = recent[0].get('seq', 0) if recent else 0
+            can_replay = bool(last_id and (not first_recent or last_id >= first_recent - 1))
         try:
-            if initial is not None:
+            if can_replay:
+                for action in recent:
+                    if action.get('seq', 0) > last_id:
+                        event = {'type': 'action', 'seq': action.get('seq', 0), 'action': dict(action)}
+                        with lock:
+                            self.wfile.write(sse_bytes(event, action.get('seq')))
+                            self.wfile.flush()
+            elif initial is not None:
                 with lock:
                     ev = {'type': 'state', 'state': initial}
-                    self.wfile.write(('data: ' + json.dumps(ev, ensure_ascii=False) + '\n\n').encode('utf-8'))
+                    initial_event_id = recent[-1].get('seq', 0) if recent else None
+                    self.wfile.write(sse_bytes(ev, initial_event_id))
                     self.wfile.flush()
             while True:
                 time.sleep(10)
@@ -593,12 +1083,12 @@ class Server(ThreadingHTTPServer):
 
 if __name__ == '__main__':
     os.chdir(ROOT)
-    srv = Server(('0.0.0.0', PORT), Handler)
+    srv = Server((BIND_HOST, PORT), Handler)
     print('=' * 56)
-    print('桑哆尔联机服务器已启动，端口 %d' % PORT)
+    print('桑哆尔联机服务器已启动，端口 %d，监听 %s' % (PORT, BIND_HOST))
     for ip in get_ips():
         if ip != '127.0.0.1':
-            print('  玩家请打开:  http://%s:%d/主控台/观战.html' % (ip, PORT))
+            print('  玩家请打开:  http://%s:%d/主控台/玩家.html' % (ip, PORT))
     print('  主机:        http://localhost:%d/主控台/主控台.html' % PORT)
     print('  按 Ctrl+C 停止')
     print('=' * 56)
