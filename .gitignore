@@ -17,8 +17,7 @@ __pycache__/
 *.temp
 ~$*
 
-# Private campaign saves selected by the GM.
-存档/
+# Formal campaign saves are versioned in the private repository.
 
 # Regenerable multiplayer map/avatar cache.
 .sundoll-cache/

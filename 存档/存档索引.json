@@ -1,0 +1,19 @@
+{
+  "format": "sangduoer-save-index",
+  "schemaVersion": 2,
+  "updatedAt": 1788317906257,
+  "campaigns": [
+    {
+      "id": "c184",
+      "name": "烬鳞讨伐-2026.8.8",
+      "savedAt": 1788317906219,
+      "folder": "c184-烬鳞讨伐-2026.8.8"
+    },
+    {
+      "id": "default",
+      "name": "默认战役",
+      "savedAt": 1788264767734,
+      "folder": "default-默认战役"
+    }
+  ]
+}

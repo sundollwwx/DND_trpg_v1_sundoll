@@ -1,0 +1,110 @@
+{
+  "format": "sangduoer-campaign",
+  "schemaVersion": 4,
+  "savedAt": 1788264767734,
+  "campaignId": "default",
+  "campaignName": "默认战役",
+  "state": {
+    "maps": [
+      {
+        "id": "m3",
+        "name": "地图 1",
+        "mapData": null,
+        "mapW": 1400,
+        "mapH": 900,
+        "gridSize": 50,
+        "cells": null,
+        "cellStates": {},
+        "baseCells": null,
+        "baseCellStates": {},
+        "doodles": [],
+        "fog": {},
+        "tokens": [
+          {
+            "id": "t4",
+            "name": "友好测试棋子",
+            "type": "ally",
+            "icon": "",
+            "iconImg": null,
+            "iconImgHd": null,
+            "iconImgPath": null,
+            "iconImgId": null,
+            "size": 1,
+            "hp": 24,
+            "hpMax": 24,
+            "ac": 16,
+            "conditions": [
+              {
+                "id": "cond5",
+                "key": "poisoned",
+                "label": "中毒",
+                "icon": "☠",
+                "color": "#79c267",
+                "remainingTurns": 2,
+                "visibility": "public"
+              }
+            ],
+            "publicNote": "这是一条玩家可见提示",
+            "gmNote": "这是一条GM私密备注",
+            "hiddenFromPlayers": false,
+            "x": 725,
+            "y": 475,
+            "owner": "",
+            "mountId": null,
+            "groupKey": "友好测试棋子"
+          }
+        ],
+        "cam": {
+          "x": 155.83333333333334,
+          "y": 50,
+          "zoom": 0.23166666666666666
+        }
+      }
+    ],
+    "activeMapId": "m3",
+    "snap": true,
+    "showGrid": true,
+    "showNames": true,
+    "markMode": false,
+    "fogOn": false,
+    "campaignId": null,
+    "campaignName": "默认战役",
+    "sharedResources": [
+      {
+        "id": "link1",
+        "name": "5E 不全书",
+        "url": "https://5echm.kagangtuya.top/"
+      }
+    ],
+    "selectedId": null,
+    "encounter": {
+      "collapsed": false,
+      "panel": "time",
+      "playMode": "free",
+      "round": 2,
+      "currentEntryId": "i2",
+      "turnSerial": 4,
+      "secondsPerRound": 6,
+      "entries": [
+        {
+          "id": "i2",
+          "name": "测试角色",
+          "value": 15,
+          "color": "#e0b34c",
+          "tokenId": null,
+          "order": 1788263853504
+        }
+      ],
+      "worldTime": {
+        "totalSeconds": 28809,
+        "runningSince": null,
+        "rate": 1,
+        "resumeAfterTurn": false
+      },
+      "lastEvent": {
+        "label": "世界时间已暂停",
+        "at": 1788264767123
+      }
+    }
+  }
+}
