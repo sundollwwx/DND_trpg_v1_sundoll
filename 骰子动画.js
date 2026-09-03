@@ -197,6 +197,35 @@
     return { verts: centers.map((c) => scale(c, 1 / maxR)), faces };
   }
 
+  // 标准十面骰使用五方偏方面体，而不是五角双锥。这里用上下交错的十点腰环
+  // 与两个极点构成十个风筝面，整体再归一化到单位外接球。
+  function pentagonalTrapezohedron() {
+    const ring = [];
+    const ringRadius = 1;
+    const poleHeight = 1.15;
+    const cosStep = Math.cos(Math.PI / 5);
+    const ringHeight = poleHeight * (1 - cosStep) / (1 + cosStep);
+    for (let i = 0; i < 10; i++) {
+      const angle = Math.PI / 2 + i * Math.PI / 5;
+      ring.push([
+        Math.cos(angle) * ringRadius,
+        i % 2 === 0 ? -ringHeight : ringHeight,
+        Math.sin(angle) * ringRadius,
+      ]);
+    }
+    const verts = [[0, poleHeight, 0], [0, -poleHeight, 0]].concat(ring);
+    const faces = [];
+    for (let i = 0; i < 10; i++) {
+      const prev = 2 + ((i + 9) % 10);
+      const current = 2 + i;
+      const next = 2 + ((i + 1) % 10);
+      if (i % 2 === 0) faces.push([0, prev, current, next]);
+      else faces.push([1, next, current, prev]);
+    }
+    const maxRadius = Math.max.apply(null, verts.map((v) => Math.hypot(v[0], v[1], v[2])));
+    return { verts: verts.map((v) => scale(v, 1 / maxRadius)), faces };
+  }
+
   function outwardNormals(verts, faces) {
     return faces.map((f) => {
       const a = verts[f[0]], b = verts[f[1]], c = verts[f[2]];
@@ -233,20 +262,7 @@
         [0, 3, 5], [3, 1, 5], [1, 2, 5], [2, 0, 5],
       ],
     }),
-    d10: withMeta((function () {
-      const mid = [];
-      for (let i = 0; i < 5; i++) {
-        const a = Math.PI / 2 + i * 2 * Math.PI / 5;
-        mid.push([Math.cos(a), 0, Math.sin(a)]);
-      }
-      const verts = [[0, 1.25, 0], [0, -1.25, 0]].concat(mid).map(norm);
-      const faces = [];
-      for (let i = 0; i < 5; i++) {
-        faces.push([0, 2 + i, 2 + ((i + 1) % 5)]);
-        faces.push([1, 2 + ((i + 1) % 5), 2 + i]);
-      }
-      return { verts, faces };
-    })()),
+    d10: withMeta(pentagonalTrapezohedron()),
     d12: withMeta(dodeca()),
     d20: withMeta(icosa()),
   };
@@ -276,7 +292,8 @@
       const center = centroid(poly.verts, face);
       const cornerUv = [];
       for (let i = 0; i < n; i++) {
-        const a = (i / n) * Math.PI * 2 - Math.PI / 2;
+        // Canvas 的 Y 轴向下；使用逆向绕序，避免文字贴到外向面后左右镜像。
+        const a = -(i / n) * Math.PI * 2 - Math.PI / 2;
         cornerUv.push([0.5 + 0.42 * Math.cos(a), 0.5 + 0.42 * Math.sin(a)]);
       }
       const start = positions.length / 3;
@@ -307,7 +324,8 @@
   // D4 专用：每个面就是完整的一个三角形，三个角对应纹理上的三个数字
   function buildD4Geometry(poly) {
     const positions = [], uvs = [], groups = [];
-    const triUv = [[0.12, 0.12], [0.88, 0.12], [0.5, 0.92]];
+    // 与普通多面体使用同一外向绕序，避免 D4 角标左右镜像。
+    const triUv = [[0.12, 0.12], [0.5, 0.92], [0.88, 0.12]];
     poly.faces.forEach((face, fi) => {
       const a = poly.verts[face[0]], b = poly.verts[face[1]], c = poly.verts[face[2]];
       let nrm = cross(sub(b, a), sub(c, a));
@@ -389,13 +407,33 @@
     g.fillText(String(num), x, y);
   }
 
-  function faceTexture(isResult, n, skin) {
+  function drawMarkedNum(g, num, x, y, size, highlight, skin) {
+    const text = String(num);
+    drawNum(g, text, x, y, size, highlight, skin);
+    if (text === '6' || text === '9' || text === '60' || text === '90') {
+      const numberColors = highlight ? skin.numberHighlight : skin.number;
+      const width = Math.min(size * 1.05, Math.max(size * .58, g.measureText(text).width * .86));
+      g.fillStyle = numberColors[1];
+      g.fillRect(x - width / 2, y + size * .53, width, Math.max(3, size * .055));
+    }
+  }
+
+  function faceTexture(isResult, n, label, skin) {
     skin = skin || resolveDiceSkin(activeSkinKey);
     const c = document.createElement('canvas');
     c.width = c.height = 256;
     const g = c.getContext('2d');
     faceBase(g, isResult, skin);
     strokeFaceOutline(g, n || 4, isResult, skin);
+    const text = String(label == null ? '' : label);
+    const digits = Math.max(1, text.length);
+    const polygonScale = n <= 3 ? .78 : n === 4 ? 1 : .9;
+    let size = Math.round((isResult ? 100 : 84) * polygonScale * Math.min(1, 1.6 / Math.sqrt(digits)));
+    g.font = FANCY_FONT.replace('${size}', size);
+    const maxTextWidth = n <= 3 ? 112 : n === 4 ? 166 : 148;
+    const measuredWidth = g.measureText(text).width || 1;
+    if (measuredWidth > maxTextWidth) size = Math.max(30, Math.floor(size * maxTextWidth / measuredWidth));
+    drawMarkedNum(g, text, 128, 132, size, isResult, skin);
     const tex = new THREE.CanvasTexture(c);
     tex.flipY = false;
     tex.anisotropy = 4;
@@ -409,7 +447,8 @@
     });
   }
 
-  // D4：每个面一个完整三角形（数字由 Sprite 显示，保证永不镜像）
+  // D4 的每一面同时包含三个顶点读数。数字直接画进面纹理，跟随骰面旋转，
+  // 不再使用始终朝向镜头的 Sprite，避免数字脱离骰体悬浮。
   function d4BodyTexture(face, tipIdx, skin) {
     skin = skin || resolveDiceSkin(activeSkinKey);
     const c = document.createElement('canvas');
@@ -417,7 +456,7 @@
     const g = c.getContext('2d');
     const highlight = face.indexOf(tipIdx) >= 0;
     faceBase(g, highlight, skin);
-    const triUv = [[0.12, 0.12], [0.88, 0.12], [0.5, 0.92]];
+    const triUv = [[0.12, 0.12], [0.5, 0.92], [0.88, 0.12]];
     g.save();
     g.globalAlpha = highlight ? .96 : .82;
     g.strokeStyle = highlight ? skin.edgeHighlight : skin.edge;
@@ -431,6 +470,13 @@
     g.closePath();
     g.stroke();
     g.restore();
+    face.forEach((vertexIndex, index) => {
+      const corner = triUv[index];
+      const x = (corner[0] * .48 + .5 * .52) * 256;
+      const y = (corner[1] * .48 + .5 * .52) * 256;
+      const highlight = vertexIndex === tipIdx;
+      drawMarkedNum(g, String(vertexIndex + 1), x, y, highlight ? 42 : 34, highlight, skin);
+    });
     const tex = new THREE.CanvasTexture(c);
     tex.flipY = false;
     tex.anisotropy = 4;
@@ -444,40 +490,17 @@
     });
   }
 
-  // 数字用 Sprite：始终面向镜头，永不镜像、永不倒置
-  function makeNumSprite(text, highlight, scaleBase, materialCache, dimmed, skin) {
-    skin = skin || resolveDiceSkin(activeSkinKey);
-    const cacheKey = `${skin.key}|${text}|${highlight ? 1 : 0}|${dimmed ? 1 : 0}`;
-    let mat = materialCache && materialCache.get(cacheKey);
-    if (!mat) {
-      const c = document.createElement('canvas');
-      c.width = c.height = 192;
-      const g = c.getContext('2d');
-      g.clearRect(0, 0, 192, 192);
-      const size = highlight ? 108 : 88;
-      drawNum(g, text, 96, 98, size, highlight, skin);
-      if (text === '6' || text === '9') {
-        g.fillStyle = (highlight ? skin.numberHighlight : skin.number)[1];
-        g.fillRect(96 - size * 0.4, 98 + size * 0.52 + 6, size * 0.8, 5);
-      }
-      const tex = new THREE.CanvasTexture(c);
-      tex.anisotropy = 4;
-      if (THREE.sRGBEncoding) tex.encoding = THREE.sRGBEncoding;
-      mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, opacity: dimmed ? .38 : 1 });
-      if (materialCache) materialCache.set(cacheKey, mat);
-      disposeQueue.push(mat);
-    }
-    const sp = new THREE.Sprite(mat);
-    const s = scaleBase * (highlight ? 1.22 : 1);
-    sp.scale.set(s, s, 1);
-    return sp;
-  }
-
   let rafId = null;
   let cleanupTimer = null;
   let rootEl = null;
   let renderer = null;
   let disposeQueue = [];
+  const MAX_QUEUED_ROLLS = 8;
+  const rollQueue = [];
+  let animationActive = false;
+  let animationPhase = 'idle';
+  let rollSequence = 0;
+  let droppedQueuedRolls = 0;
 
   function cleanup() {
     if (rafId) cancelAnimationFrame(rafId);
@@ -497,13 +520,75 @@
     rafId = null; cleanupTimer = null; rootEl = null;
   }
 
+  function updateQueueDiagnostics() {
+    if (rootEl) {
+      rootEl.dataset.queueLength = String(rollQueue.length);
+      rootEl.dataset.animationPhase = animationPhase;
+    }
+    window.__DICE_QUEUE__ = {
+      active: animationActive,
+      phase: animationPhase,
+      pending: rollQueue.length,
+      dropped: droppedQueuedRolls,
+    };
+  }
+
+  function publishDiceCompletion(diagnostic) {
+    window.__DICE_LAST__ = diagnostic;
+    if (!Array.isArray(window.__DICE_HISTORY__)) window.__DICE_HISTORY__ = [];
+    window.__DICE_HISTORY__.push(diagnostic);
+    if (window.__DICE_HISTORY__.length > 20) window.__DICE_HISTORY__.splice(0, window.__DICE_HISTORY__.length - 20);
+    try { window.dispatchEvent(new CustomEvent('sundoll-dice-complete', { detail: diagnostic })); } catch (e) { /* 忽略 */ }
+  }
+
+  function startNextQueuedRoll() {
+    cleanup();
+    const next = rollQueue.shift();
+    if (!next) {
+      animationActive = false;
+      animationPhase = 'idle';
+      updateQueueDiagnostics();
+      return;
+    }
+    animationActive = true;
+    animationPhase = 'rolling';
+    updateQueueDiagnostics();
+    runDieAnimation(next.sides, next.label, next.total, next.opts, next.rollId);
+  }
+
+  function scheduleAdvance(delay) {
+    if (cleanupTimer) clearTimeout(cleanupTimer);
+    cleanupTimer = setTimeout(startNextQueuedRoll, Math.max(120, delay));
+    updateQueueDiagnostics();
+  }
+
+  function enqueueDieAnimation(sides, label, total, opts) {
+    const request = { sides, label, total, opts: opts || {}, rollId: ++rollSequence };
+    if (animationActive) {
+      if (rollQueue.length >= MAX_QUEUED_ROLLS) {
+        rollQueue.shift();
+        droppedQueuedRolls++;
+      }
+      rollQueue.push(request);
+      // 若当前结果已经展示，无需继续等待完整停留时间，尽快衔接下一次投掷。
+      if (animationPhase === 'result') scheduleAdvance(520);
+      else updateQueueDiagnostics();
+      return request.rollId;
+    }
+    animationActive = true;
+    animationPhase = 'rolling';
+    updateQueueDiagnostics();
+    runDieAnimation(request.sides, request.label, request.total, request.opts, request.rollId);
+    return request.rollId;
+  }
+
   function applySkinTheme(root, skin) {
     root.dataset.diceSkin = skin.key;
     root.style.setProperty('--dice-accent', skin.accent);
     root.style.setProperty('--dice-accent-soft', skin.accentSoft);
   }
 
-  function showFallback(total, label, opts) {
+  function showFallback(total, label, opts, rollId) {
     cleanup();
     opts = opts || {};
     const skin = resolveDiceSkin(opts.skin);
@@ -524,8 +609,24 @@
     rootEl = root;
     if (opts.critical === 'success') showCrit(root, 'success', '大成功！');
     else if (opts.critical === 'fail') showCrit(root, 'fail', '大失败！');
-    window.__DICE_LAST__ = { frontLabels: [total], topLabels: [String(total)], topScores: [1], faceLockPassed: true, total, natural: opts.natural ?? null, crit: opts.critical || null, fallback: true, skin: skin.key };
-    cleanupTimer = setTimeout(cleanup, 1600);
+    animationPhase = 'result';
+    const diagnostic = {
+      rollId,
+      frontLabels: [total],
+      topLabels: [String(total)],
+      topScores: [1],
+      faceLockPassed: true,
+      total,
+      natural: opts.natural ?? null,
+      crit: opts.critical || null,
+      fallback: true,
+      skin: skin.key,
+      queueRemaining: rollQueue.length,
+      droppedQueuedRolls,
+    };
+    updateQueueDiagnostics();
+    publishDiceCompletion(diagnostic);
+    scheduleAdvance(rollQueue.length ? 520 : 1600);
   }
 
   function showCrit(root, type, text) {
@@ -554,18 +655,17 @@
     return [(column - (rowCount - 1) / 2) * 1.52 + stagger, (row - (rows - 1) / 2) * 1.46];
   }
 
-  const SPRITE_SCALE = { d4: 0.30, d6: 0.52, d8: 0.46, d10: 0.44, d12: 0.38, d20: 0.32 };
-
-  function playDieAnimation(sides, label, total, opts) {
+  function runDieAnimation(sides, label, total, opts, rollId) {
     opts = opts || {};
-    if (!window.THREE) { showFallback(total, label, opts); return; }
+    if (!window.THREE) { showFallback(total, label, opts, rollId); return; }
+    sides = Math.round(clampNumber(sides || 20, 2, 1000));
     const skin = resolveDiceSkin(opts.skin);
-    const key = dieKey(sides || 20);
+    const key = dieKey(sides);
     const poly = POLY[key] || POLY.d20;
     const isD4 = key === 'd4';
     const rawDice = Array.isArray(opts.dice) && opts.dice.length
-      ? opts.dice.map((v) => Math.max(1, Math.round(v) || 1))
-      : [Math.max(1, Math.round(total) || 1)];
+      ? opts.dice.map((v) => Math.min(sides, Math.max(1, Math.round(v) || 1)))
+      : [Math.min(sides, Math.max(1, Math.round(total) || 1))];
     const mode = opts.mode === 1 || opts.mode === -1 ? opts.mode : 0;
     const pick = (mode === 1 || mode === -1) ? (opts.pick === 0 || opts.pick === 1 ? opts.pick : 0) : null;
     const critical = opts.critical === 'success' || opts.critical === 'fail' ? opts.critical : null;
@@ -583,7 +683,9 @@
     } else {
       display = rawDice.map((v, rollIndex) => ({ faceIdx: resultLabel(poly, v), text: String(v), rollIndex }));
     }
-    const N = Math.min(10, display.length);
+    const requestedDisplayCount = display.length;
+    const N = Math.min(10, requestedDisplayCount);
+    const omittedDisplayCount = Math.max(0, requestedDisplayCount - N);
     display = display.slice(0, N);
 
     cleanup();
@@ -612,11 +714,12 @@
     root.appendChild(resultDiv);
     document.body.appendChild(root);
     rootEl = root;
+    updateQueueDiagnostics();
 
     try {
       renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
     } catch (e) {
-      cleanup();showFallback(total, label, opts);return;
+      cleanup();showFallback(total, label, opts, rollId);return;
     }
     renderer.setSize(canvasW, canvasH);
     const pixelBudgetRatio = Math.sqrt(2200000 / Math.max(1, canvasW * canvasH));
@@ -665,16 +768,18 @@
     const geo = isD4 ? buildD4Geometry(poly) : buildGeometry(poly);
     geo.computeBoundingSphere();
     disposeQueue.push(geo);
-    let restRatio = geo.boundingSphere ? geo.boundingSphere.radius : 1.05;
-    if (isD4) {
-      restRatio /= 3;
-    }
     const screenScale = Math.max(.72, Math.min(1.12, Math.min(canvasW, canvasH) / 580));
     const perScale = (N === 1 ? .95 : N <= 2 ? .88 : N <= 4 ? .78 : N <= 6 ? .69 : .6) * screenScale * DICE_SIZE_MULTIPLIER;
-    const restY = restRatio * perScale;
-    const dieCenter = new THREE.Vector3(0, restY, 0);
-    const viewDir = new THREE.Vector3().subVectors(camera.position, dieCenter).normalize();
     const worldUp = new THREE.Vector3(0, 1, 0);
+    const supportVertex = new THREE.Vector3();
+    function supportHeight(quaternion, scaleValue) {
+      let minimumY = Infinity;
+      poly.verts.forEach((vertex) => {
+        supportVertex.set(vertex[0], vertex[1], vertex[2]).applyQuaternion(quaternion);
+        if (supportVertex.y < minimumY) minimumY = supportVertex.y;
+      });
+      return Math.max(.02, -minimumY * scaleValue);
+    }
     const margin = Math.max(.72, perScale * 1.18);
     const xBound = Math.max(1.2, halfWidth - margin);
     const zBound = Math.max(1.15, halfDepth * .82 - margin * .45);
@@ -692,13 +797,29 @@
     const centerZ = (Math.random() * 2 - 1) * centerRoomZ * .52;
     const layout = rawLayout.map((p) => [centerX + p[0] * layoutSpread, centerZ + p[1] * layoutSpread]);
     const bodyMaterialCache = new Map();
-    const spriteMaterialCache = new Map();
-    function bodyMaterial(faceLength, highlighted, dimmed) {
-      const cacheKey = `${skin.key}|${faceLength}|${highlighted ? 1 : 0}|${dimmed ? 1 : 0}`;
+    function finishBodyMaterial(material, dimmed) {
+      if (dimmed) {
+        material.transparent = true;
+        material.opacity = .38;
+        material.depthWrite = false;
+        material.metalness = .28;
+      }
+      disposeQueue.push(material);
+      return material;
+    }
+    function bodyMaterial(faceLength, faceLabel, highlighted, dimmed) {
+      const cacheKey = `${skin.key}|regular|${faceLength}|${faceLabel}|${highlighted ? 1 : 0}|${dimmed ? 1 : 0}`;
       if (bodyMaterialCache.has(cacheKey)) return bodyMaterialCache.get(cacheKey);
-      const material = faceTexture(highlighted, faceLength, skin);
-      if (dimmed) { material.transparent = true;material.opacity = .38;material.depthWrite = false;material.metalness = .28; }
-      bodyMaterialCache.set(cacheKey, material);disposeQueue.push(material);return material;
+      const material = finishBodyMaterial(faceTexture(highlighted, faceLength, faceLabel, skin), dimmed);
+      bodyMaterialCache.set(cacheKey, material);
+      return material;
+    }
+    function d4Material(face, tipIndex, dimmed) {
+      const cacheKey = `${skin.key}|d4|${face.join('.')}|${tipIndex}|${dimmed ? 1 : 0}`;
+      if (bodyMaterialCache.has(cacheKey)) return bodyMaterialCache.get(cacheKey);
+      const material = finishBodyMaterial(d4BodyTexture(face, tipIndex, skin), dimmed);
+      bodyMaterialCache.set(cacheKey, material);
+      return material;
     }
     // 一次投掷只选一个入场方向；多颗骰子在同一侧排成错位队列，避免出生时挤在一起。
     const sharedThrowEdge = Math.floor(Math.random() * 4);
@@ -739,6 +860,9 @@
           ? poly.labels.map((lab, fi) => String((fi) * 10).padStart(2, '0'))
           : poly.labels.map((lab, fi) => String(fi)))
         : poly.labels.map((lab) => String(lab));
+      // d21-d1000 等自定义骰以现有多面体代为表现，但朝上的面必须写真实结果，
+      // 不能把 27 错画成 7。
+      if (sides !== 100 && faceTexts[res - 1] !== String(d.text)) faceTexts[res - 1] = String(d.text);
       let alignVec, targetVec;
       if (isD4) {
         const v = poly.verts[res - 1];
@@ -749,46 +873,17 @@
         alignVec = new THREE.Vector3(n[0], n[1], n[2]);
         targetVec = worldUp;
       }
-      const mats = poly.faces.map((f, fi) => bodyMaterial(f.length, isD4 ? f.indexOf(res - 1) >= 0 : fi === res - 1, dimmed));
+      const mats = isD4
+        ? poly.faces.map((face) => d4Material(face, res - 1, dimmed))
+        : poly.faces.map((face, faceIndex) => bodyMaterial(face.length, faceTexts[faceIndex], faceIndex === res - 1, dimmed));
       const mesh = new THREE.Mesh(geo, mats);
       const finalPos = layout[i];
       const startPos = sharedEdgeStart(i);
-      mesh.position.set(startPos[0], restY + 1.62 + startPos[2] * .1 + Math.random() * .2, startPos[1]);
       mesh.scale.setScalar(perScale);
       mesh.quaternion.setFromEuler(new THREE.Euler(Math.random() * Math.PI * 2, Math.random() * Math.PI * 2, Math.random() * Math.PI * 2));
+      const initialFloorY = supportHeight(mesh.quaternion, perScale);
+      mesh.position.set(startPos[0], initialFloorY + 1.62 + startPos[2] * .1 + Math.random() * .2, startPos[1]);
       scene.add(mesh);
-      let numSprites = 0;
-      const faceSprites = [];
-      if (isD4) {
-        poly.faces.forEach((f, fi) => {
-          const fc = centroid(poly.verts, f);
-          f.forEach((vi) => {
-            const isTip = vi === res - 1;
-            const vd = poly.verts[vi];
-            // 数字收在面内：从角向面心收 0.38，再沿面法线抬离表面
-            const facePt = norm([vd[0] * 0.62 + fc[0] * 0.38, vd[1] * 0.62 + fc[1] * 0.38, vd[2] * 0.62 + fc[2] * 0.38]);
-            const n = poly.normals[fi];
-            const sp = makeNumSprite(String(vi + 1), isTip, isTip ? 0.34 : 0.26, spriteMaterialCache, dimmed, skin);
-            sp.position.set(facePt[0] * 0.97 + n[0] * 0.06, facePt[1] * 0.97 + n[1] * 0.06, facePt[2] * 0.97 + n[2] * 0.06);
-            sp.userData.nLocal = new THREE.Vector3(n[0], n[1], n[2]);
-            mesh.add(sp);
-            faceSprites.push(sp);
-            numSprites++;
-          });
-        });
-      } else {
-        poly.faces.forEach((f, fi) => {
-          const c = centroid(poly.verts, f);
-          const dir = norm(c);
-          const n = poly.normals[fi];
-          const sp = makeNumSprite(faceTexts[fi], fi === res - 1, SPRITE_SCALE[key] || 0.4, spriteMaterialCache, dimmed, skin);
-          sp.position.set(dir[0] * 0.97 + n[0] * 0.06, dir[1] * 0.97 + n[1] * 0.06, dir[2] * 0.97 + n[2] * 0.06);
-          sp.userData.nLocal = new THREE.Vector3(n[0], n[1], n[2]);
-          mesh.add(sp);
-          faceSprites.push(sp);
-          numSprites++;
-        });
-      }
       const shadowBlob = new THREE.Mesh(shadowGeo, shadowMat);
       shadowBlob.rotation.x = -Math.PI / 2;
       shadowBlob.position.y = 0.02;
@@ -804,7 +899,30 @@
       }
       // 先把真实结果面锁到世界上方，再绕竖轴随机转动；后者不会改变朝上的数字。
       const qAlign = new THREE.Quaternion().setFromUnitVectors(alignVec, targetVec);
-      const qYaw = new THREE.Quaternion().setFromAxisAngle(worldUp, Math.random() * Math.PI * 2);
+      let finalYaw = Math.random() * Math.PI * 2;
+      if (!isD4) {
+        // 让结果面的数字大致朝向屏幕上方，同时保留少量自然偏转。
+        const resultFace = poly.faces[res - 1];
+        const faceCenter = centroid(poly.verts, resultFace);
+        const firstVertex = poly.verts[resultFace[0]];
+        const labelUp = new THREE.Vector3(
+          firstVertex[0] - faceCenter[0],
+          firstVertex[1] - faceCenter[1],
+          firstVertex[2] - faceCenter[2]
+        ).normalize().applyQuaternion(qAlign);
+        labelUp.y = 0;
+        if (labelUp.lengthSq() > .0001) {
+          labelUp.normalize();
+          // 纹理保持 flipY=false，face[0] 对应字面的上沿；摄像机位于桌面近侧，
+          // 因而把该方向对齐到远离镜头的一侧，顶面数字会正向面向玩家。
+          const screenUpOnTable = new THREE.Vector3(0, 0, -1);
+          finalYaw = Math.atan2(
+            labelUp.z * screenUpOnTable.x - labelUp.x * screenUpOnTable.z,
+            labelUp.x * screenUpOnTable.x + labelUp.z * screenUpOnTable.z
+          ) + (Math.random() * 2 - 1) * .14;
+        }
+      }
+      const qYaw = new THREE.Quaternion().setFromAxisAngle(worldUp, finalYaw);
       const qFinal = qYaw.multiply(qAlign).normalize();
       const travelSeconds = 1.55 + Math.random() * .18;
       const velocity = new THREE.Vector3((finalPos[0] - startPos[0]) / travelSeconds, 5.4 + Math.random() * 2.1, (finalPos[1] - startPos[1]) / travelSeconds);
@@ -813,6 +931,7 @@
       else velocity.x += (Math.random() * 2 - 1) * 1.2;
       const angularVelocity = new THREE.Vector3(Math.random() * 2 - 1, Math.random() * 2 - 1, Math.random() * 2 - 1).normalize().multiplyScalar(10 + Math.random() * 8);
       const finalScale = perScale * (mode ? (selected ? 1.09 : .77) : 1);
+      const finalSupportY = supportHeight(qFinal, finalScale);
       return {
         mesh,
         shadowBlob,
@@ -820,13 +939,13 @@
         res,
         text: d.text,
         faceTexts,
-        numSprites,
-        sprites: faceSprites,
+        labelTextures: mats.length,
         opacity: dimmed ? .38 : 1,
         selected,
         dimmed,
         finalScale,
-        finalPosition: new THREE.Vector3(finalPos[0], restRatio * finalScale, finalPos[1]),
+        plannedPosition: new THREE.Vector3(finalPos[0], finalSupportY, finalPos[1]),
+        finalPosition: new THREE.Vector3(finalPos[0], finalSupportY, finalPos[1]),
         startPosition: mesh.position.clone(),
         velocity,
         angularVelocity,
@@ -834,6 +953,7 @@
         settlePosition: null,
         settleQuaternion: null,
         settleScale: perScale,
+        settleClearance: 0,
         bounces: 0,
       };
     });
@@ -856,7 +976,47 @@
       return Number.isFinite(minimum) ? minimum : null;
     }
     const startMinDistance = minimumPlanarDistance(diceData.map((d) => d.startPosition));
-    const finalMinDistance = minimumPlanarDistance(layout);
+    let finalMinDistance = minimumPlanarDistance(layout);
+    let settleTargetsPrepared = false;
+    function prepareSettleTargets() {
+      if (settleTargetsPrepared) return;
+      settleTargetsPrepared = true;
+      const targets = diceData.map((d) => ({
+        x: clampNumber(d.mesh.position.x, -xBound, xBound),
+        z: clampNumber(d.mesh.position.z, -zBound, zBound),
+      }));
+      // 骰子落下时可能仍有高低差；把它们投影到桌面后做有限轮次的最近距离分离，
+      // 只修正相互穿插，不再把整组强行搬回预制阵列。
+      for (let pass = 0; pass < 14; pass++) {
+        for (let i = 0; i < targets.length; i++) {
+          for (let j = i + 1; j < targets.length; j++) {
+            const a = targets[i], b = targets[j];
+            let dx = b.x - a.x, dz = b.z - a.z;
+            let distance = Math.hypot(dx, dz);
+            const desiredDistance = (diceData[i].finalScale + diceData[j].finalScale) * 1.01;
+            if (distance >= desiredDistance) continue;
+            if (distance < .0001) {
+              const angle = ((i + 1) * 2.399 + (j + 1) * .73) % (Math.PI * 2);
+              dx = Math.cos(angle);dz = Math.sin(angle);distance = 1;
+            }
+            const nx = dx / distance, nz = dz / distance;
+            const correction = (desiredDistance - distance) * .505 + .001;
+            a.x = clampNumber(a.x - nx * correction, -xBound, xBound);
+            a.z = clampNumber(a.z - nz * correction, -zBound, zBound);
+            b.x = clampNumber(b.x + nx * correction, -xBound, xBound);
+            b.z = clampNumber(b.z + nz * correction, -zBound, zBound);
+          }
+        }
+      }
+      diceData.forEach((d, index) => {
+        d.finalPosition.set(targets[index].x, supportHeight(d.qFinal, d.finalScale), targets[index].z);
+        if (d.selectionRing) {
+          d.selectionRing.position.x = targets[index].x;
+          d.selectionRing.position.z = targets[index].z;
+        }
+      });
+      finalMinDistance = minimumPlanarDistance(targets);
+    }
     root.dataset.diceScale = perScale.toFixed(3);
     root.dataset.spawnGrid = `${spawnColumns}x${spawnRows}`;
     root.dataset.collisionDistance = collisionDiameter.toFixed(3);
@@ -872,14 +1032,16 @@
             let dx = b.mesh.position.x - a.mesh.position.x;
             let dz = b.mesh.position.z - a.mesh.position.z;
             let distance = Math.hypot(dx, dz);
-            if (distance >= collisionDiameter) continue;
+            const verticalGap = Math.abs(b.mesh.position.y - a.mesh.position.y);
+            const planarCollisionDistance = Math.sqrt(Math.max(0, collisionDiameter * collisionDiameter - verticalGap * verticalGap));
+            if (planarCollisionDistance <= 0 || distance >= planarCollisionDistance) continue;
             if (distance < .0001) {
               const angle = ((i + 1) * 2.399 + (j + 1) * .73) % (Math.PI * 2);
               dx = Math.cos(angle);dz = Math.sin(angle);distance = 1;
             }
             const nx = dx / distance;
             const nz = dz / distance;
-            const correction = (collisionDiameter - distance) * .52 + .001;
+            const correction = (planarCollisionDistance - distance) * .52 + .001;
             a.mesh.position.x = clampNumber(a.mesh.position.x - nx * correction, -xBound, xBound);
             a.mesh.position.z = clampNumber(a.mesh.position.z - nz * correction, -zBound, zBound);
             b.mesh.position.x = clampNumber(b.mesh.position.x + nx * correction, -xBound, xBound);
@@ -904,21 +1066,28 @@
     let physicsSteps = 0;
     const spinAxis = new THREE.Vector3();
     const spinDelta = new THREE.Quaternion();
-    const spriteNormalWorld = new THREE.Vector3();
 
     function frame(now) {
       const elapsed = now - t0;
       const inPhysics = elapsed < physicsDuration;
       const dt = Math.min(.034, Math.max(.001, (now - lastFrame) / 1000));
       lastFrame = now;
+      if (!inPhysics) prepareSettleTargets();
       diceData.forEach((d) => {
         if (inPhysics) {
           d.velocity.y -= 14.2 * dt;
           d.mesh.position.addScaledVector(d.velocity, dt);
           const horizontalDrag = Math.exp(-.48 * dt);
           d.velocity.x *= horizontalDrag;d.velocity.z *= horizontalDrag;
-          if (d.mesh.position.y <= restY) {
-            d.mesh.position.y = restY;
+          const spinSpeed = d.angularVelocity.length();
+          if (spinSpeed > .001) {
+            spinAxis.copy(d.angularVelocity).normalize();
+            spinDelta.setFromAxisAngle(spinAxis, spinSpeed * dt);
+            d.mesh.quaternion.premultiply(spinDelta).normalize();
+          }
+          const floorY = supportHeight(d.mesh.quaternion, d.mesh.scale.x);
+          if (d.mesh.position.y <= floorY) {
+            d.mesh.position.y = floorY;
             if (d.velocity.y < -.35) {d.velocity.y = -d.velocity.y * (.42 + Math.random() * .12);d.bounces++;}
             else d.velocity.y = 0;
             const floorGrip = Math.exp(-2.0 * dt);d.velocity.x *= floorGrip;d.velocity.z *= floorGrip;d.angularVelocity.multiplyScalar(Math.exp(-1.4 * dt));
@@ -929,27 +1098,41 @@
           if (d.mesh.position.z < -zBound || d.mesh.position.z > zBound) {
             d.mesh.position.z = clampNumber(d.mesh.position.z, -zBound, zBound);d.velocity.z *= -.68;d.angularVelocity.x -= d.velocity.z * .45;
           }
-          const spinSpeed = d.angularVelocity.length();
-          if (spinSpeed > .001) {spinAxis.copy(d.angularVelocity).normalize();spinDelta.setFromAxisAngle(spinAxis, spinSpeed * dt);d.mesh.quaternion.premultiply(spinDelta).normalize();}
+          // 后半段用柔和的到达速度引导骰子靠近各自落点，避免物理阶段结束后
+          // 在半秒内横跨大半张桌面“滑”到预设位置。
+          const guideT = clampNumber((elapsed - 480) / Math.max(1, physicsDuration - 480), 0, 1);
+          if (guideT > 0) {
+            const remainingSeconds = Math.max(.2, (physicsDuration - elapsed) / 1000);
+            const desiredX = clampNumber((d.finalPosition.x - d.mesh.position.x) / remainingSeconds, -9, 9);
+            const desiredZ = clampNumber((d.finalPosition.z - d.mesh.position.z) / remainingSeconds, -9, 9);
+            const velocityBlend = 1 - Math.exp(-(0.9 + 8.5 * guideT * guideT) * dt);
+            d.velocity.x += (desiredX - d.velocity.x) * velocityBlend;
+            d.velocity.z += (desiredZ - d.velocity.z) * velocityBlend;
+          }
         } else {
-          if (!d.settlePosition) {d.settlePosition = d.mesh.position.clone();d.settleQuaternion = d.mesh.quaternion.clone();d.settleScale = d.mesh.scale.x;}
+          if (!d.settlePosition) {
+            d.settlePosition = d.mesh.position.clone();
+            d.settleQuaternion = d.mesh.quaternion.clone();
+            d.settleScale = d.mesh.scale.x;
+            d.settleClearance = Math.max(0, d.settlePosition.y - supportHeight(d.settleQuaternion, d.settleScale));
+          }
           const settleT = clampNumber((elapsed - physicsDuration) / settleDuration, 0, 1);
           const eased = easeInOut(settleT);
           d.mesh.position.lerpVectors(d.settlePosition, d.finalPosition, eased);
-          d.mesh.position.y += Math.sin(settleT * Math.PI) * .18 * (1 - settleT);
           d.mesh.quaternion.slerpQuaternions(d.settleQuaternion, d.qFinal, eased);
           d.mesh.scale.setScalar(d.settleScale + (d.finalScale - d.settleScale) * easeOut(settleT));
+          const currentSupportY = supportHeight(d.mesh.quaternion, d.mesh.scale.x);
+          d.mesh.position.y = currentSupportY
+            + d.settleClearance * (1 - eased)
+            + Math.sin(settleT * Math.PI) * .18 * (1 - settleT);
           if (d.selectionRing) d.selectionRing.material.opacity = .74 * easeOut(settleT);
         }
       });
       if (inPhysics) resolveDiceCollisions();
       diceData.forEach((d) => {
-        d.sprites.forEach((sp) => {
-          spriteNormalWorld.copy(sp.userData.nLocal).applyQuaternion(d.mesh.quaternion);
-          sp.visible = spriteNormalWorld.dot(viewDir) > 0.22;
-        });
         d.shadowBlob.position.x = d.mesh.position.x;d.shadowBlob.position.z = d.mesh.position.z;
-        const height = Math.max(0, d.mesh.position.y - restY), shadowS = Math.max(.5, 1 - height * .18) * d.mesh.scale.x;
+        const floorY = supportHeight(d.mesh.quaternion, d.mesh.scale.x);
+        const height = Math.max(0, d.mesh.position.y - floorY), shadowS = Math.max(.5, 1 - height * .18) * d.mesh.scale.x;
         d.shadowBlob.scale.setScalar(shadowS);
       });
       if (inPhysics) physicsSteps++;
@@ -975,7 +1158,9 @@
         root.dataset.expectedLabels = diceData.map((d) => String(d.text)).join(',');
         root.dataset.topLabels = topObservations.map((item) => item.label).join(',');
         root.dataset.faceLockPassed = String(topObservations.every((item, index) => item.label === String(diceData[index].text)));
-        window.__DICE_LAST__ = {
+        root.dataset.finalMinDistance = finalMinDistance == null ? '' : finalMinDistance.toFixed(3);
+        const diagnostic = {
+          rollId,
           frontLabels: diceData.map((d) => d.res),
           labels: diceData.map((d) => d.text),
           topLabels: topObservations.map((item) => item.label),
@@ -984,13 +1169,17 @@
           faceTexts: diceData[0] ? diceData[0].faceTexts : [],
           opacities: diceData.map((d) => d.opacity),
           diceScale: perScale,
-          numSprites: diceData.reduce((s, d) => s + d.numSprites, 0),
-          visibleSprites: diceData.reduce((s, d) => s + d.sprites.filter((sp) => sp.visible).length, 0),
+          labelMode: 'face-texture',
+          labelTextures: diceData.reduce((sum, d) => sum + d.labelTextures, 0),
+          groundClearances: diceData.map((d) => Math.round((d.mesh.position.y - supportHeight(d.mesh.quaternion, d.mesh.scale.x)) * 10000) / 10000),
           canvasSize: [canvasW, canvasH],
-          layout: layout.map((p) => [Math.round(p[0] * 100) / 100, Math.round(p[1] * 100) / 100]),
+          layout: diceData.map((d) => [Math.round(d.finalPosition.x * 100) / 100, Math.round(d.finalPosition.z * 100) / 100]),
+          plannedLayout: layout.map((p) => [Math.round(p[0] * 100) / 100, Math.round(p[1] * 100) / 100]),
           total,
           pick,
           N,
+          requestedDisplayCount,
+          omittedDisplayCount,
           natural,
           crit: critical,
           physics: true,
@@ -1002,25 +1191,40 @@
           spawnGrid: [spawnColumns, spawnRows],
           collisionDistance: Math.round(collisionDiameter * 100) / 100,
           collisionCount: diceCollisionCount,
+          bounces: diceData.map((d) => d.bounces),
+          settleTravelDistances: diceData.map((d) => {
+            if (!d.settlePosition) return 0;
+            return Math.round(Math.hypot(
+              d.settlePosition.x - d.finalPosition.x,
+              d.settlePosition.z - d.finalPosition.z
+            ) * 100) / 100;
+          }),
           startMinDistance: startMinDistance == null ? null : Math.round(startMinDistance * 100) / 100,
           finalMinDistance: finalMinDistance == null ? null : Math.round(finalMinDistance * 100) / 100,
           startPositions: diceData.map((d) => d.startPosition.toArray().map((v) => Math.round(v * 100) / 100)),
           endPositions: diceData.map((d) => d.finalPosition.toArray().map((v) => Math.round(v * 100) / 100)),
           chosenIndex: pick,
+          queueRemaining: rollQueue.length,
+          droppedQueuedRolls,
         };
         if (isD4) {
           const r0 = diceData[0].res;
           const v = new THREE.Vector3(poly.verts[r0 - 1][0], poly.verts[r0 - 1][1], poly.verts[r0 - 1][2]).normalize();
-          window.__DICE_LAST__.apexUpScore = v.applyQuaternion(diceData[0].qFinal).y;
+          diagnostic.apexUpScore = v.applyQuaternion(diceData[0].qFinal).y;
         }
         if (isD4) {
-          window.__DICE_LAST__.d4Corners = POLY.d4.faces.map((f) => f.map((vi) => vi + 1));
-          window.__DICE_LAST__.d4Faces = POLY.d4.faces.map((f) => f.slice());
+          diagnostic.d4Corners = POLY.d4.faces.map((f) => f.map((vi) => vi + 1));
+          diagnostic.d4Faces = POLY.d4.faces.map((f) => f.slice());
         }
         let text = `${label || '掷骰'} → ${total}`;
         if (sides === 100) text += `（${diceData.map((d) => d.text).join(' + ')}）`;
         else if (mode !== 0) text += `（取 ${rawDice[pick]}）`;
         else if (N > 1) text += `（${diceData.map((d) => d.text).join(' + ')}）`;
+        if (omittedDisplayCount > 0) {
+          text += sides === 100
+            ? ` · 动画显示前 ${Math.floor(N / 2)} 组，共 ${rawDice.length} 组`
+            : ` · 动画显示前 ${N} 颗，共 ${rawDice.length} 颗`;
+        }
         if (critical === 'success') {
           showCrit(root, 'success', '大成功！');
           text = '⚡ 大成功！' + text;
@@ -1033,13 +1237,16 @@
           const detail = document.createElement('small');detail.textContent = `${mode === 1 ? '优势' : '劣势'}：取 ${rawDice[pick]} · 舍 ${rawDice[pick === 0 ? 1 : 0]}`;resultDiv.appendChild(detail);
         }
         resultDiv.classList.add('show');
-        cleanupTimer = setTimeout(cleanup, reducedMotion ? 1250 : 2200);
+        animationPhase = 'result';
+        updateQueueDiagnostics();
+        publishDiceCompletion(diagnostic);
+        scheduleAdvance(rollQueue.length ? 520 : (reducedMotion ? 1250 : 2200));
       }
     }
     rafId = requestAnimationFrame(frame);
   }
 
-  window.playDieAnimation = playDieAnimation;
+  window.playDieAnimation = enqueueDieAnimation;
   window.SundollDiceSkins = Object.freeze({
     skins: DICE_SKINS,
     list: () => Object.values(DICE_SKINS).map((skin) => ({ key: skin.key, label: skin.label, swatch: skin.swatch, accent: skin.accent })),
@@ -1048,6 +1255,8 @@
   });
   window.__DICE_POLY__ = POLY;
   window.__DICE_LAST__ = null;
+  window.__DICE_HISTORY__ = [];
+  updateQueueDiagnostics();
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', installDiceSkinPickers, { once: true });
   else installDiceSkinPickers();
 })();

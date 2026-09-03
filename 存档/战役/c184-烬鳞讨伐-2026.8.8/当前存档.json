@@ -1,7 +1,7 @@
 {
   "format": "sangduoer-campaign",
   "schemaVersion": 4,
-  "savedAt": 1788444026091,
+  "savedAt": 1788444943667,
   "campaignId": "c184",
   "campaignName": "烬鳞讨伐-2026.8.8",
   "state": {
@@ -5757,7 +5757,8 @@
           "15,13": "marked",
           "18,15": "marked",
           "21,14": "marked",
-          "22,15": "marked"
+          "22,15": "marked",
+          "23,15": "marked"
         },
         "cellVariants": {},
         "baseCells": [
@@ -6965,7 +6966,17 @@
               "feet": 30,
               "direction": 0
             },
-            "conditions": [],
+            "conditions": [
+              {
+                "id": "cond282",
+                "key": "unconscious",
+                "label": "昏迷",
+                "icon": "💤",
+                "color": "#9b8cff",
+                "remainingTurns": 1,
+                "visibility": "public"
+              }
+            ],
             "publicNote": "",
             "gmNote": "",
             "hiddenFromPlayers": false,
@@ -7061,9 +7072,9 @@
           }
         ],
         "cam": {
-          "x": -562.5295024100869,
-          "y": -524.2007848476856,
-          "zoom": 1.2325612989075507
+          "x": -732.9436629596889,
+          "y": -631.665227586893,
+          "zoom": 1.3182358443007587
         }
       },
       {
@@ -8854,7 +8865,7 @@
       }
     ],
     "sharedNotes": "",
-    "selectedId": "t279",
+    "selectedId": "t278",
     "encounter": {
       "collapsed": false,
       "panel": "initiative",

@@ -40,6 +40,7 @@ class ClientParityTests(unittest.TestCase):
         self.assertIsNotNone(player_version)
         self.assertEqual(host_version.group(1), player_version.group(1))
         self.assertIn('face-lock', host_version.group(1))
+        self.assertIn('physics-v7', host_version.group(1))
 
     def test_condition_badges_start_at_top_right_above_tokens(self):
         for source in (HOST_CSS, PLAYER_HTML):
@@ -77,11 +78,36 @@ class ClientParityTests(unittest.TestCase):
     def test_dice_lock_result_to_world_up_and_report_diagnostics(self):
         self.assertIn('targetVec = worldUp', DICE_JS)
         self.assertNotIn('targetVec = viewDir', DICE_JS)
+        self.assertIn('tex.flipY = false', DICE_JS)
+        self.assertIn('const screenUpOnTable = new THREE.Vector3(0, 0, -1)', DICE_JS)
         self.assertIn('topLabels:', DICE_JS)
         self.assertIn('topScores:', DICE_JS)
         self.assertIn('faceLockPassed:', DICE_JS)
         self.assertIn('root.dataset.faceLockPassed', DICE_JS)
         self.assertIn('qYaw.multiply(qAlign).normalize()', DICE_JS)
+
+    def test_dice_labels_are_baked_into_faces_and_custom_results_stay_exact(self):
+        self.assertIn("labelMode: 'face-texture'", DICE_JS)
+        self.assertIn('faceTexture(highlighted, faceLength, faceLabel, skin)', DICE_JS)
+        self.assertIn('faceTexts[res - 1] = String(d.text)', DICE_JS)
+        self.assertIn('const a = -(i / n) * Math.PI * 2 - Math.PI / 2', DICE_JS)
+        self.assertEqual(DICE_JS.count('const triUv = [[0.12, 0.12], [0.5, 0.92], [0.88, 0.12]]'), 2)
+        self.assertNotIn('new THREE.Sprite(', DICE_JS)
+        self.assertNotIn('new THREE.SpriteMaterial(', DICE_JS)
+
+    def test_dice_use_shape_contact_height_and_real_d10_geometry(self):
+        self.assertIn('function supportHeight(', DICE_JS)
+        self.assertIn('groundClearances:', DICE_JS)
+        self.assertIn('prepareSettleTargets()', DICE_JS)
+        self.assertIn('pentagonalTrapezohedron()', DICE_JS)
+        self.assertNotIn('restRatio /= 3', DICE_JS)
+
+    def test_rapid_rolls_are_queued_instead_of_cancelling_each_other(self):
+        self.assertIn('MAX_QUEUED_ROLLS', DICE_JS)
+        self.assertIn('rollQueue.push(request)', DICE_JS)
+        self.assertIn('startNextQueuedRoll', DICE_JS)
+        self.assertIn('sundoll-dice-complete', DICE_JS)
+        self.assertIn('window.__DICE_HISTORY__', DICE_JS)
 
     def test_map_grid_and_visual_layer_order_match(self):
         for source in (HOST_JS, PLAYER_HTML):
