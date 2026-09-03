@@ -241,7 +241,19 @@
     });
   }
 
+  function ensureOutwardFace(verts, face) {
+    const ordered = face.slice();
+    if (ordered.length < 3) return ordered;
+    const a = verts[ordered[0]], b = verts[ordered[1]], c = verts[ordered[2]];
+    const normal = cross(sub(b, a), sub(c, a));
+    if (dot(normal, centroid(verts, ordered)) >= 0) return ordered;
+    // 保留 face[0] 作为字面上沿锚点，只反转其余顶点来修正手性。
+    // 这样最终数字朝向不变，同时 UV 不会跟着朝内面左右镜像。
+    return [ordered[0]].concat(ordered.slice(1).reverse());
+  }
+
   function withMeta(poly) {
+    poly.faces = poly.faces.map((face) => ensureOutwardFace(poly.verts, face));
     poly.normals = outwardNormals(poly.verts, poly.faces);
     poly.labels = poly.faces.map((f, i) => i + 1);
     return poly;
@@ -296,7 +308,8 @@
       const center = centroid(poly.verts, face);
       const cornerUv = [];
       for (let i = 0; i < n; i++) {
-        // Canvas 的 Y 轴向下；使用逆向绕序，避免文字贴到外向面后左右镜像。
+        // Canvas 的 Y 轴向下；所有面已在 withMeta 中规范为外向绕序，
+        // 因此这里统一使用逆向 UV 绕序，避免字面左右镜像。
         const a = -(i / n) * Math.PI * 2 - Math.PI / 2;
         cornerUv.push([0.5 + 0.42 * Math.cos(a), 0.5 + 0.42 * Math.sin(a)]);
       }
