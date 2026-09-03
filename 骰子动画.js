@@ -1,6 +1,6 @@
 /* 桑哆尔 · 全地图 3D 骰子动画（three.js）
    支持多骰、优势/劣势、天然 1/20；轻量物理积分负责滚动与碰撞，
-   最后再把预先生成的逻辑结果平滑校准为真实朝上的落面。 */
+   预先生成的逻辑结果会在减速滚动中自然收敛为真实朝上的落面。 */
 (function () {
   'use strict';
 
@@ -157,6 +157,10 @@
   function easeInOut(t) { return t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2; }
   function easeOut(t) { return 1 - Math.pow(1 - t, 3); }
   function clampNumber(value, min, max) { return Math.min(max, Math.max(min, Number(value) || 0)); }
+  function quaternionAngleDegrees(a, b) {
+    const cosine = Math.min(1, Math.abs(a.dot(b)));
+    return 2 * Math.acos(cosine) * 180 / Math.PI;
+  }
 
   function icosa() {
     const verts = [
@@ -954,6 +958,11 @@
         settleQuaternion: null,
         settleScale: perScale,
         settleClearance: 0,
+        guideStartAngularDistance: null,
+        settleAngularDistance: null,
+        maxLateFrameAngularStep: 0,
+        maxSettleFrameAngularStep: 0,
+        previousFrameQuaternion: mesh.quaternion.clone(),
         bounces: 0,
       };
     });
@@ -1061,6 +1070,10 @@
     const reducedMotion = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
     const physicsDuration = reducedMotion ? 120 : 1820;
     const settleDuration = reducedMotion ? 260 : 520;
+    // 结果面不应在物理阶段结束后才突然校正。滚动到中段便开始极弱引导，
+    // 随减速逐渐增强；进入 settle 时只允许留下肉眼不可见的角度残差。
+    const orientationGuideStart = reducedMotion ? 0 : 620;
+    const orientationLockStart = reducedMotion ? 0 : physicsDuration - 500;
     const t0 = performance.now();
     let lastFrame = t0;
     let physicsSteps = 0;
@@ -1085,18 +1098,48 @@
             spinDelta.setFromAxisAngle(spinAxis, spinSpeed * dt);
             d.mesh.quaternion.premultiply(spinDelta).normalize();
           }
+          if (d.mesh.position.x < -xBound || d.mesh.position.x > xBound) {
+            d.mesh.position.x = clampNumber(d.mesh.position.x, -xBound, xBound);d.velocity.x *= -.68;d.angularVelocity.z += d.velocity.x * .45;
+          }
+          if (d.mesh.position.z < -zBound || d.mesh.position.z > zBound) {
+            d.mesh.position.z = clampNumber(d.mesh.position.z, -zBound, zBound);d.velocity.z *= -.68;d.angularVelocity.x -= d.velocity.z * .45;
+          }
+          const orientationGuideT = clampNumber(
+            (elapsed - orientationGuideStart) / Math.max(1, physicsDuration - orientationGuideStart),
+            0,
+            1
+          );
+          const orientationLockT = clampNumber(
+            (elapsed - orientationLockStart) / Math.max(1, physicsDuration - orientationLockStart),
+            0,
+            1
+          );
+          if (orientationGuideT > 0) {
+            if (d.guideStartAngularDistance == null) {
+              d.guideStartAngularDistance = quaternionAngleDegrees(d.mesh.quaternion, d.qFinal);
+            }
+            // 先逐步卸掉随机自转，再用连续的球面插值把真实结果“滚”到上方。
+            // 指数形式不依赖帧率；前段影响很轻，后段足够强以消除 settle 翻面。
+            const angularDampingStrength = reducedMotion
+              ? 48
+              : 0.8 + 12 * orientationGuideT * orientationGuideT + 8 * orientationLockT * orientationLockT;
+            const angularDamping = Math.exp(-angularDampingStrength * dt);
+            d.angularVelocity.multiplyScalar(angularDamping);
+            // lockT 使用三次曲线从 0 起步，起点的速度与加速度都不会突变；
+            // 它只在末 0.5 秒消除多骰碰撞造成的最后几度误差。
+            const orientationStrength = reducedMotion
+              ? 64
+              : 0.65 + 16 * Math.pow(orientationGuideT, 3) + 28 * Math.pow(orientationLockT, 3);
+            const orientationBlend = 1 - Math.exp(-orientationStrength * dt);
+            d.mesh.quaternion.slerp(d.qFinal, orientationBlend).normalize();
+          }
+          // 姿态引导会改变多面体的接触高度，所以必须在引导后重新计算桌面支撑面。
           const floorY = supportHeight(d.mesh.quaternion, d.mesh.scale.x);
           if (d.mesh.position.y <= floorY) {
             d.mesh.position.y = floorY;
             if (d.velocity.y < -.35) {d.velocity.y = -d.velocity.y * (.42 + Math.random() * .12);d.bounces++;}
             else d.velocity.y = 0;
             const floorGrip = Math.exp(-2.0 * dt);d.velocity.x *= floorGrip;d.velocity.z *= floorGrip;d.angularVelocity.multiplyScalar(Math.exp(-1.4 * dt));
-          }
-          if (d.mesh.position.x < -xBound || d.mesh.position.x > xBound) {
-            d.mesh.position.x = clampNumber(d.mesh.position.x, -xBound, xBound);d.velocity.x *= -.68;d.angularVelocity.z += d.velocity.x * .45;
-          }
-          if (d.mesh.position.z < -zBound || d.mesh.position.z > zBound) {
-            d.mesh.position.z = clampNumber(d.mesh.position.z, -zBound, zBound);d.velocity.z *= -.68;d.angularVelocity.x -= d.velocity.z * .45;
           }
           // 后半段用柔和的到达速度引导骰子靠近各自落点，避免物理阶段结束后
           // 在半秒内横跨大半张桌面“滑”到预设位置。
@@ -1115,6 +1158,7 @@
             d.settleQuaternion = d.mesh.quaternion.clone();
             d.settleScale = d.mesh.scale.x;
             d.settleClearance = Math.max(0, d.settlePosition.y - supportHeight(d.settleQuaternion, d.settleScale));
+            d.settleAngularDistance = quaternionAngleDegrees(d.settleQuaternion, d.qFinal);
           }
           const settleT = clampNumber((elapsed - physicsDuration) / settleDuration, 0, 1);
           const eased = easeInOut(settleT);
@@ -1127,6 +1171,14 @@
             + Math.sin(settleT * Math.PI) * .18 * (1 - settleT);
           if (d.selectionRing) d.selectionRing.material.opacity = .74 * easeOut(settleT);
         }
+        const frameAngularStep = quaternionAngleDegrees(d.previousFrameQuaternion, d.mesh.quaternion);
+        if (elapsed >= physicsDuration - 420) {
+          d.maxLateFrameAngularStep = Math.max(d.maxLateFrameAngularStep, frameAngularStep);
+        }
+        if (!inPhysics) {
+          d.maxSettleFrameAngularStep = Math.max(d.maxSettleFrameAngularStep, frameAngularStep);
+        }
+        d.previousFrameQuaternion.copy(d.mesh.quaternion);
       });
       if (inPhysics) resolveDiceCollisions();
       diceData.forEach((d) => {
@@ -1158,6 +1210,9 @@
         root.dataset.expectedLabels = diceData.map((d) => String(d.text)).join(',');
         root.dataset.topLabels = topObservations.map((item) => item.label).join(',');
         root.dataset.faceLockPassed = String(topObservations.every((item, index) => item.label === String(diceData[index].text)));
+        root.dataset.continuousSettlePassed = String(diceData.every((d) =>
+          (d.settleAngularDistance || 0) <= 1.5 && d.maxSettleFrameAngularStep <= .35
+        ));
         root.dataset.finalMinDistance = finalMinDistance == null ? '' : finalMinDistance.toFixed(3);
         const diagnostic = {
           rollId,
@@ -1199,6 +1254,13 @@
               d.settlePosition.z - d.finalPosition.z
             ) * 100) / 100;
           }),
+          guideStartAngularDistances: diceData.map((d) => Math.round((d.guideStartAngularDistance || 0) * 100) / 100),
+          settleAngularDistances: diceData.map((d) => Math.round((d.settleAngularDistance || 0) * 100) / 100),
+          maxLateFrameAngularSteps: diceData.map((d) => Math.round(d.maxLateFrameAngularStep * 100) / 100),
+          maxSettleFrameAngularSteps: diceData.map((d) => Math.round(d.maxSettleFrameAngularStep * 100) / 100),
+          continuousSettlePassed: diceData.every((d) =>
+            (d.settleAngularDistance || 0) <= 1.5 && d.maxSettleFrameAngularStep <= .35
+          ),
           startMinDistance: startMinDistance == null ? null : Math.round(startMinDistance * 100) / 100,
           finalMinDistance: finalMinDistance == null ? null : Math.round(finalMinDistance * 100) / 100,
           startPositions: diceData.map((d) => d.startPosition.toArray().map((v) => Math.round(v * 100) / 100)),

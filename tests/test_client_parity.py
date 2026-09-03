@@ -41,6 +41,7 @@ class ClientParityTests(unittest.TestCase):
         self.assertEqual(host_version.group(1), player_version.group(1))
         self.assertIn('face-lock', host_version.group(1))
         self.assertIn('physics-v7', host_version.group(1))
+        self.assertIn('continuous-settle-r6', host_version.group(1))
 
     def test_condition_badges_start_at_top_right_above_tokens(self):
         for source in (HOST_CSS, PLAYER_HTML):
@@ -85,6 +86,12 @@ class ClientParityTests(unittest.TestCase):
         self.assertIn('faceLockPassed:', DICE_JS)
         self.assertIn('root.dataset.faceLockPassed', DICE_JS)
         self.assertIn('qYaw.multiply(qAlign).normalize()', DICE_JS)
+        self.assertIn('const orientationGuideT = clampNumber(', DICE_JS)
+        self.assertIn('d.mesh.quaternion.slerp(d.qFinal, orientationBlend).normalize()', DICE_JS)
+        self.assertIn('settleAngularDistances:', DICE_JS)
+        self.assertIn('maxSettleFrameAngularSteps:', DICE_JS)
+        self.assertIn('continuousSettlePassed:', DICE_JS)
+        self.assertIn('root.dataset.continuousSettlePassed', DICE_JS)
 
     def test_dice_labels_are_baked_into_faces_and_custom_results_stay_exact(self):
         self.assertIn("labelMode: 'face-texture'", DICE_JS)
