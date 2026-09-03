@@ -1,16 +1,28 @@
 #!/bin/bash
-# 桑哆尔 · 一键启动（macOS 双击本文件）
-cd "$(dirname "$0")"
-echo "正在启动桑哆尔联机服务器…"
-python3 start_server.py &
-SERVER_PID=$!
-for i in {1..30}; do
-  if curl -fsS "http://127.0.0.1:8090/api/health" >/dev/null 2>&1; then
-    open "http://localhost:8090/主控台/主控台.html"
-    wait "$SERVER_PID"
-    exit $?
-  fi
-  sleep 0.2
-done
-echo "服务器未能在 6 秒内启动，请检查 Python 3 和端口 8090。"
-wait "$SERVER_PID"
+# 桑哆尔 · macOS 双击启动入口
+cd "$(dirname "$0")" || exit 1
+
+PYTHON_BIN="$(command -v python3 2>/dev/null || true)"
+if [ -z "${PYTHON_BIN}" ]; then
+  for CANDIDATE in /usr/bin/python3 /opt/homebrew/bin/python3 /usr/local/bin/python3; do
+    if [ -x "${CANDIDATE}" ]; then
+      PYTHON_BIN="${CANDIDATE}"
+      break
+    fi
+  done
+fi
+
+if [ -z "${PYTHON_BIN}" ]; then
+  echo "[启动失败] 未找到 Python 3。"
+  echo "请先安装 Python 3，然后重新双击本文件。"
+  read -r -p "按回车退出……" _
+  exit 1
+fi
+
+"${PYTHON_BIN}" "launch_sundoll.py" "$@"
+STATUS=$?
+if [ "${STATUS}" -ne 0 ]; then
+  echo
+  read -r -p "启动未完成，按回车关闭窗口……" _
+fi
+exit "${STATUS}"

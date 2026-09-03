@@ -43,10 +43,17 @@ RECENT_ACTIONS = []   # 玩家动作（带自增 seq），用于主机合并
 NEXT_SEQ = 1
 MAX_RECENT = 500
 MAX_BODY = 12 * 1024 * 1024
-PATCH_FIELDS = {'hp', 'hpMax', 'ac'}
+PATCH_FIELDS = {'hp', 'hpMax', 'ac', 'spellRange'}
 MAX_MOVE_POINTS = 60
 MAX_TURN_PATH_POINTS = 200
 MAX_ACTION_BODY = 512 * 1024
+DOODLE_ACTIONS = {'doodleAdd', 'doodleDelete', 'doodleClear'}
+INITIATIVE_ACTIONS = {'initiativeSwap'}
+DOODLE_TOOLS = {'pen', 'line', 'arrow', 'circle'}
+DOODLE_ID_RE = re.compile(r'^[A-Za-z0-9_.:-]{1,96}$')
+DOODLE_COLOR_RE = re.compile(r'^#[0-9A-Fa-f]{6}$')
+MAX_DOODLE_POINTS = 800
+MAX_DOODLES = 1000
 ACTION_WINDOW_MS = 1000
 MAX_ACTIONS_PER_WINDOW = 40
 ASSET_ROOT = os.path.join(ROOT, '.sundoll-cache', '联机资源')
@@ -63,7 +70,11 @@ SESSIONS = {}         # {sessionToken: {playerId, name, status, lastSeen}}
 ACTION_IDS = {}       # {actionId: seq}，防止网络重试重复执行
 MAX_ACTION_IDS = 2000
 ACTION_RATE = {}      # {sessionToken: [最近请求时间戳]}
-HOST_ACTIONS = {'roll', 'announce', 'bgm'}
+HOST_ACTIONS = {'roll', 'announce', 'bgm', 'mapReaction'}
+MAP_REACTION_EMOJIS = {'👍', '❤️', '😂', '😮', '🔥', '✨', '❓', '⚔️', '🎯', '👏'}
+REACTION_ID_RE = re.compile(r'^[A-Za-z0-9_.:-]{1,96}$')
+REACTION_RATE = {}
+REACTION_COOLDOWN_MS = 450
 
 
 def is_local_request(handler):
@@ -90,6 +101,15 @@ def consume_action_slot(session_token):
     return True
 
 
+def consume_reaction_slot(session_token):
+    now = int(time.time() * 1000)
+    previous = int(REACTION_RATE.get(session_token, 0) or 0)
+    if now - previous < REACTION_COOLDOWN_MS:
+        return False
+    REACTION_RATE[session_token] = now
+    return True
+
+
 def finite_int(value, minimum=None, maximum=None, fallback=None):
     number = finite_number(value)
     if number is None:
@@ -100,6 +120,50 @@ def finite_int(value, minimum=None, maximum=None, fallback=None):
     if maximum is not None:
         value = min(maximum, value)
     return value
+
+
+def normalize_spell_range(raw):
+    source = raw if isinstance(raw, dict) else {}
+    shape = source.get('shape') if source.get('shape') in ('radius', 'cone') else 'off'
+    feet_number = finite_number(source.get('feet'))
+    feet = int(round((feet_number if feet_number is not None else 30) / 5.0) * 5)
+    feet = max(5, min(180, feet))
+    direction_number = finite_number(source.get('direction'))
+    direction = int(round((direction_number if direction_number is not None else 0) / 5.0) * 5) % 360
+    return {'shape': shape, 'feet': feet, 'direction': direction}
+
+
+def normalize_roll_action(action, name):
+    if not isinstance(action, dict):
+        return None
+    sides = finite_int(action.get('sides'), 2, 1000, 20)
+    raw_dice = action.get('dice')
+    if not isinstance(raw_dice, list):
+        raw_dice = []
+    dice = [finite_int(value, 1, sides, 1) for value in raw_dice[:100]]
+    mode = finite_int(action.get('mode'), -1, 1, 0)
+    if mode not in (-1, 1) or len(dice) != 2:
+        mode = 0
+    pick = finite_int(action.get('pick'), 0, 1, 0) if mode else None
+    natural = None
+    critical = None
+    if sides == 20 and ((mode and len(dice) == 2) or (not mode and len(dice) == 1)):
+        natural = dice[pick] if mode else dice[0]
+        critical = 'success' if natural == 20 else ('fail' if natural == 1 else None)
+    return {
+        'op': 'roll',
+        'name': str(name or '玩家')[:24],
+        'rid': str(action.get('rid') or '')[:96],
+        'expr': str(action.get('expr') or '')[:40],
+        'detail': str(action.get('detail') or '')[:600],
+        'total': finite_int(action.get('total'), -99999, 99999, 0),
+        'sides': sides,
+        'dice': dice,
+        'pick': pick,
+        'mode': mode,
+        'natural': natural,
+        'critical': critical,
+    }
 
 
 def asset_file(key):
@@ -208,12 +272,45 @@ def find_token(state, token_id):
     return None, None
 
 
+def find_map(state, map_id):
+    """按公开地图 ID 查找地图。"""
+    for map_obj in (state or {}).get('maps', []) or []:
+        if isinstance(map_obj, dict) and map_obj.get('id') == map_id:
+            return map_obj
+    return None
+
+
 def finite_number(value):
     try:
         number = float(value)
     except (TypeError, ValueError, OverflowError):
         return None
     return number if math.isfinite(number) else None
+
+
+def normalize_map_reaction(state, action, name):
+    if not isinstance(action, dict):
+        return None
+    map_obj = find_map(state, action.get('mapId'))
+    emoji = str(action.get('emoji') or '')
+    reaction_id = str(action.get('reactionId') or '').strip()
+    x = finite_number(action.get('x'))
+    y = finite_number(action.get('y'))
+    map_w = finite_number((map_obj or {}).get('mapW'))
+    map_h = finite_number((map_obj or {}).get('mapH'))
+    if not map_obj or emoji not in MAP_REACTION_EMOJIS or not REACTION_ID_RE.fullmatch(reaction_id):
+        return None
+    if x is None or y is None or map_w is None or map_h is None or x < 0 or y < 0 or x > map_w or y > map_h:
+        return None
+    return {
+        'op': 'mapReaction',
+        'reactionId': reaction_id,
+        'mapId': map_obj.get('id'),
+        'x': round(x, 3),
+        'y': round(y, 3),
+        'emoji': emoji,
+        'name': str(name or '玩家')[:24],
+    }
 
 
 def token_control_group(state, token):
@@ -236,16 +333,143 @@ def token_control_group(state, token):
 
 
 def can_control(state, token, player):
-    """玩家只能操作自己控制组内的棋子；骑手可以把坐骑一起带走。"""
+    """玩家控制自己的棋子；无主大型坐骑可由其名下骑手共同控制。"""
     player = (player or '').strip()
-    if not player:
+    if not player or not isinstance(token, dict):
         return False
-    group = token_control_group(state, token)
+    direct_owner = str(token.get('owner') or '').strip()
+    if direct_owner:
+        return direct_owner == player
+    if (finite_number(token.get('size')) or 1) < 2 or not token.get('id'):
+        return False
     for m in (state or {}).get('maps', []) or []:
         for candidate in m.get('tokens', []) or []:
-            if candidate.get('id') in group and (candidate.get('owner') or '').strip() == player:
+            if candidate.get('mountId') == token.get('id') and (candidate.get('owner') or '').strip() == player:
                 return True
     return False
+
+
+def turn_controllers(state, current_token):
+    """当前先攻棋子有明确归属时只认该玩家；无归属时再继承骑乘控制组的归属。"""
+    if not isinstance(current_token, dict):
+        return set()
+    direct_owner = str(current_token.get('owner') or '').strip()
+    if direct_owner:
+        return {direct_owner}
+    group = token_control_group(state, current_token)
+    owners = set()
+    for map_obj in (state or {}).get('maps', []) or []:
+        for candidate in map_obj.get('tokens', []) or []:
+            owner = str(candidate.get('owner') or '').strip()
+            if candidate.get('id') in group and owner:
+                owners.add(owner)
+    return owners
+
+
+def initiative_entry(encounter, entry_id):
+    for entry in encounter.get('entries', []) or []:
+        if isinstance(entry, dict) and entry.get('id') == entry_id:
+            return entry
+    return None
+
+
+def initiative_entry_token(state, entry):
+    token_id = entry.get('tokenId') if isinstance(entry, dict) else None
+    return find_token(state, token_id)[1] if token_id else None
+
+
+def initiative_sort_key(entry):
+    value = finite_number(entry.get('value')) if isinstance(entry, dict) else None
+    order = finite_number(entry.get('order')) if isinstance(entry, dict) else None
+    return (-(int(value) if value is not None else 0), order if order is not None else 0)
+
+
+def sort_initiative_entries(encounter):
+    entries = encounter.get('entries')
+    if not isinstance(entries, list):
+        encounter['entries'] = []
+        return
+    entries.sort(key=initiative_sort_key)
+
+
+def initiative_effective_order(encounter, entry):
+    """为旧存档中缺失或重复的 order 提供稳定、可验证的当前位置。"""
+    entries = encounter.get('entries', []) or []
+    try:
+        index = entries.index(entry)
+    except ValueError:
+        return 0
+    raw = finite_number(entry.get('order')) if isinstance(entry, dict) else None
+    if raw is None:
+        return index
+    duplicates = sum(1 for item in entries
+                     if isinstance(item, dict) and finite_number(item.get('order')) == raw)
+    return index if duplicates > 1 else raw
+
+
+def normalize_player_initiative_action(state, requested, player):
+    """把玩家的准备阶段请求转换成可重放、幂等的标准动作。"""
+    encounter = encounter_state(state)
+    if encounter.get('playMode') != 'prepare':
+        return None, '只能在战斗准备阶段调整先攻', 409
+    requested_serial = finite_number(requested.get('turnSerial'))
+    current_serial = encounter_turn_serial(state)
+    if requested_serial is None or int(requested_serial) != current_serial:
+        return None, '先攻顺序已经变化，请重新操作', 409
+    entry_id = str(requested.get('entryId') or '').strip()
+    source = initiative_entry(encounter, entry_id)
+    source_token = initiative_entry_token(state, source)
+    if not source or not source_token:
+        return None, '先攻项没有关联可操作的棋子', 404
+    if not can_control(state, source_token, player):
+        return None, '只能调整自己角色的先攻', 403
+    next_serial = current_serial + 1
+    current_value = int(finite_number(source.get('value')) or 0)
+    source_order = initiative_effective_order(encounter, source)
+    op = requested.get('op')
+    if op == 'initiativeSwap':
+        target_id = str(requested.get('targetEntryId') or '').strip()
+        target = initiative_entry(encounter, target_id)
+        target_token = initiative_entry_token(state, target)
+        if not target or not target_token:
+            return None, '目标先攻项不存在', 404
+        entries = encounter.get('entries', []) or []
+        source_index = next((index for index, item in enumerate(entries) if item is source), -1)
+        target_index = next((index for index, item in enumerate(entries) if item is target), -1)
+        target_value = int(finite_number(target.get('value')) or 0)
+        if abs(source_index - target_index) != 1 or target_value != current_value:
+            return None, '只能与相邻且先攻相同的玩家角色换位', 400
+        if not turn_controllers(state, target_token):
+            return None, '只能与另一名玩家角色换位', 403
+        target_order = initiative_effective_order(encounter, target)
+        return {
+            'op': 'initiativeSwap',
+            'name': str(player or '玩家')[:24],
+            'actor': str(player or '')[:24],
+            'entryId': entry_id,
+            'targetEntryId': target_id,
+            'value': current_value,
+            'previousEntryOrder': source_order,
+            'previousTargetOrder': target_order,
+            'entryOrder': target_order,
+            'targetOrder': source_order,
+            'turnSerial': current_serial,
+            'nextTurnSerial': next_serial,
+        }, None, 200
+    return None, '不支持的先攻操作', 400
+
+
+def movement_anchor(m, token):
+    """骑手发起移动时，实际移动并广播其可见坐骑。"""
+    if not isinstance(m, dict) or not isinstance(token, dict):
+        return token
+    mount_id = token.get('mountId')
+    if not mount_id:
+        return token
+    for candidate in m.get('tokens', []) or []:
+        if candidate.get('id') == mount_id and (finite_number(candidate.get('size')) or 1) >= 2:
+            return candidate
+    return token
 
 
 def encounter_state(state):
@@ -263,6 +487,14 @@ def encounter_turn_serial(state):
     return max(1, int(value)) if value is not None else 1
 
 
+def action_play_mode(action):
+    """旧客户端未发送 playMode 时，用 turnSerial 区分回合动作与自由动作。"""
+    raw_mode = action.get('playMode') if isinstance(action, dict) else None
+    if raw_mode in ('free', 'turn'):
+        return raw_mode
+    return 'turn' if finite_number((action or {}).get('turnSerial')) is not None else 'free'
+
+
 def current_turn_token_id(state):
     encounter = encounter_state(state)
     current_id = encounter.get('currentEntryId')
@@ -273,22 +505,58 @@ def current_turn_token_id(state):
     return None
 
 
-def can_move_token(state, token, player, action):
-    """判断玩家是否能在当前模式、当前回合移动该棋子。"""
+def can_act_with_token(state, token, player, action):
+    """判断玩家能否操控棋子；回合制同时校验当前先攻和回合版本。"""
+    encounter = encounter_state(state)
+    current_mode = 'turn' if encounter.get('playMode') == 'turn' else 'free'
+    recorded_mode = action_play_mode(action)
+    if recorded_mode != current_mode:
+        return False, '回合已经变化，请重新操作'
+    action['playMode'] = recorded_mode
     if not can_control(state, token, player):
         return False, '只能操作自己名下的棋子'
-    encounter = encounter_state(state)
-    if encounter.get('playMode') != 'turn':
+    if current_mode != 'turn':
         return True, None
     current_token_id = current_turn_token_id(state)
     if not current_token_id:
-        return False, '当前先攻尚未关联棋子，暂时不能移动'
+        return False, '当前先攻尚未关联棋子，暂时不能操作'
     if current_token_id not in token_control_group(state, token):
         return False, '尚未轮到这个角色'
+    current_token = find_token(state, current_token_id)[1]
+    if str(player or '').strip() not in turn_controllers(state, current_token):
+        return False, '尚未轮到你的角色'
     requested_serial = finite_number(action.get('turnSerial'))
     if requested_serial is None or int(requested_serial) != encounter_turn_serial(state):
         return False, '回合已经变化，请重新操作'
     return True, None
+
+
+def decrement_current_token_conditions(state):
+    """离开当前单位回合时递减有期限的公开状态；无限期状态保持不变。"""
+    token_id = current_turn_token_id(state)
+    token = find_token(state, token_id)[1] if token_id else None
+    if not token or not isinstance(token.get('conditions'), list):
+        return False
+    changed = False
+    next_conditions = []
+    for condition in token.get('conditions') or []:
+        if not isinstance(condition, dict):
+            next_conditions.append(condition)
+            continue
+        raw_remaining = condition.get('remainingTurns')
+        remaining_number = finite_number(raw_remaining)
+        if raw_remaining is None or remaining_number is None or remaining_number <= 0:
+            next_conditions.append(condition)
+            continue
+        remaining = max(0, int(remaining_number) - 1)
+        changed = True
+        if remaining:
+            updated = dict(condition)
+            updated['remainingTurns'] = remaining
+            next_conditions.append(updated)
+    if changed:
+        token['conditions'] = next_conditions
+    return changed
 
 
 def token_limits(m, token):
@@ -317,11 +585,147 @@ def same_point(a, b):
     return abs(a['x'] - b['x']) < 0.01 and abs(a['y'] - b['y']) < 0.01
 
 
+def normalize_doodle_point(map_obj, raw):
+    if not isinstance(raw, dict):
+        return None
+    x = finite_number(raw.get('x'))
+    y = finite_number(raw.get('y'))
+    map_w = finite_number(map_obj.get('mapW'))
+    map_h = finite_number(map_obj.get('mapH'))
+    if x is None or y is None or map_w is None or map_h is None or map_w <= 0 or map_h <= 0:
+        return None
+    if x < 0 or y < 0 or x > map_w or y > map_h:
+        return None
+    return {'x': round(x, 3), 'y': round(y, 3)}
+
+
+def normalize_doodle_stroke(map_obj, raw, author=''):
+    """校验并压缩一条共享标注，避免任意对象进入房间状态。"""
+    if not isinstance(raw, dict):
+        return None
+    doodle_id = str(raw.get('id') or '').strip()
+    tool = str(raw.get('tool') or '').strip()
+    color = str(raw.get('color') or '').strip()
+    width = finite_number(raw.get('width'))
+    if not DOODLE_ID_RE.fullmatch(doodle_id) or tool not in DOODLE_TOOLS:
+        return None
+    if not DOODLE_COLOR_RE.fullmatch(color) or width is None or width < 1 or width > 24:
+        return None
+    stroke = {
+        'id': doodle_id,
+        'tool': tool,
+        'color': color.lower(),
+        'width': round(width, 2),
+        'author': str(author or raw.get('author') or '')[:24],
+    }
+    if tool == 'pen':
+        points = raw.get('points')
+        if not isinstance(points, list) or len(points) < 2 or len(points) > MAX_DOODLE_POINTS:
+            return None
+        normalized = []
+        for point in points:
+            clean = normalize_doodle_point(map_obj, point)
+            if clean is None:
+                return None
+            if not normalized or not same_point(normalized[-1], clean):
+                normalized.append(clean)
+        if len(normalized) < 2:
+            return None
+        stroke['points'] = normalized
+        return stroke
+    start = normalize_doodle_point(map_obj, {'x': raw.get('x0'), 'y': raw.get('y0')})
+    end = normalize_doodle_point(map_obj, {'x': raw.get('x1'), 'y': raw.get('y1')})
+    if start is None or end is None or same_point(start, end):
+        return None
+    stroke.update({'x0': start['x'], 'y0': start['y'], 'x1': end['x'], 'y1': end['y']})
+    return stroke
+
+
+def apply_doodle_action(state, action):
+    map_obj = find_map(state, action.get('mapId'))
+    if not map_obj:
+        return False
+    doodles = map_obj.get('doodles')
+    if not isinstance(doodles, list):
+        doodles = []
+        map_obj['doodles'] = doodles
+    op = action.get('op')
+    if op == 'doodleAdd':
+        stroke = normalize_doodle_stroke(map_obj, action.get('stroke'), action.get('name'))
+        if not stroke:
+            return False
+        action['mapId'] = map_obj.get('id')
+        action['stroke'] = stroke
+        if any(isinstance(item, dict) and item.get('id') == stroke['id'] for item in doodles):
+            return True
+        if len(doodles) >= MAX_DOODLES:
+            return False
+        doodles.append(stroke)
+        return True
+    if op == 'doodleDelete':
+        doodle_id = str(action.get('doodleId') or '').strip()
+        if not DOODLE_ID_RE.fullmatch(doodle_id):
+            return False
+        action['mapId'] = map_obj.get('id')
+        action['doodleId'] = doodle_id
+        map_obj['doodles'] = [item for item in doodles
+                              if not isinstance(item, dict) or item.get('id') != doodle_id]
+        return True
+    if op == 'doodleClear':
+        action['mapId'] = map_obj.get('id')
+        map_obj['doodles'] = []
+        return True
+    return False
+
+
 def apply_action(state, action):
     """幂等地把玩家动作应用到状态上。"""
     if not isinstance(action, dict):
         return False
     op = action.get('op')
+    if op in INITIATIVE_ACTIONS:
+        encounter = encounter_state(state)
+        source = initiative_entry(encounter, action.get('entryId'))
+        if encounter.get('playMode') != 'prepare' or not source:
+            return False
+        serial_number = finite_number(action.get('turnSerial'))
+        next_serial_number = finite_number(action.get('nextTurnSerial'))
+        if serial_number is None or next_serial_number is None:
+            return False
+        serial = max(1, int(serial_number))
+        next_serial = max(serial + 1, int(next_serial_number))
+        current_serial = encounter_turn_serial(state)
+        if current_serial == next_serial:
+            target = initiative_entry(encounter, action.get('targetEntryId'))
+            return bool(target and finite_number(source.get('order')) == finite_number(action.get('entryOrder'))
+                        and finite_number(target.get('order')) == finite_number(action.get('targetOrder')))
+        if current_serial != serial:
+            return False
+        actor = str(action.get('actor') or '').strip()
+        source_token = initiative_entry_token(state, source)
+        if actor and (not source_token or not can_control(state, source_token, actor)):
+            return False
+        target = initiative_entry(encounter, action.get('targetEntryId'))
+        target_token = initiative_entry_token(state, target)
+        source_before = finite_number(action.get('previousEntryOrder'))
+        target_before = finite_number(action.get('previousTargetOrder'))
+        source_after = finite_number(action.get('entryOrder'))
+        target_after = finite_number(action.get('targetOrder'))
+        if not target or not target_token or not turn_controllers(state, target_token):
+            return False
+        if int(finite_number(source.get('value')) or 0) != int(finite_number(target.get('value')) or 0):
+            return False
+        if None in (source_before, target_before, source_after, target_after):
+            return False
+        if (initiative_effective_order(encounter, source) != source_before
+                or initiative_effective_order(encounter, target) != target_before):
+            return False
+        source['order'] = source_after
+        target['order'] = target_after
+        sort_initiative_entries(encounter)
+        encounter['turnSerial'] = next_serial
+        encounter['turnPath'] = {'mapId': None, 'tokenId': None, 'points': []}
+        return True
     if op == 'endTurn':
         encounter = encounter_state(state)
         serial = finite_number(action.get('turnSerial'))
@@ -333,6 +737,7 @@ def apply_action(state, action):
             return False
         if not any(isinstance(entry, dict) and entry.get('id') == next_id for entry in encounter.get('entries', [])):
             return False
+        decrement_current_token_conditions(state)
         encounter['currentEntryId'] = next_id
         encounter['round'] = max(1, int(finite_number(action.get('round')) or encounter.get('round', 1)))
         encounter['turnSerial'] = max(1, int(next_serial))
@@ -341,33 +746,60 @@ def apply_action(state, action):
         world['totalSeconds'] = max(0, int(finite_number(action.get('worldTimeSeconds')) or world.get('totalSeconds', 0)))
         world['runningSince'] = None
         return True
+    if op in DOODLE_ACTIONS:
+        return apply_doodle_action(state, action)
     m, t = find_token(state, action.get('tokenId'))
     if not m or not t:
         return False
+    actor = str(action.get('actor') or '').strip()
+    if op in ('moveToken', 'patchToken') and actor:
+        replay_allowed, _ = can_act_with_token(state, t, actor, action)
+        if not replay_allowed:
+            return False
     if op == 'patchToken':
+        encounter = encounter_state(state)
+        current_mode = 'turn' if encounter.get('playMode') == 'turn' else 'free'
+        recorded_mode = action_play_mode(action)
+        if recorded_mode != current_mode:
+            return False
+        action['playMode'] = recorded_mode
+        if current_mode == 'turn':
+            serial = finite_number(action.get('turnSerial'))
+            if serial is None or int(serial) != encounter_turn_serial(state):
+                return False
         patch = action.get('patch')
         if not isinstance(patch, dict) or not patch:
             return False
+        accepted = False
         for k, v in patch.items():
             if k not in PATCH_FIELDS:
                 continue
             if k == 'hp':
                 try:
                     t[k] = max(0, min(99999, int(v)))
+                    accepted = True
                 except Exception:
                     pass
             elif k == 'hpMax':
                 try:
                     t[k] = max(1, min(99999, int(v)))
+                    accepted = True
                 except Exception:
                     pass
             elif k == 'ac':
                 try:
                     t[k] = max(0, min(99, int(v)))
+                    accepted = True
                 except Exception:
                     pass
-        return True
+            elif k == 'spellRange':
+                t[k] = normalize_spell_range(v)
+                patch[k] = dict(t[k])
+                accepted = True
+        return accepted
     if op == 'moveToken':
+        t = movement_anchor(m, t)
+        action['tokenId'] = t.get('id')
         if action.get('mapId') is not None and action.get('mapId') != m.get('id'):
             return False
         point = clamp_token_point(m, t, {'x': action.get('x'), 'y': action.get('y')})
@@ -377,7 +809,12 @@ def apply_action(state, action):
         action['x'] = point['x']
         action['y'] = point['y']
         encounter = encounter_state(state)
-        if encounter.get('playMode') == 'turn':
+        current_mode = 'turn' if encounter.get('playMode') == 'turn' else 'free'
+        recorded_mode = action_play_mode(action)
+        if recorded_mode != current_mode:
+            return False
+        action['playMode'] = recorded_mode
+        if current_mode == 'turn':
             serial = finite_number(action.get('turnSerial'))
             if serial is None:
                 return False
@@ -758,7 +1195,7 @@ class Handler(SimpleHTTPRequestHandler):
                 STATE['_stateRevision'] = STATE_REVISION
                 STATE['_sessionId'] = SESSION_ID
                 STATE['_roomCode'] = ROOM_CODE
-                # 观战端用服务器时钟作为世界时间运行快照的锚点，避免各设备系统时钟不同。
+                # 玩家端用服务器时钟作为世界时间运行快照的锚点，避免各设备系统时钟不同。
                 STATE['_serverNow'] = int(time.time() * 1000)
                 snapshot = dict(STATE)
             state_event_id = RECENT_ACTIONS[-1].get('seq', 0) if RECENT_ACTIONS else None
@@ -810,14 +1247,16 @@ class Handler(SimpleHTTPRequestHandler):
                 return
             public_action = {'op': action.get('op'), 'name': 'GM'}
             if action.get('op') == 'roll':
-                public_action.update({
-                    'rid': str(action.get('rid') or '')[:96],
-                    'expr': str(action.get('expr') or '')[:40],
-                    'detail': str(action.get('detail') or '')[:600],
-                    'total': finite_int(action.get('total'), -99999, 99999, 0),
-                    'sides': finite_int(action.get('sides'), 2, 1000, 20),
-                    'dice': [finite_int(x, 1, 1000, 1) for x in (action.get('dice') or [])[:100]],
-                })
+                public_action = normalize_roll_action(action, 'GM')
+                if not public_action:
+                    self._send_json({'ok': False, 'error': '骰子数据无效'}, 400)
+                    return
+            elif action.get('op') == 'mapReaction':
+                with LOCK:
+                    public_action = normalize_map_reaction(STATE, action, 'GM') if STATE is not None else None
+                if not public_action:
+                    self._send_json({'ok': False, 'error': '表情位置或内容无效'}, 400)
+                    return
             elif action.get('op') == 'bgm':
                 bgm_action = str(action.get('action') or '').strip().lower()
                 if bgm_action not in ('play', 'pause', 'stop'):
@@ -877,14 +1316,33 @@ class Handler(SimpleHTTPRequestHandler):
                 if not consume_action_slot(session_token):
                     self._send_json({'ok': False, 'error': '操作过于频繁，请稍后再试'}, 429)
                     return
-            if action.get('op') in ('ping', 'requestRest'):
-                ev = {'type': 'action', 'seq': 0, 'action': dict(action)}
-                ev['action']['name'] = player
-                broadcast(ev)
-                if action_id:
-                    with LOCK:
-                        ACTION_IDS[action_id] = 0
-                self._send_json({'ok': True})
+            if action.get('op') in INITIATIVE_ACTIONS:
+                with LOCK:
+                    if STATE is None:
+                        self._send_json({'ok': False, 'error': '主机尚未推送状态'}, 400)
+                        return
+                    initiative_action, error, status = normalize_player_initiative_action(STATE, action, player)
+                    if not initiative_action:
+                        self._send_json({'ok': False, 'error': error or '先攻操作无效'}, status or 400)
+                        return
+                    if not apply_action(STATE, initiative_action):
+                        self._send_json({'ok': False, 'error': '先攻顺序已经变化，请重新操作'}, 409)
+                        return
+                    STATE_REVISION += 1
+                    STATE['_stateRevision'] = STATE_REVISION
+                    seq = NEXT_SEQ
+                    NEXT_SEQ += 1
+                    STATE['_streamSeq'] = seq
+                    initiative_action['seq'] = seq
+                    if action_id:
+                        initiative_action['actionId'] = action_id
+                        ACTION_IDS[action_id] = seq
+                    RECENT_ACTIONS.append(initiative_action)
+                    if len(RECENT_ACTIONS) > MAX_RECENT:
+                        del RECENT_ACTIONS[:len(RECENT_ACTIONS) - MAX_RECENT]
+                    ev = {'type': 'action', 'seq': seq, 'revision': STATE_REVISION, 'action': dict(initiative_action)}
+                broadcast(ev, seq)
+                self._send_json({'ok': True, 'seq': seq, 'stateRevision': STATE_REVISION})
                 return
             if action.get('op') == 'endTurn':
                 with LOCK:
@@ -898,10 +1356,15 @@ class Handler(SimpleHTTPRequestHandler):
                     if encounter.get('playMode') != 'turn' or current_index < 0:
                         self._send_json({'ok': False, 'error': '当前不是可结束的回合'}, 409)
                         return
+                    requested_serial = finite_number(action.get('turnSerial'))
+                    if requested_serial is None or int(requested_serial) != encounter_turn_serial(STATE):
+                        self._send_json({'ok': False, 'error': '回合已经变化，请重新操作'}, 409)
+                        return
                     current_entry = entries[current_index]
                     current_token = find_token(STATE, current_entry.get('tokenId'))[1]
-                    if not current_token or not can_control(STATE, current_token, player):
-                        self._send_json({'ok': False, 'error': '还没有轮到你的角色'}, 403)
+                    turn_allowed, turn_reason = can_act_with_token(STATE, current_token, player, action) if current_token else (False, '还没有轮到你的角色')
+                    if not turn_allowed:
+                        self._send_json({'ok': False, 'error': turn_reason or '还没有轮到你的角色'}, 403)
                         return
                     next_index = (current_index + 1) % len(entries)
                     next_entry = entries[next_index]
@@ -917,7 +1380,7 @@ class Handler(SimpleHTTPRequestHandler):
                     end_action = {
                         'op': 'endTurn',
                         'name': player,
-                        'turnSerial': encounter_turn_serial(STATE),
+                        'turnSerial': int(requested_serial),
                         'nextEntryId': next_entry.get('id'),
                         'nextTurnSerial': encounter_turn_serial(STATE) + 1,
                         'round': next_round,
@@ -944,9 +1407,28 @@ class Handler(SimpleHTTPRequestHandler):
                 return
             # 掷骰：不修改状态、不写入动作历史，只广播一次让所有人看到
             if action.get('op') == 'roll':
-                ev = {'type': 'action', 'seq': 0, 'action': dict(action)}
-                ev['action']['name'] = player
+                public_roll = normalize_roll_action(action, player)
+                if not public_roll:
+                    self._send_json({'ok': False, 'error': '骰子数据无效'}, 400)
+                    return
+                ev = {'type': 'action', 'seq': 0, 'action': public_roll}
                 broadcast(ev)
+                if action_id:
+                    with LOCK:
+                        ACTION_IDS[action_id] = 0
+                self._send_json({'ok': True})
+                return
+            # 地图表情是短暂表现，不写入状态和动作历史，避免重连后重新播放旧表情。
+            if action.get('op') == 'mapReaction':
+                with LOCK:
+                    if not consume_reaction_slot(session_token):
+                        self._send_json({'ok': False, 'error': '表情发送太快了，请稍等'}, 429)
+                        return
+                    public_reaction = normalize_map_reaction(STATE, action, player) if STATE is not None else None
+                if not public_reaction:
+                    self._send_json({'ok': False, 'error': '表情位置或内容无效'}, 400)
+                    return
+                broadcast({'type': 'action', 'seq': 0, 'action': public_reaction})
                 if action_id:
                     with LOCK:
                         ACTION_IDS[action_id] = 0
@@ -957,49 +1439,35 @@ class Handler(SimpleHTTPRequestHandler):
                 # BGM 是主持人的本机动作；玩家端即使伪造请求也不应改变所有人的音乐。
                 self._send_json({'ok': False, 'error': 'BGM 只能由主控台广播'}, 403)
                 return
-            # 涂鸦：直接更新对应地图的涂鸦列表并广播
-            if action.get('op') == 'doodle':
-                with LOCK:
-                    if STATE is None:
-                        self._send_json({'ok': False, 'error': '主机尚未推送状态'}, 400)
-                        return
-                    mid = action.get('mapId')
-                    m = next((x for x in STATE.get('maps', []) if x.get('id') == mid), None)
-                    if not m or not isinstance(action.get('doodles'), list):
-                        self._send_json({'ok': False, 'error': '涂鸦数据无效'}, 400)
-                        return
-                    m['doodles'] = action['doodles']
-                    STATE_REVISION += 1
-                    STATE['_stateRevision'] = STATE_REVISION
-                ev = {'type': 'action', 'seq': 0, 'action': dict(action)}
-                ev['action']['name'] = player
-                broadcast(ev)
-                if action_id:
-                    with LOCK:
-                        ACTION_IDS[action_id] = 0
-                self._send_json({'ok': True})
-                return
             with LOCK:
                 if STATE is None:
                     self._send_json({'ok': False, 'error': '主机尚未推送状态'}, 400)
                     return
-                map_obj, tok = find_token(STATE, action.get('tokenId'))
-                if not tok:
-                    self._send_json({'ok': False, 'error': '棋子不存在'}, 404)
-                    return
-                if action.get('op') == 'moveToken':
-                    allowed, reason = can_move_token(STATE, tok, player, action)
-                    if not allowed:
-                        self._send_json({'ok': False, 'error': reason}, 409 if reason == '回合已经变化，请重新操作' else 403)
+                is_doodle_action = action.get('op') in DOODLE_ACTIONS
+                if is_doodle_action:
+                    # 已加入房间的玩家都可以使用共享标注；作者名由服务器写入，不能伪造。
+                    action['name'] = player
+                else:
+                    map_obj, tok = find_token(STATE, action.get('tokenId'))
+                    if not tok:
+                        self._send_json({'ok': False, 'error': '棋子不存在'}, 404)
                         return
-                    if action.get('mapId') is not None and action.get('mapId') != map_obj.get('id'):
-                        self._send_json({'ok': False, 'error': '地图与棋子不匹配'}, 400)
+                    if action.get('op') in ('moveToken', 'patchToken'):
+                        allowed, reason = can_act_with_token(STATE, tok, player, action)
+                        if not allowed:
+                            self._send_json({'ok': False, 'error': reason}, 409 if reason == '回合已经变化，请重新操作' else 403)
+                            return
+                        if action.get('op') == 'moveToken' and action.get('mapId') is not None and action.get('mapId') != map_obj.get('id'):
+                            self._send_json({'ok': False, 'error': '地图与棋子不匹配'}, 400)
+                            return
+                        # 记录动作原始玩家，主机快照并发覆盖后重放时会重新核对最新归属。
+                        action['actor'] = player
+                    elif not can_control(STATE, tok, player):
+                        self._send_json({'ok': False, 'error': '只能操作自己名下的棋子'}, 403)
                         return
-                elif not can_control(STATE, tok, player):
-                    self._send_json({'ok': False, 'error': '只能操作自己名下的棋子'}, 403)
-                    return
                 if not apply_action(STATE, action):
-                    self._send_json({'ok': False, 'error': '不支持的动作'}, 400)
+                    error = '涂鸦数据无效或地图不存在' if is_doodle_action else '不支持的动作'
+                    self._send_json({'ok': False, 'error': error}, 400)
                     return
                 STATE_REVISION += 1
                 STATE['_stateRevision'] = STATE_REVISION
@@ -1013,7 +1481,7 @@ class Handler(SimpleHTTPRequestHandler):
                 RECENT_ACTIONS.append(act)
                 if len(RECENT_ACTIONS) > MAX_RECENT:
                     del RECENT_ACTIONS[:len(RECENT_ACTIONS) - MAX_RECENT]
-                ev = {'type': 'action', 'seq': seq, 'revision': STATE_REVISION, 'action': dict(action)}
+                ev = {'type': 'action', 'seq': seq, 'revision': STATE_REVISION, 'action': dict(act)}
                 if action_id:
                     ACTION_IDS[action_id] = seq
                     if len(ACTION_IDS) > MAX_ACTION_IDS:

@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <title>桑哆尔 · 玩家地图</title>
+  <link rel="preload" as="image" href="../asset/界面/状态图标-v1.png">
     <style>
     :root { color-scheme: dark; --bg:#11141c; --panel:#1b202b; --line:#31394a; --text:#edf1f7; --muted:#9aa6ba; --gold:#e0b34c; --good:#4cc38a; --bad:#e74c5e; }
     * { box-sizing:border-box; }
@@ -28,29 +29,59 @@
     .card h2 { font-size:14px; margin:0 0 8px; color:#f3f5f8; }
     .hint { color:var(--muted); font-size:12px; margin:6px 0 0; }
     #center { min-width:0; min-height:0; position:relative; display:flex; flex-direction:column; }
-    #board { position:relative; width:100%; flex:1; min-height:0; overflow:hidden; touch-action:none; background:#0b0d12; }
+    #board { position:relative; width:100%; flex:1; min-height:0; overflow:hidden; touch-action:none; user-select:none; -webkit-user-select:none; background:#0b0d12; }
     #world { position:absolute; transform-origin:0 0; background-color:#ddd6c2; box-shadow:0 0 40px #0008; }
     .map-layer { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
-    #turn-path-canvas { z-index:1; }
-    #doodle-canvas { z-index:2; pointer-events:none; }
-    #tokens { position:absolute; inset:0; z-index:3; }
-    #fog-canvas { z-index:5; }
+    #spell-range-canvas { z-index:1; }
+    #turn-path-canvas { z-index:2; }
+    #doodle-canvas { z-index:3; pointer-events:none; }
+    #tokens { position:absolute; inset:0; z-index:4; }
+    #names-layer { position:absolute; inset:0; z-index:5; pointer-events:none; user-select:none; -webkit-user-select:none; }
+    #fog-canvas { z-index:6; }
+    #reaction-layer { position:absolute; inset:0; z-index:7; overflow:visible; pointer-events:none; }
     .token { position:absolute; transform:translate(-50%,-50%); display:grid; place-items:center; cursor:default; }
     .token.mine { cursor:grab; }
-    .token.mine .circle { box-shadow:0 0 0 3px #70e5a5, 0 0 18px #44d98caa; }
+    .token.mine .circle { box-shadow:0 0 0 1px #70e5a5, 0 3px 10px #0009, 0 0 14px #44d98c99; }
     .token.locked { cursor:not-allowed; }
-    .token.locked.mine .circle { box-shadow:0 0 0 3px #c08a4a88, 0 0 14px #9a6c3888; filter:saturate(.72); }
-    .token.current-turn .circle { box-shadow:0 0 0 4px #e0b34c, 0 0 22px #e0b34caa; }
-    .token-condition-badges { position:absolute; right:-5px; bottom:-3px; display:flex; gap:2px; pointer-events:none; }
-    .token-condition-badge { display:grid; place-items:center; min-width:17px; height:17px; padding:0 3px; border:1px solid var(--condition-color,#a8b3c7); border-radius:5px; background:#121622ee; color:var(--condition-color,#d7dce5); font-size:10px; font-weight:700; line-height:1; }
-    .token-condition-badge.more { color:var(--muted); border-color:var(--line); }
+    .token.locked.mine .circle { box-shadow:0 0 0 1px #c08a4a88, 0 3px 10px #0009, 0 0 12px #9a6c3888; filter:saturate(.72); }
+    .token.current-turn .circle { box-shadow:0 0 0 2px #e0b34c, 0 3px 10px #0009, 0 0 20px #e0b34caa; }
+    .token-condition-badges { position:absolute; right:-2px; top:-2px; bottom:auto; z-index:6; display:flex; flex-direction:row-reverse; gap:1px; max-width:90%; pointer-events:none; }
+    .token-condition-badge { position:relative; display:grid; place-items:center; width:14px; min-width:14px; height:14px; padding:0; border:0; background:transparent; color:var(--condition-color,#d7dce5); font-size:9px; font-weight:700; line-height:1; text-shadow:0 1px 2px #000f; }
+    .token-condition-badge.more { color:var(--muted); font-size:9px; }
+    .token-condition-badge[data-condition-icon]::before { position:absolute; inset:0; display:none; content:''; background-image:url('../asset/界面/状态图标-v1.png'); background-repeat:no-repeat; background-size:400% 400%; filter:drop-shadow(0 1px 1px #000e); image-rendering:pixelated; }
+    html.condition-pixels-ready .token-condition-badge[data-condition-icon] { color:transparent; text-shadow:none; }
+    html.condition-pixels-ready .token-condition-badge[data-condition-icon]::before { display:block; }
+    .token-condition-badge[data-condition-icon='prone']::before { background-position:0 0; }
+    .token-condition-badge[data-condition-icon='unconscious']::before { background-position:33.333% 0; }
+    .token-condition-badge[data-condition-icon='incapacitated']::before { background-position:66.667% 0; }
+    .token-condition-badge[data-condition-icon='blinded']::before { background-position:100% 0; }
+    .token-condition-badge[data-condition-icon='deafened']::before { background-position:0 33.333%; }
+    .token-condition-badge[data-condition-icon='frightened']::before { background-position:33.333% 33.333%; }
+    .token-condition-badge[data-condition-icon='charmed']::before { background-position:66.667% 33.333%; }
+    .token-condition-badge[data-condition-icon='poisoned']::before { background-position:100% 33.333%; }
+    .token-condition-badge[data-condition-icon='grappled']::before { background-position:0 66.667%; }
+    .token-condition-badge[data-condition-icon='restrained']::before { background-position:33.333% 66.667%; }
+    .token-condition-badge[data-condition-icon='stunned']::before { background-position:66.667% 66.667%; }
+    .token-condition-badge[data-condition-icon='petrified']::before { background-position:100% 66.667%; }
+    .token-condition-badge[data-condition-icon='invisible']::before { background-position:0 100%; }
+    .token-condition-badge[data-condition-icon='concentrating']::before { background-position:33.333% 100%; }
+    .token-condition-badge[data-condition-icon='burning']::before { background-position:66.667% 100%; }
     .token.dragging { cursor:grabbing; }
-    .circle { width:76%; height:76%; border:4px solid var(--ring); border-radius:50%; display:grid; place-items:center; background:#fff; color:#1c2430; font-size:20px; font-weight:700; background-size:cover; background-position:center; background-repeat:no-repeat; }
-    .token-name { position:absolute; top:-18px; max-width:130px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; color:white; text-shadow:0 1px 3px #000,1px 0 3px #000,-1px 0 3px #000; font-size:12px; font-weight:700; }
+    .circle { position:relative; overflow:hidden; width:76%; height:76%; border:2px solid var(--ring); border-radius:50%; display:grid; place-items:center; background:#fff; color:#1c2430; font-size:20px; font-weight:700; background-size:cover; background-position:center; background-repeat:no-repeat; box-shadow:0 0 0 2px #0006,0 3px 10px #0009,0 0 14px var(--glow,#5b8cff73); }
+    .token .rider { position:absolute; z-index:3; overflow:visible; display:grid; place-items:center; border:1.5px solid var(--ring,#5b8cff); border-radius:50%; background:#fff center/cover no-repeat; color:#1c2430; font-weight:700; line-height:1; box-shadow:0 0 0 1px #0009,0 2px 7px #000a; cursor:inherit; }
+    .token .rider.owned { box-shadow:0 0 0 1px #70e5a5,0 2px 9px #000a,0 0 12px #44d98c88; }
+    .token.locked .rider.owned { box-shadow:0 0 0 1px #c08a4a,0 2px 9px #000a; filter:saturate(.72); }
+    .token .rider.current-rider { border-color:var(--gold); box-shadow:0 0 0 1.5px var(--gold),0 2px 9px #000a,0 0 13px #e0b34c99; }
+    #names-layer .token-name-label { position:absolute; transform:translate(-50%,-100%); padding:1px 6px; border:1px solid rgba(255,255,255,.14); border-radius:8px; background:rgba(10,12,18,.48); color:#fff; opacity:.72; font-weight:500; line-height:1.3; text-align:center; white-space:nowrap; text-shadow:0 1px 2px rgba(0,0,0,.8); }
+    #names-layer .token-name-label.below { transform:translate(-50%,0); }
+    #names-layer .token-name-text { display:block; }
+    #names-layer .token-name-hp { position:absolute; left:50%; top:calc(100% + 1px); height:3px; overflow:hidden; transform:translateX(-50%); border:1px solid rgba(0,0,0,.62); border-radius:999px; background:rgba(15,18,24,.9); box-shadow:0 1px 2px rgba(0,0,0,.65); }
+    #names-layer .token-name-hp i { display:block; height:100%; border-radius:inherit; }
     #empty { position:absolute; inset:0; display:grid; place-items:center; color:var(--muted); font-size:16px; }
     #map-controls { position:absolute; right:12px; bottom:12px; display:flex; gap:5px; padding:6px; border:1px solid var(--line); border-radius:9px; background:#171c27dd; }
     .dice-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:5px; }
     .dice-grid button { padding:6px 3px; }
+    .dice-advrow { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:5px; margin-top:6px; }
     .custom-roll,.row { display:flex; gap:6px; margin-top:7px; }
     .custom-roll input,.row input { flex:1; }
     #dice-result { min-height:25px; margin-top:7px; color:var(--gold); font-weight:700; }
@@ -62,11 +93,6 @@
     #player-links a { color:#a8c8ff; text-decoration:none; border-bottom:1px solid transparent; }
     #player-links a:hover { border-color:#a8c8ff; }
     .shared-note-view { min-height:42px; max-height:220px; overflow:auto; padding:8px; border:1px solid var(--line); border-radius:7px; background:#171c27; color:var(--text); white-space:pre-wrap; word-break:break-word; }
-    #doodle-tools { display:grid; grid-template-columns:repeat(2,1fr); gap:5px; }
-    #doodle-tools button.active { background:#376fbe; border-color:#6fa4ed; }
-    #doodle-colors { display:flex; gap:6px; margin-top:8px; }
-    #doodle-colors button { width:22px; height:22px; padding:0; border-radius:50%; border:2px solid transparent; }
-    #doodle-colors button.active { border-color:white; }
     #detail[hidden] { display:none; }
     .token-head { display:flex; align-items:center; gap:9px; margin-bottom:10px; }
     #detail-icon { width:42px; height:42px; border:3px solid #5b8cff; border-radius:50%; display:grid; place-items:center; background:#fff; color:#19222f; background-size:cover; background-position:center; font-size:20px; }
@@ -81,13 +107,16 @@
     .hp-bar i { display:block; height:100%; background:var(--good); }
     .quick { display:grid; grid-template-columns:repeat(5,1fr); gap:5px; margin-top:7px; }
     .quick button { padding:5px 2px; font-size:12px; }
-    #flowbar { --flow-open-height:154px; flex:0 0 auto; padding:8px 12px; border-top:1px solid var(--line); background:linear-gradient(180deg,#1c2029,var(--panel)); }
+    #flowbar { --flow-open-height:252px; flex:0 0 auto; padding:8px 12px; border-top:1px solid var(--line); background:linear-gradient(180deg,#1c2029,var(--panel)); }
     #flowbar:not(.collapsed) { height:var(--flow-open-height); }
     #flowbar.collapsed { padding-top:6px; padding-bottom:6px; }
     #flowbar.collapsed .flow-body { display:none; }
     .flow-head { display:flex; align-items:center; gap:8px; min-height:28px; min-width:0; }
     #flow-toggle { border:0; padding:0; background:transparent; color:var(--gold); font-weight:700; white-space:nowrap; }
     .flow-mode { padding:3px 7px; border:1px solid #5b4922; border-radius:999px; color:var(--gold); font-size:11px; white-space:nowrap; }
+    .flow-mode.prepare { border-color:#416e9e; background:#152337; color:#a8ceff; }
+    .flow-current-summary { max-width:190px; overflow:hidden; color:#f2dfaa; font-size:12px; font-weight:650; text-overflow:ellipsis; white-space:nowrap; }
+    .flow-weather-summary { padding:3px 7px; border:1px solid #3a465a; border-radius:999px; color:#b9c7db; background:#151a24; font-size:10px; white-space:nowrap; }
     .flow-date { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--muted); font-size:12px; }
     .flow-head .flow-date { margin-left:auto; }
     .flow-tabs { display:flex; gap:4px; padding:3px 0 7px; }
@@ -98,19 +127,54 @@
     .flow-panel[hidden] { display:none; }
     .flow-init-meta { display:flex; align-items:center; gap:9px; color:var(--muted); font-size:12px; margin-bottom:6px; }
     .flow-init-meta b { color:var(--text); font-weight:600; }
-    .flow-init-list { display:flex; gap:6px; overflow-x:auto; padding-bottom:2px; }
-    .flow-chip { display:flex; align-items:center; gap:6px; flex:0 0 auto; padding:7px 9px; border:1px solid var(--line); border-left:3px solid transparent; border-radius:8px; background:#202633; white-space:nowrap; }
+    #flow-panel-initiative:not([hidden]) { display:grid; grid-template-columns:minmax(180px,230px) minmax(0,1fr); gap:10px; }
+    .flow-init-hero { display:flex; flex-direction:column; justify-content:center; min-width:0; padding:8px 10px; border:1px solid var(--line); border-radius:9px; background:#171c27; }
+    .flow-init-hero > span:first-child { color:var(--muted); font-size:10px; }
+    .flow-init-hero strong { overflow:hidden; margin:3px 0; color:var(--gold); font-size:17px; text-overflow:ellipsis; white-space:nowrap; }
+    .flow-init-hero > span:last-child { overflow:hidden; color:var(--muted); font-size:10px; text-overflow:ellipsis; white-space:nowrap; }
+    .flow-init-list { display:flex; flex-direction:column; align-items:stretch; min-height:0; gap:5px; overflow-x:hidden; overflow-y:auto; padding:1px 4px 3px 1px; scroll-behavior:smooth; scrollbar-gutter:stable; }
+    .flow-chip { display:grid; grid-template-columns:18px 8px minmax(0,1fr) minmax(24px,auto) auto; align-items:center; gap:6px; flex:0 0 auto; padding:7px 9px; border:1px solid var(--line); border-left:3px solid transparent; border-radius:8px; background:#202633; }
     .flow-chip.current { border-left-color:var(--gold); background:#3a3325; box-shadow:0 0 0 1px #e0b34c55; }
+    .flow-chip.owned-adjustable { border-color:#416e9e; background:linear-gradient(180deg,#202d40,#1b2534); }
     .flow-chip-dot { width:8px; height:8px; border-radius:50%; }
+    .flow-chip-name { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .flow-chip-value { color:var(--gold); font-weight:700; }
+    .flow-chip-order { display:grid; place-items:center; width:18px; height:18px; border-radius:5px; background:#141923; color:#8490a4; font-size:9px; font-weight:700; }
+    .flow-chip-current { padding:2px 5px; border-radius:999px; background:#e0b34c22; color:#f5d77f; font-size:9px; font-weight:700; }
+    .flow-chip-actions { grid-column:1/-1; display:flex; align-items:center; justify-content:flex-end; gap:4px; padding-top:5px; border-top:1px solid #ffffff0d; }
+    .flow-chip-actions span { margin-right:auto; color:#8fa5c2; font-size:10px; }
+    .flow-chip-actions button { min-width:28px; padding:3px 7px; font-size:10px; }
+    .flow-chip-actions button:disabled { opacity:.4; cursor:not-allowed; }
     .flow-empty { color:var(--muted); font-size:12px; }
-    .flow-time { display:flex; align-items:center; gap:14px; }
-    .flow-time-date { color:var(--muted); font-weight:600; }
-    .flow-time-clock { color:var(--gold); font-size:25px; font-variant-numeric:tabular-nums; }
-    .flow-time-mode { color:var(--muted); font-size:11px; }
+    #flow-panel-time:not([hidden]) { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+    .flow-time-card,.flow-weather-card { display:flex; align-items:center; gap:14px; min-width:0; padding:9px 12px; border:1px solid var(--line); border-radius:9px; background:#171c27; }
+    .flow-time-card { display:grid; grid-template-columns:minmax(0,1fr) auto; grid-template-areas:"date clock" "mode clock"; column-gap:12px; row-gap:3px; }
+    .flow-time-date { grid-area:date; overflow:hidden; color:var(--muted); font-size:12px; font-weight:600; text-overflow:ellipsis; white-space:nowrap; }
+    .flow-time-clock { grid-area:clock; align-self:center; color:var(--gold); font-size:25px; font-variant-numeric:tabular-nums; white-space:nowrap; }
+    .flow-time-mode { grid-area:mode; overflow:hidden; color:var(--muted); font-size:11px; text-overflow:ellipsis; white-space:nowrap; }
+    #flow-weather-icon { width:45px; font-size:31px; text-align:center; }
+    .flow-weather-card > div { display:grid; min-width:0; }
+    .flow-weather-card strong { color:var(--text); font-size:17px; }
+    #flow-weather-meta { overflow:hidden; color:var(--muted); font-size:11px; text-overflow:ellipsis; white-space:nowrap; }
     .condition-list { display:flex; flex-wrap:wrap; gap:5px; margin-top:8px; }
     .condition-chip { padding:4px 6px; border:1px solid var(--condition-color,#a8b3c7); border-radius:7px; background:#171c27; color:var(--text); font-size:11px; }
     .public-note { margin-top:8px; padding:7px; border-radius:7px; background:#171c27; color:var(--muted); font-size:12px; white-space:pre-wrap; }
+    #token-peek { position:fixed; z-index:35; width:min(300px,calc(100vw - 24px)); padding:11px; border:1px solid #596982; border-radius:12px; background:linear-gradient(145deg,#252c3aee,#151a24f5); box-shadow:0 16px 42px #000b,0 0 0 1px #ffffff0b; backdrop-filter:blur(10px); animation:token-peek-in .14s ease-out; }
+    #token-peek[hidden] { display:none; }
+    .token-peek-head { display:flex; align-items:center; gap:9px; }
+    .token-peek-icon { width:40px; height:40px; flex:0 0 auto; display:grid; place-items:center; border:2px solid var(--peek-ring,#5b8cff); border-radius:50%; background:#fff center/cover no-repeat; color:#19222f; font-size:19px; }
+    .token-peek-title { min-width:0; flex:1; }
+    .token-peek-title strong,.token-peek-title span { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .token-peek-title span { color:var(--muted); font-size:11px; }
+    .token-peek-close { align-self:flex-start; border:0; padding:1px 4px; background:transparent; color:var(--muted); }
+    .token-peek-stats { display:grid; grid-template-columns:1fr 1fr; gap:7px; margin-top:9px; }
+    .token-peek-stat { padding:6px 8px; border:1px solid var(--line); border-radius:7px; background:#121722bb; color:var(--muted); font-size:11px; }
+    .token-peek-stat b { display:block; margin-top:1px; color:var(--text); font-size:13px; }
+    .token-peek-hp { height:4px; overflow:hidden; margin-top:4px; border-radius:999px; background:#090c12; }
+    .token-peek-hp i { display:block; height:100%; border-radius:inherit; }
+    #token-peek .condition-list { margin-top:9px; }
+    #token-peek .public-note { max-height:84px; overflow:auto; }
+    @keyframes token-peek-in { from { opacity:0; transform:translateY(5px) scale(.98); } to { opacity:1; transform:none; } }
     #topbar { box-shadow:0 4px 18px #0003; z-index:8; }
     #topbar-actions { display:flex; align-items:center; gap:7px; }
     #btn-left-panel { display:none; }
@@ -129,15 +193,44 @@
     #board { isolation:isolate; }
     #measure-label { position:absolute; z-index:8; pointer-events:none; padding:4px 7px; border:1px solid #e0b34c88; border-radius:6px; background:#171c27ee; color:#ffe9a0; font-size:12px; white-space:nowrap; transform:translate(-50%,-130%); }
     #measure-label[hidden] { display:none; }
-    #ping-layer { position:absolute; inset:0; z-index:7; pointer-events:none; }
-    .map-ping { position:absolute; width:24px; height:24px; border:3px solid #ffe17b; border-radius:50%; transform:translate(-50%,-50%); box-shadow:0 0 0 0 #ffe17b99; animation:ping-pulse 1.5s ease-out forwards; }
-    .map-ping span { position:absolute; left:50%; top:25px; transform:translateX(-50%); padding:2px 5px; border-radius:5px; background:#111722e8; color:#ffe9a0; font-size:11px; white-space:nowrap; }
-    @keyframes ping-pulse { 0% { opacity:1; box-shadow:0 0 0 0 #ffe17b99; } 100% { opacity:0; box-shadow:0 0 0 24px transparent; } }
+    .reaction-palette { position:absolute; left:12px; bottom:12px; z-index:12; display:grid; grid-template-columns:repeat(5,38px); gap:5px; width:max-content; padding:8px; border:1px solid #68779099; border-radius:12px; background:#12161ff2; box-shadow:0 14px 34px #0008; backdrop-filter:blur(12px); }
+    .reaction-palette[hidden] { display:none; }
+    .reaction-palette button { width:38px; height:36px; padding:0; border-color:transparent; background:#ffffff08; font-size:21px; }
+    .reaction-palette button.active,.reaction-palette button:hover { border-color:#e0b34cb3; background:#e0b34c24; transform:translateY(-1px); }
+    .reaction-palette > span { grid-column:1/-1; color:var(--muted); font-size:10px; text-align:center; }
+    #board.reaction-placing,#board.spell-aiming { cursor:crosshair; }
+    .map-reaction { position:absolute; transform:translate(-50%,-50%) scale(var(--reaction-scale,1)); transform-origin:50% 70%; }
+    .map-reaction-bubble { display:grid; justify-items:center; min-width:58px; filter:drop-shadow(0 6px 9px #000a); animation:map-reaction-rise 2.7s cubic-bezier(.18,.72,.22,1) forwards; }
+    .map-reaction-emoji { display:grid; place-items:center; width:48px; height:48px; border:2px solid #fff4c7d1; border-radius:50%; background:radial-gradient(circle at 38% 30%,#ffffff59,#1f2430eb 68%); font-size:29px; box-shadow:inset 0 0 0 2px #0004,0 0 18px #e0b34c4d; }
+    .map-reaction-author { max-width:110px; margin-top:3px; padding:1px 6px; overflow:hidden; border-radius:999px; background:#0b0e15d1; color:#fff2c1; font-size:10px; text-overflow:ellipsis; white-space:nowrap; }
+    @keyframes map-reaction-rise { 0%{opacity:0;transform:translateY(9px) scale(.55) rotate(-7deg)} 14%{opacity:1;transform:translateY(0) scale(1.12) rotate(3deg)} 27%{transform:translateY(-4px) scale(1)} 72%{opacity:1;transform:translateY(-25px) scale(1)} 100%{opacity:0;transform:translateY(-54px) scale(.86)} }
     #action-dock { display:flex; align-items:center; gap:6px; overflow-x:auto; padding:7px 10px; border-top:1px solid var(--line); background:#171b25; }
     #action-dock button { flex:0 0 auto; }
     #action-dock button.active { border-color:#6fa4ed; background:#284c7c; }
-    #end-turn { margin-left:auto; border-color:#6e5622; color:#ffe8a0; }
+    #turn-action-status { max-width:min(300px,34vw); overflow:hidden; margin-left:auto; padding:4px 9px; border:1px solid var(--line); border-radius:999px; color:var(--muted); background:#121722; font-size:11px; text-overflow:ellipsis; white-space:nowrap; }
+    #turn-action-status.mine { border-color:#2e7757; color:#9ce4be; background:#14271f; }
+    #turn-action-status.locked { border-color:#654c2c; color:#e7c38d; background:#2a2016; }
+    #turn-action-status.free,#turn-action-status.prepare { border-color:#355a86; color:#a8ceff; background:#152337; }
+    #end-turn { border-color:#6e5622; color:#ffe8a0; }
     #end-turn:disabled { opacity:.45; }
+    .player-tool-actions { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:5px; }
+    .player-spell-range { padding:9px; border:1px solid #5f7eb15c; border-radius:10px; background:linear-gradient(145deg,#202b3db3,#12161fa6); }
+    .spell-shape-switch { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:3px; padding:3px; border:1px solid var(--line); border-radius:8px; background:#0a0d1373; }
+    .spell-shape-switch button { min-width:0; padding:5px 2px; border-color:transparent; background:transparent; color:var(--muted); font-size:10px; }
+    .spell-shape-switch button.active,.spell-shape-switch button[aria-pressed="true"] { border-color:#6fa4ed85; background:#3c67a173; color:#dcecff; }
+    .spell-range-controls { display:grid; gap:6px; margin-top:7px; }
+    .spell-range-controls[hidden],.spell-direction-row[hidden] { display:none; }
+    .spell-range-value { display:flex; align-items:baseline; justify-content:space-between; gap:7px; }
+    .spell-range-value strong { color:#cce3ff; font-size:17px; font-variant-numeric:tabular-nums; }
+    .spell-range-value span { color:var(--muted); font-size:10px; }
+    .spell-range-controls input[type="range"] { width:100%; accent-color:#6fa4ed; }
+    .spell-range-presets { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:3px; }
+    .spell-range-presets button { min-width:0; padding:4px 1px; color:var(--muted); font-size:9px; }
+    .spell-range-presets button.active { border-color:#6fa4ed9e; background:#3e68a152; color:#dcecff; }
+    .spell-direction-row { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:4px 6px; padding-top:6px; border-top:1px solid #ffffff11; }
+    .spell-direction-row label { grid-column:1/-1; display:flex; justify-content:space-between; color:var(--muted); font-size:10px; }
+    .spell-direction-row output { color:#a9d0ff; }
+    .spell-direction-row button { padding:4px 6px; color:#bcd9ff; font-size:9px; }
     .join-mask { position:fixed; inset:0; z-index:50; display:grid; place-items:center; padding:20px; background:#080a0fea; }
     .join-mask[hidden] { display:none; }
     .join-box { width:min(390px,100%); padding:22px; border:1px solid var(--line); border-radius:16px; background:linear-gradient(145deg,#202633,#151923); box-shadow:0 20px 80px #000a; }
@@ -146,8 +239,16 @@
     .join-box form { display:grid; gap:9px; }
     .join-box input { width:100%; padding:10px; }
     #join-error { min-height:18px; color:#ff9aa5; font-size:12px; }
-    .rest-actions { display:flex; gap:6px; margin-top:8px; }
-    .rest-actions button { flex:1; }
+    .player-tool-actions { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px; margin-top:7px; }
+    .doodle-tool-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px; }
+    [data-doodle-tool].active { border-color:#e0b34c; background:#3a3325; color:#ffe9a0; }
+    .player-doodle-options { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:8px; }
+    .player-doodle-colors { display:flex; gap:5px; }
+    .player-doodle-color { width:24px; height:24px; flex:0 0 auto; padding:0; border:2px solid transparent; border-radius:50%; }
+    .player-doodle-color.active { border-color:#fff; box-shadow:0 0 0 2px var(--gold); }
+    #player-doodle-width { width:76px; min-width:76px; padding:5px 6px; border:1px solid var(--line); border-radius:6px; background:#10141c; color:var(--text); }
+    .player-doodle-actions { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px; margin-top:8px; }
+    #player-doodle-count { float:right; color:var(--muted); font-size:11px; font-weight:400; }
     @media (max-width:900px) {
       #btn-left-panel, #btn-join { display:inline-block; }
       #topbar { height:58px; gap:7px; padding:0 9px; }
@@ -161,7 +262,7 @@
       #left-panel.mobile-open { display:block; position:absolute; z-index:7; left:0; top:0; width:min(300px,88vw); height:100%; background:#1b202bf7; box-shadow:12px 0 28px #0008; }
       #right-panel { top:0; height:calc(100% - 0px); }
     }
-    @media (max-width:900px) { #flowbar { --flow-open-height:190px; } .flow-head .flow-date { max-width:52vw; } }
+    @media (max-width:900px) { #flowbar { --flow-open-height:315px; } .flow-head .flow-date { max-width:42vw; } .flow-weather-summary { display:none; } #flow-panel-initiative:not([hidden]) { grid-template-columns:minmax(150px,190px) minmax(0,1fr); } #flow-panel-time:not([hidden]) { grid-template-columns:1fr; } }
     #toast { position:fixed; z-index:20; left:50%; bottom:18px; transform:translateX(-50%); padding:8px 12px; border-radius:8px; background:#10141de8; border:1px solid #4c5870; opacity:0; pointer-events:none; transition:opacity .18s; }
     #toast.show { opacity:1; }
     @media (max-width:900px) { #layout { grid-template-columns:1fr; } .panel { display:none; } #right-panel { display:block; position:absolute; z-index:4; right:0; top:0; width:min(290px,86vw); height:100%; background:#1b202bf2; } #right-panel:has(#detail[hidden]) { display:none; } }
@@ -180,32 +281,51 @@
   <main id="layout">
     <aside class="panel" id="left-panel">
       <section class="card"><h2>👥 在线玩家</h2><div id="player-list"><span class="hint">正在连接房间…</span></div></section>
-      <section class="card"><h2>🧭 玩家工具</h2><div class="row"><button id="btn-measure">📏 测距</button><button id="btn-ping">📍 指示</button></div><div class="rest-actions"><button id="btn-ready">✓ 准备</button><button id="btn-rest">☕ 请求休息</button></div><p class="hint">测距只在本地显示；指示会同步给所有玩家。</p></section>
+      <section class="card"><h2>🧭 玩家工具</h2><div class="player-tool-actions"><button id="btn-measure">📏 测距</button><button id="btn-reaction">😊 地图表情</button><button id="btn-ready">✓ 准备</button></div><p class="hint">测距只在本地显示；靠近方格交点时会自动吸附，1 格＝5 尺。表情不占用角色行动。</p></section>
+      <section class="card" id="player-doodle-card">
+        <h2>🖍️ 共享标注 <span id="player-doodle-count">0 条</span></h2>
+        <div class="doodle-tool-grid">
+          <button type="button" data-doodle-tool="pen">✏️ 画笔</button>
+          <button type="button" data-doodle-tool="line">📏 直线</button>
+          <button type="button" data-doodle-tool="arrow">➡️ 箭头</button>
+          <button type="button" data-doodle-tool="circle">⭕ 圆圈</button>
+          <button type="button" data-doodle-tool="eraser">🧽 橡皮擦</button>
+        </div>
+        <div class="player-doodle-options">
+          <div class="player-doodle-colors" aria-label="画笔颜色">
+            <button type="button" class="player-doodle-color active" data-doodle-color="#ff4d4f" style="background:#ff4d4f" title="红色"></button>
+            <button type="button" class="player-doodle-color" data-doodle-color="#ffd23f" style="background:#ffd23f" title="黄色"></button>
+            <button type="button" class="player-doodle-color" data-doodle-color="#4f7cff" style="background:#4f7cff" title="蓝色"></button>
+            <button type="button" class="player-doodle-color" data-doodle-color="#4cc38a" style="background:#4cc38a" title="绿色"></button>
+            <button type="button" class="player-doodle-color" data-doodle-color="#ffffff" style="background:#ffffff" title="白色"></button>
+          </div>
+          <select id="player-doodle-width" title="线条粗细"><option value="3">细</option><option value="6" selected>中</option><option value="10">粗</option></select>
+        </div>
+        <div class="player-doodle-actions"><button type="button" id="player-doodle-undo">↩ 撤销</button><button type="button" id="player-doodle-clear">🗑 一键清空</button></div>
+        <p class="hint">标注会实时同步给主控台和所有玩家；测距仍只在本地显示。</p>
+      </section>
       <section class="card">
         <h2>🎲 掷骰</h2>
         <div class="dice-grid">
           <button data-die="d4">d4</button><button data-die="d6">d6</button><button data-die="d8">d8</button><button data-die="d10">d10</button>
           <button data-die="d12">d12</button><button data-die="d20">d20</button><button data-die="d100">d100</button>
         </div>
+        <div class="dice-advrow"><button id="dice-adv" title="掷两颗 d20，取较大值">⚖️ 优势 d20</button><button id="dice-dis" title="掷两颗 d20，取较小值">⬇ 劣势 d20</button></div>
         <div class="custom-roll"><input id="dice-expr" placeholder="如 2d6+3"><button id="dice-roll">掷</button></div>
         <div id="dice-result"></div><div id="dice-log"></div>
       </section>
       <section class="card"><h2>📚 常用网站</h2><div id="player-links"></div></section>
       <section class="card"><h2>📖 GM 公告 / 手册</h2><div id="shared-note" class="shared-note-view"><span class="hint">等待主控台发布内容</span></div></section>
-      <section class="card">
-        <h2>🖍️ 协作涂鸦</h2>
-        <div id="doodle-tools"><button data-tool="pen">画笔</button><button data-tool="line">直线</button><button data-tool="arrow">箭头</button><button data-tool="circle">圆圈</button></div>
-        <div id="doodle-colors"><button class="active" data-color="#ff4d4f" style="background:#ff4d4f"></button><button data-color="#ffd23f" style="background:#ffd23f"></button><button data-color="#4f7cff" style="background:#4f7cff"></button><button data-color="#4cc38a" style="background:#4cc38a"></button><button data-color="#ffffff" style="background:#fff"></button></div>
-        <p class="hint">选择工具后在地图拖动；涂鸦会同步给所有人。</p>
-      </section>
     </aside>
     <section id="center">
-      <div id="board"><div id="world"><canvas id="fog-canvas" class="map-layer"></canvas><canvas id="doodle-canvas" class="map-layer"></canvas><canvas id="turn-path-canvas" class="map-layer"></canvas><div id="tokens"></div><div id="ping-layer"></div></div><div id="empty">⏳ 等待主机开团…</div><div id="measure-label" hidden></div><div id="map-controls"><button id="zoom-out">−</button><button id="zoom-in">＋</button><button id="fit">⛶</button></div></div>
-      <div id="action-dock"><button id="dock-measure">📏 测距</button><button id="dock-ping">📍 指示</button><button id="dock-ready">✓ 准备</button><button id="dock-notes">📝 笔记</button><button id="end-turn" disabled>结束我的回合</button></div>
+      <div id="board"><div id="world"><canvas id="spell-range-canvas" class="map-layer"></canvas><canvas id="fog-canvas" class="map-layer"></canvas><canvas id="doodle-canvas" class="map-layer"></canvas><canvas id="turn-path-canvas" class="map-layer"></canvas><div id="tokens"></div><div id="names-layer"></div><div id="reaction-layer" aria-live="polite"></div></div><div id="empty">⏳ 等待主机开团…</div><div id="measure-label" hidden></div><div id="reaction-palette" class="reaction-palette" role="toolbar" aria-label="地图表情" hidden><button type="button" data-map-reaction="👍">👍</button><button type="button" data-map-reaction="❤️">❤️</button><button type="button" data-map-reaction="😂">😂</button><button type="button" data-map-reaction="😮">😮</button><button type="button" data-map-reaction="🔥">🔥</button><button type="button" data-map-reaction="✨">✨</button><button type="button" data-map-reaction="❓">❓</button><button type="button" data-map-reaction="⚔️">⚔️</button><button type="button" data-map-reaction="🎯">🎯</button><button type="button" data-map-reaction="👏">👏</button><span>选中后点击地图</span></div><div id="map-controls"><button id="zoom-out">−</button><button id="zoom-in">＋</button><button id="fit">⛶</button></div></div>
+      <div id="action-dock"><button id="dock-measure">📏 测距</button><button id="dock-reaction">😊 表情</button><button id="dock-ready">✓ 准备</button><button id="dock-notes">📝 笔记</button><span id="turn-action-status" role="status">尚未加入房间</span><button id="end-turn" disabled>结束我的回合</button></div>
       <section id="flowbar" class="collapsed" aria-label="游戏流程">
         <div class="flow-head">
           <button id="flow-toggle" type="button" aria-expanded="false">▸ 游戏流程</button>
           <span id="flow-mode" class="flow-mode">自由模式</span>
+          <span id="flow-current-summary" class="flow-current-summary">所有单位可行动</span>
+          <span id="flow-weather-summary" class="flow-weather-summary">☀️ 晴朗 · 18°C</span>
           <span id="flow-date" class="flow-date">第 1 年 · 第 1 周 · 第 1 天 08:00</span>
         </div>
         <div class="flow-body">
@@ -214,11 +334,12 @@
             <button type="button" data-flow-panel="time" role="tab" aria-selected="false">⌛ 时间</button>
           </div>
           <div id="flow-panel-initiative" class="flow-panel" role="tabpanel">
-            <div class="flow-init-meta"><span id="flow-round">自由行动</span><span>当前：<b id="flow-current">未锁定</b></span></div>
+            <div class="flow-init-hero"><span id="flow-round">自由行动</span><strong id="flow-current">所有单位可行动</strong><span id="flow-next">进入战斗后显示下一位</span></div>
             <div id="flow-init-list" class="flow-init-list"><span class="flow-empty">等待主控台设置先攻</span></div>
           </div>
           <div id="flow-panel-time" class="flow-panel" role="tabpanel" hidden>
-          <div class="flow-time"><span id="flow-time-date" class="flow-time-date">第 1 年 · 第 1 周 · 第 1 天</span><span id="flow-time-clock" class="flow-time-clock">08:00:00</span><span id="flow-time-mode" class="flow-time-mode">时间已暂停</span></div>
+            <div class="flow-time-card"><span id="flow-time-date" class="flow-time-date">第 1 年 · 第 1 周 · 第 1 天</span><span id="flow-time-clock" class="flow-time-clock">08:00:00</span><span id="flow-time-mode" class="flow-time-mode">时间已暂停</span></div>
+            <div class="flow-weather-card"><span id="flow-weather-icon">☀️</span><div><strong id="flow-weather-name">晴朗</strong><span id="flow-weather-meta">🌿 温带 · 🌱 春季 · 18°C · 微风</span></div></div>
           </div>
         </div>
       </section>
@@ -229,29 +350,37 @@
           <div class="token-head"><div id="detail-icon">🧙</div><div><div id="detail-name"></div><div id="detail-type"></div></div><button id="detail-close">✕</button></div>
           <div class="field"><label>生命值</label><div class="three"><input id="hp" type="number" min="0"><span>/</span><input id="hp-max" type="number" min="1"></div><div class="hp-bar"><i id="hp-bar"></i></div><div class="quick"><button data-hp="-5">−5</button><button data-hp="-1">−1</button><button data-hp="1">＋1</button><button data-hp="5">＋5</button><button data-hp="full">回满</button></div></div>
           <div class="field"><label>AC</label><div class="ac-row"><input id="ac" type="number" min="0" max="99"><span id="ac-hint" class="hint">由你自己维护</span></div></div>
+          <div class="field player-spell-range"><label>施法范围</label><div class="spell-shape-switch" role="group" aria-label="施法范围形状"><button type="button" data-spell-shape="off" aria-pressed="true">关闭</button><button type="button" data-spell-shape="radius" aria-pressed="false">◉ 环形</button><button type="button" data-spell-shape="cone" aria-pressed="false">◖ 锥形</button></div><div id="spell-controls" class="spell-range-controls" hidden><div class="spell-range-value"><strong id="spell-feet-output">30 尺</strong><span id="spell-grid-output">6 格</span></div><input id="spell-feet" type="range" min="5" max="180" step="5" value="30"><div class="spell-range-presets"><button type="button" data-spell-feet="15">15</button><button type="button" data-spell-feet="30">30</button><button type="button" data-spell-feet="60">60</button><button type="button" data-spell-feet="90">90</button><button type="button" data-spell-feet="120">120</button><button type="button" data-spell-feet="180">180 尺</button></div><div id="spell-direction-row" class="spell-direction-row" hidden><label for="spell-direction">方向 <output id="spell-direction-output">东 · 0°</output></label><input id="spell-direction" type="range" min="0" max="355" step="5" value="0"><button id="spell-aim" type="button">⌖ 在地图上瞄准</button></div></div><p id="spell-lock-hint" class="hint">自由模式下可调整。</p></div>
           <div id="detail-conditions" class="condition-list"></div>
           <div id="detail-public-note" class="public-note" hidden></div>
         </div>
-        <p id="detail-empty" class="hint">点击自己的棋子可调整 HP 和 AC；点击友好棋子可查看公开信息。</p>
+        <p id="detail-empty" class="hint">点击自己的棋子可调整 HP 和 AC。</p>
       </section>
       <section class="card"><h2>📝 我的笔记</h2><textarea id="personal-notes" rows="5" placeholder="只保存在这台设备上的线索、想法……"></textarea><p class="hint">这是本地笔记，不会发送给主控台。</p></section>
     </aside>
   </main>
+  <div id="token-peek" role="status" aria-live="polite" hidden></div>
   <div id="join-mask" class="join-mask" hidden><div class="join-box"><h1>加入桑哆尔跑团</h1><p id="join-room-hint">输入你的名字后即可进入玩家地图。玩家不需要安装软件。</p><form id="join-form"><input id="join-name" maxlength="24" autocomplete="nickname" placeholder="你的名字" required><input id="join-room" maxlength="12" placeholder="房间码（可留空）"><div id="join-error"></div><button class="primary" type="submit">进入房间</button></form></div></div>
   <div id="toast"></div>
   <script src="../three.min.js"></script>
-  <script src="../骰子动画.js?v=26"></script>
+  <script src="../骰子动画.js?v=20260903-physics-v6-face-lock-r1"></script>
   <script>
   'use strict';
   const $ = (s) => document.querySelector(s);
   const TYPE = { pc:{label:'玩家角色',ring:'#5b8cff'}, enemy:{label:'敌人',ring:'#ef476f'}, npc:{label:'中立NPC',ring:'#f4a261'}, ally:{label:'友好NPC',ring:'#2ecc71'} };
   const clamp = (n,a,b) => Math.min(b,Math.max(a,n));
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  const world = $('#world'), board = $('#board'), fog = $('#fog-canvas'), fogCtx = fog.getContext('2d'), doodle = $('#doodle-canvas'), doodleCtx = doodle.getContext('2d'), turnPath = $('#turn-path-canvas'), turnPathCtx = turnPath.getContext('2d');
+  const world = $('#world'), board = $('#board'), fog = $('#fog-canvas'), fogCtx = fog.getContext('2d'), doodle = $('#doodle-canvas'), doodleCtx = doodle.getContext('2d'), spellRangeCanvas = $('#spell-range-canvas'), spellRangeCtx = spellRangeCanvas.getContext('2d'), turnPath = $('#turn-path-canvas'), turnPathCtx = turnPath.getContext('2d');
   const WORLD_MINUTES_PER_DAY = 24 * 60, WORLD_DAYS_PER_WEEK = 7, WORLD_WEEKS_PER_YEAR = 52;
   const WORLD_MINUTES_PER_YEAR = WORLD_MINUTES_PER_DAY * WORLD_DAYS_PER_WEEK * WORLD_WEEKS_PER_YEAR;
-  const MAX_MOVE_POINTS = 60, MAX_TURN_PATH_POINTS = 200;
-  let state = null, currentMap = null, view = {scale:1,ox:0,oy:0}, myName = '', sessionToken = '', roomCode = '', players = [], presenceStatus = 'online', selectedId = null, drag = null, doodleTool = null, doodleColor = '#ff4d4f', doodleDraft = null, doodleId = 1, toastTimer = null, localRolls = new Set(), lastMapViewKey = '', flowPanel = 'initiative', flowClockAnchor = { localNow: performance.now(), serverNow: Date.now() }, flowTimer = null, measureMode = false, measureDraft = null, presenceTimer = null, streamES = null, streamAppliedSeq = 0, lastStateRevision = 0;
+  const MAX_MOVE_POINTS = 60, MAX_TURN_PATH_POINTS = 200, MAX_DOODLE_POINTS = 800, SPELL_RANGE_MIN_FEET = 5, SPELL_RANGE_MAX_FEET = 180, SPELL_CONE_HALF_ANGLE = Math.atan(.5);
+  const MAP_REACTION_EMOJIS = new Set(['👍','❤️','😂','😮','🔥','✨','❓','⚔️','🎯','👏']);
+  const CONDITION_PIXEL_KEYS = new Set(['prone','unconscious','incapacitated','blinded','deafened','frightened','charmed','poisoned','grappled','restrained','stunned','petrified','invisible','concentrating','burning']);
+  const CONDITION_SPRITE_URL = '../asset/界面/状态图标-v1.png';
+  let state = null, currentMap = null, view = {scale:1,ox:0,oy:0}, myName = '', sessionToken = '', roomCode = '', players = [], presenceStatus = 'online', selectedId = null, drag = null, toastTimer = null, peekTimer = null, localRolls = new Set(), lastMapViewKey = '', flowPanel = 'initiative', flowClockAnchor = { localNow: performance.now(), serverNow: Date.now() }, flowTimer = null, measureMode = false, measureDraft = null, doodleTool = null, doodleColor = '#ff4d4f', doodleWidth = 6, doodleDraft = null, presenceTimer = null, streamES = null, streamAppliedSeq = 0, lastStateRevision = 0, spellAimTokenId = null, pendingMapReaction = null, spellRangeRaf = null, initiativePending = false, lastFlowScrollEntryId = null;
+  const localReactionIds = new Set();
+  function preloadConditionPixels(){const image=new Image();image.onload=()=>document.documentElement.classList.add('condition-pixels-ready');image.onerror=()=>document.documentElement.classList.remove('condition-pixels-ready');image.src=CONDITION_SPRITE_URL;}
+  preloadConditionPixels();
   try { myName = localStorage.getItem('sangduoer-watch-name') || ''; sessionToken = localStorage.getItem('sangduoer-watch-session') || ''; } catch (e) {}
   $('#player-name').value = myName;
 
@@ -267,14 +396,16 @@
     if(!players.length){box.innerHTML='<span class="hint">暂无其他玩家</span>';return;}
     players.forEach(p=>{const row=document.createElement('div');row.className='player-row'+(p.name===myName?' me':'');const dot=document.createElement('i');dot.className='player-dot'+(p.online?' online':'');const name=document.createElement('span');name.className='player-row-name';name.textContent=p.name||'未命名玩家';const status=document.createElement('span');status.className='player-row-status';status.textContent=p.online?(p.status==='ready'?'已准备':'在线'):'离线';row.append(dot,name,status);box.appendChild(row);});
   }
-  function updateSessionUi() { $('#session-badge').textContent=sessionToken?(myName+' · 已加入'):'未加入'; $('#player-name').readOnly=!!sessionToken; $('#btn-join').textContent=sessionToken?'切换玩家':'加入房间'; renderPlayers(players); }
+  function updateSessionUi() { $('#session-badge').textContent=sessionToken?(myName+' · 已加入'):'未加入'; $('#player-name').readOnly=!!sessionToken; $('#btn-join').textContent=sessionToken?'切换玩家':'加入房间'; renderPlayers(players); updateEndTurnUi(); }
   async function joinSession(nickname, requestedRoom, resume=true) {
     const payload={nickname:String(nickname||'').trim(),roomCode:String(requestedRoom||roomCode||'').trim()}; if(resume&&sessionToken)payload.sessionToken=sessionToken;
     const res=await fetch('/api/session',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}); const data=await res.json().catch(()=>({}));
     if(!res.ok||!data.ok) throw new Error(data.error||'无法加入房间');
     sessionToken=data.session?.sessionToken||sessionToken; myName=data.session?.name||payload.nickname; roomCode=data.roomCode||payload.roomCode;
     try { localStorage.setItem('sangduoer-watch-name',myName); if(sessionToken)localStorage.setItem('sangduoer-watch-session',sessionToken); } catch(e) {}
-    $('#player-name').value=myName; $('#join-mask').hidden=true; $('#join-error').textContent=''; updateSessionUi(); sendPresence('online');
+    $('#player-name').value=myName; $('#join-mask').hidden=true; $('#join-error').textContent=''; updateSessionUi();
+    if(currentMap)renderTokens(currentMap); if(selectedId)openDetail(selectedId);
+    sendPresence('online');
     return true;
   }
   async function bootstrapSession() {
@@ -285,18 +416,162 @@
     else updateSessionUi();
   }
   function sendPresence(status=presenceStatus) { if(!sessionToken)return; presenceStatus=status; fetch('/api/presence',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionToken,status})}).catch(()=>{}); }
-  function leaveSession() { sessionToken=''; try{localStorage.removeItem('sangduoer-watch-session');}catch(e){} $('#join-name').value=myName; $('#join-room').value=roomCode; $('#join-mask').hidden=false; updateSessionUi(); }
+  function leaveSession() { clearTimeout(patchTimer);patchTimer=null;pendingPatch=null;sessionToken='';try{localStorage.removeItem('sangduoer-watch-session');}catch(e){}$('#join-name').value=myName;$('#join-room').value=roomCode;$('#join-mask').hidden=false;closeDetail();updateSessionUi();if(currentMap)renderTokens(currentMap); }
   function mine(t) { return !!myName && (t.owner || '') === myName; }
   function friendly(t) { return !!t && (t.type === 'pc' || t.type === 'ally'); }
-  function assetUrl(t) {
-    const src=t.iconImgPath || t.iconImgHd || t.iconImg || '';
-    if (!src || /^(?:data:|https?:|\/)/.test(src)) return src;
-    return '../asset/棋子库/' + src.replace(/^(?:\.\.\/)?(?:(?:asset|assets)\/)?棋子库\//,'');
+  const PLAYER_PORTRAIT_TIER=512, portraitProbes=new Map();
+  function projectAssetUrl(src) {
+    if (!src || /^(?:data:|blob:|https?:|\/)/.test(src)) return src||'';
+    return '../asset/棋子库/' + String(src).replace(/\\/g,'/').replace(/^(?:\.\.\/)?(?:(?:asset|assets)\/)?棋子库\//,'');
   }
-  function applyView() { world.style.transform = 'translate(' + view.ox + 'px,' + view.oy + 'px) scale(' + view.scale + ')'; }
+  function portraitLodUrl(path,tier=PLAYER_PORTRAIT_TIER) {
+    const normalized=String(path||'').replace(/\\/g,'/').replace(/^(?:\.\.\/)?(?:(?:asset|assets)\/)?棋子库\//,'').replace('立绘/NPC/短团-烬鳞讨伐/','立绘/NPC/短团·烬鳞讨伐/');
+    if(!normalized.startsWith('立绘/'))return projectAssetUrl(path);
+    const relative=normalized.slice(3).replace(/\.[^./]+$/,'.webp');
+    return projectAssetUrl('显示缓存/'+tier+'/'+relative);
+  }
+  function assetUrl(t) {
+    if(t.iconImgPath)return portraitLodUrl(t.iconImgPath);
+    return projectAssetUrl(t.iconImgHd || t.iconImg || '');
+  }
+  function originalPortraitUrl(t) { return t&&t.iconImgPath ? projectAssetUrl(t.iconImgPath) : assetUrl(t); }
+  function applyPlayerPortrait(el,t) {
+    const url=assetUrl(t); if(!url)return false;
+    el.dataset.portraitUrl=url;
+    el.style.backgroundImage='url("'+url+'")';
+    if(t.iconImgPath){el.style.backgroundSize='116.3% 116.3%';el.style.backgroundPosition='center';}
+    const fallback=originalPortraitUrl(t); if(!t.iconImgPath||url===fallback)return true;
+    const known=portraitProbes.get(url);
+    if(known===false){el.style.backgroundImage='url("'+fallback+'")';return true;}
+    if(known===true)return true;
+    if(known){known.then(ok=>{if(!ok&&el.isConnected&&el.dataset.portraitUrl===url)el.style.backgroundImage='url("'+fallback+'")';});return true;}
+    const pending=new Promise(resolve=>{const img=new Image();img.onload=()=>resolve(true);img.onerror=()=>resolve(false);img.src=url;}).then(ok=>{portraitProbes.set(url,ok);return ok;});
+    portraitProbes.set(url,pending);pending.then(ok=>{if(!ok&&el.isConnected&&el.dataset.portraitUrl===url)el.style.backgroundImage='url("'+fallback+'")';});
+    return true;
+  }
+  function applyView() { world.style.transform = 'translate(' + view.ox + 'px,' + view.oy + 'px) scale(' + view.scale + ')'; document.querySelectorAll('.map-reaction').forEach(el=>el.style.setProperty('--reaction-scale',String(1/clamp(Number(view.scale)||1,.2,4)))); }
   function fit() { if (!currentMap) return; const r=board.getBoundingClientRect(), m=currentMap; view.scale=Math.min(r.width/m.mapW,r.height/m.mapH,2); view.ox=(r.width-m.mapW*view.scale)/2; view.oy=(r.height-m.mapH*view.scale)/2; applyView(); }
   function point(e) { const r=world.getBoundingClientRect(); return {x:(e.clientX-r.left)/view.scale,y:(e.clientY-r.top)/view.scale}; }
+  function snapMeasurePoint(p) {
+    if(!currentMap||!p)return p;
+    const grid=Number(currentMap.gridSize)||50, scale=Math.max(.2,Number(view.scale)||1);
+    const snapped={x:Math.round(p.x/grid)*grid,y:Math.round(p.y/grid)*grid};
+    const radius=Math.min(grid*.35,14/scale);
+    return Math.hypot(p.x-snapped.x,p.y-snapped.y)<=radius?snapped:p;
+  }
   function snap(x,y,t) { const g=currentMap.gridSize||50, size=t.size||1; const sx=size>=2?Math.round(x/g)*g:Math.round(x/g-.5)*g+g/2; const sy=size>=2?Math.round(y/g)*g:Math.round(y/g-.5)*g+g/2; const margin=size>=2?g:g/2; return {x:clamp(sx,margin,currentMap.mapW-margin),y:clamp(sy,margin,currentMap.mapH-margin)}; }
+
+  function normalizeSpellRange(raw) {
+    const source=raw&&typeof raw==='object'?raw:{},shape=source.shape==='radius'||source.shape==='cone'?source.shape:'off',rawFeet=Number(source.feet),feet=clamp(Math.round((Number.isFinite(rawFeet)?rawFeet:30)/5)*5,SPELL_RANGE_MIN_FEET,SPELL_RANGE_MAX_FEET),rawDirection=Number(source.direction),direction=Number.isFinite(rawDirection)?((Math.round(rawDirection/5)*5)%360+360)%360:0;
+    return{shape,feet,direction};
+  }
+  function spellDirectionLabel(degrees){const labels=['东','东南','南','西南','西','西北','北','东北'],d=((Number(degrees)||0)%360+360)%360;return labels[Math.round(d/45)%8]+' · '+Math.round(d)+'°';}
+  function drawSpellRangeForToken(ctx,t,m,selected){
+    const range=normalizeSpellRange(t.spellRange);
+    if(range.shape==='off')return;
+    const grid=m.gridSize||50,radius=range.feet/5*grid;
+    if(!Number.isFinite(radius)||radius<=0)return;
+    const meta=TYPE[t.type]||TYPE.npc,color=meta.ring||'#6fa4ed';
+    ctx.save();
+    ctx.lineWidth=Math.max(2,grid*(selected ? .055 : .038));
+    ctx.strokeStyle=color;ctx.fillStyle=color;ctx.globalAlpha=selected ? .25 : .12;
+    ctx.beginPath();
+    if(range.shape==='cone'){
+      const a=range.direction*Math.PI/180;
+      ctx.moveTo(t.x,t.y);ctx.arc(t.x,t.y,radius,a-SPELL_CONE_HALF_ANGLE,a+SPELL_CONE_HALF_ANGLE);ctx.closePath();
+    }else ctx.arc(t.x,t.y,radius,0,Math.PI*2);
+    ctx.fill();ctx.globalAlpha=selected ? .94 : .56;
+    ctx.setLineDash(selected?[]:[Math.max(7,grid*.18),Math.max(5,grid*.12)]);ctx.stroke();ctx.setLineDash([]);
+    ctx.globalAlpha=selected ? .43 : .22;ctx.lineWidth=Math.max(1,grid*.018);
+    if(range.shape==='radius'){
+      const rings=Math.min(6,Math.floor(range.feet/30));
+      for(let i=1;i<=rings;i++){ctx.beginPath();ctx.arc(t.x,t.y,radius*i/(rings+1),0,Math.PI*2);ctx.stroke();}
+    }else{
+      const a=range.direction*Math.PI/180;
+      ctx.beginPath();ctx.moveTo(t.x,t.y);ctx.lineTo(t.x+Math.cos(a)*radius,t.y+Math.sin(a)*radius);ctx.stroke();
+    }
+    const la=range.shape==='cone'?range.direction*Math.PI/180:-Math.PI/2,lr=Math.min(radius*.82,radius-12),lx=t.x+Math.cos(la)*lr,ly=t.y+Math.sin(la)*lr,fs=clamp(grid*.23,10,18);
+    ctx.globalAlpha=selected ? .95 : .68;ctx.font='700 '+fs+'px system-ui,sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';ctx.lineWidth=Math.max(3,fs*.26);ctx.strokeStyle='rgba(9,12,18,.84)';ctx.strokeText(range.feet+' 尺',lx,ly);ctx.fillStyle='#f4f8ff';ctx.fillText(range.feet+' 尺',lx,ly);ctx.restore();
+  }
+  function renderSpellRanges(){
+    if(!currentMap){spellRangeCtx.clearRect(0,0,spellRangeCanvas.width,spellRangeCanvas.height);return;}
+    if(spellRangeCanvas.width!==currentMap.mapW)spellRangeCanvas.width=currentMap.mapW;
+    if(spellRangeCanvas.height!==currentMap.mapH)spellRangeCanvas.height=currentMap.mapH;
+    spellRangeCtx.clearRect(0,0,currentMap.mapW,currentMap.mapH);
+    const enabled=(currentMap.tokens||[]).filter(t=>normalizeSpellRange(t.spellRange).shape!=='off');
+    enabled.filter(t=>t.id!==selectedId).forEach(t=>drawSpellRangeForToken(spellRangeCtx,t,currentMap,false));
+    const selected=enabled.find(t=>t.id===selectedId);if(selected)drawSpellRangeForToken(spellRangeCtx,selected,currentMap,true);
+  }
+  function requestSpellRangeRender(){if(spellRangeRaf!=null)return;spellRangeRaf=requestAnimationFrame(()=>{spellRangeRaf=null;renderSpellRanges();});}
+  function makeReactionId(){return window.crypto&&typeof window.crypto.randomUUID==='function'?'p-'+window.crypto.randomUUID():'p-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,10);}
+  function showMapReaction(a){if(!currentMap||!a||a.mapId!==currentMap.id||!MAP_REACTION_EMOJIS.has(a.emoji))return;const layer=$('#reaction-layer'),item=document.createElement('div');item.className='map-reaction';item.dataset.reactionId=String(a.reactionId||'');item.style.left=clamp(Number(a.x)||0,0,currentMap.mapW)+'px';item.style.top=clamp(Number(a.y)||0,0,currentMap.mapH)+'px';item.style.setProperty('--reaction-scale',String(1/clamp(Number(view.scale)||1,.2,4)));const bubble=document.createElement('div');bubble.className='map-reaction-bubble';const emoji=document.createElement('span');emoji.className='map-reaction-emoji';emoji.textContent=a.emoji;const author=document.createElement('span');author.className='map-reaction-author';author.textContent=String(a.name||'玩家').slice(0,24);bubble.append(emoji,author);item.appendChild(bubble);layer.appendChild(item);setTimeout(()=>item.remove(),2850);}
+  function syncReactionUi(){const palette=$('#reaction-palette'),placing=!!pendingMapReaction;palette.querySelectorAll('[data-map-reaction]').forEach(b=>b.classList.toggle('active',b.dataset.mapReaction===pendingMapReaction));document.querySelectorAll('#btn-reaction,#dock-reaction').forEach(b=>b.classList.toggle('active',placing||!palette.hidden));board.classList.toggle('reaction-placing',placing);}
+  function toggleReactionPalette(){if(!sessionToken){toast('请先加入房间');return;}const palette=$('#reaction-palette');if(!palette.hidden){palette.hidden=true;pendingMapReaction=null;}else{cancelSpellAim();palette.hidden=false;}syncReactionUi();}
+  function selectMapReaction(emoji){if(!MAP_REACTION_EMOJIS.has(emoji))return;cancelSpellAim();measureMode=false;measureDraft=null;doodleTool=null;doodleDraft=null;updateToolButtons();renderDoodles();renderTurnPath();pendingMapReaction=emoji;$('#reaction-palette').hidden=true;syncReactionUi();toast('点击地图发送表情；按 Esc 取消');}
+  function cancelMapReaction(){pendingMapReaction=null;$('#reaction-palette').hidden=true;syncReactionUi();}
+  function placePlayerReactionAt(e){if(!pendingMapReaction||!currentMap)return false;if(!sessionToken){cancelMapReaction();toast('请先加入房间');return true;}const p=point(e),action={op:'mapReaction',reactionId:makeReactionId(),mapId:currentMap.id,x:clamp(p.x,0,currentMap.mapW),y:clamp(p.y,0,currentMap.mapH),emoji:pendingMapReaction};localReactionIds.add(action.reactionId);setTimeout(()=>localReactionIds.delete(action.reactionId),5000);showMapReaction({...action,name:myName||'玩家'});cancelMapReaction();requestAction(action).then(r=>{if(!r.ok||r.data?.ok===false)toast('⚠ '+(r.data?.error||'表情未送达'));}).catch(()=>toast('⚠ 表情未送达'));return true;}
+
+  function syncSpellRangeUi(t,editable=canActWithToken(t)){
+    const range=normalizeSpellRange(t&&t.spellRange);if(t)t.spellRange=range;
+    document.querySelectorAll('[data-spell-shape]').forEach(button=>{const active=button.dataset.spellShape===range.shape;button.classList.toggle('active',active);button.setAttribute('aria-pressed',String(active));button.disabled=!editable;});
+    $('#spell-controls').hidden=range.shape==='off';$('#spell-feet').value=range.feet;$('#spell-feet').disabled=!editable;
+    $('#spell-feet-output').textContent=range.feet+' 尺';$('#spell-grid-output').textContent=(range.feet/5)+' 格';
+    document.querySelectorAll('[data-spell-feet]').forEach(button=>{button.classList.toggle('active',Number(button.dataset.spellFeet)===range.feet);button.disabled=!editable;});
+    $('#spell-direction-row').hidden=range.shape!=='cone';$('#spell-direction').value=range.direction;$('#spell-direction').disabled=!editable;$('#spell-direction-output').textContent=spellDirectionLabel(range.direction);
+    const aiming=!!t&&spellAimTokenId===t.id,aim=$('#spell-aim');aim.disabled=!editable;aim.classList.toggle('active',aiming);aim.textContent=aiming?'按住左键旋转…':'⌖ 在地图上瞄准';
+    board.classList.toggle('spell-aiming',Boolean(spellAimTokenId));
+    const mode=encounter().playMode;
+    $('#spell-lock-hint').textContent=editable?(mode==='turn'?'✓ 当前回合可调整范围':mode==='prepare'?'战斗准备阶段可调整。':'自由模式下可调整。'):(mode==='turn'?'🔒 等到该棋子的回合才能调整':'请先加入房间');
+  }
+  function cancelSpellAim(options={}){
+    const restore=options.restore!==false,aimDrag=drag&&drag.kind==='spell-aim'?drag:null,aimingId=aimDrag?.id||spellAimTokenId;
+    if(aimDrag){const aimed=currentMap&&(currentMap.tokens||[]).find(token=>token.id===aimDrag.id);if(restore&&aimed)aimed.spellRange={...aimDrag.previous};try{if(board.hasPointerCapture?.(aimDrag.pointerId))board.releasePointerCapture(aimDrag.pointerId);}catch(error){}drag=null;}
+    spellAimTokenId=null;board.classList.remove('spell-aiming');
+    const t=currentMap&&(currentMap.tokens||[]).find(token=>token.id===(aimingId||selectedId));if(t&&!$('#detail').hidden)syncSpellRangeUi(t);requestSpellRangeRender();
+  }
+  function updateOwnedSpellRange(patch){
+    const t=currentMap&&(currentMap.tokens||[]).find(token=>token.id===selectedId);if(!t||!ownedToken(t))return;
+    if(!canActWithToken(t)){syncSpellRangeUi(t,false);toast('🔒 只有轮到该角色时才能调整范围');return;}
+    const previous={...normalizeSpellRange(t.spellRange)},next=normalizeSpellRange({...previous,...patch});t.spellRange=next;
+    if(next.shape!=='cone'&&spellAimTokenId===t.id)cancelSpellAim({restore:false});
+    sendPatch(t.id,{spellRange:{...next}},{spellRange:previous});syncSpellRangeUi(t,true);requestSpellRangeRender();
+  }
+  function toggleSpellAim(){
+    const t=currentMap&&(currentMap.tokens||[]).find(token=>token.id===selectedId);if(!t||!ownedToken(t))return;
+    if(!canActWithToken(t)){syncSpellRangeUi(t,false);toast('🔒 只有轮到该角色时才能调整范围');return;}
+    if(spellAimTokenId===t.id){cancelSpellAim();return;}
+    if(normalizeSpellRange(t.spellRange).shape!=='cone')updateOwnedSpellRange({shape:'cone'});
+    cancelMapReaction();measureMode=false;measureDraft=null;doodleTool=null;doodleDraft=null;updateToolButtons();renderDoodles();renderTurnPath();
+    spellAimTokenId=t.id;syncSpellRangeUi(t,true);toast('在地图上按住左键旋转锥形，松开确定；Esc 取消');
+  }
+  function previewPlayerSpellAimAt(e){
+    if(!spellAimTokenId||!currentMap)return false;
+    const t=(currentMap.tokens||[]).find(token=>token.id===spellAimTokenId);
+    if(!t||!canActWithToken(t)){cancelSpellAim();if(t)toast('🔒 回合已经变化，方向未修改');return false;}
+    const p=point(e),direction=((Math.atan2(p.y-t.y,p.x-t.x)*180/Math.PI)+360)%360;
+    t.spellRange=normalizeSpellRange({...t.spellRange,shape:'cone',direction});syncSpellRangeUi(t,true);requestSpellRangeRender();return true;
+  }
+  function beginPlayerSpellAim(e){
+    if(!spellAimTokenId||!currentMap)return false;
+    const t=(currentMap.tokens||[]).find(token=>token.id===spellAimTokenId);
+    if(!t||!canActWithToken(t)){cancelSpellAim();if(t)toast('🔒 回合已经变化，方向未修改');return true;}
+    drag={kind:'spell-aim',id:t.id,mapId:currentMap.id,pointerId:e.pointerId,turnSerial:Number(encounter().turnSerial)||1,previous:{...normalizeSpellRange(t.spellRange)}};
+    try{board.setPointerCapture(e.pointerId);}catch(error){}
+    previewPlayerSpellAimAt(e);return true;
+  }
+  function finishPlayerSpellAim(e,cancelled=false){
+    const aimDrag=drag&&drag.kind==='spell-aim'?drag:null;if(!aimDrag)return false;
+    try{if(board.hasPointerCapture?.(aimDrag.pointerId))board.releasePointerCapture(aimDrag.pointerId);}catch(error){}
+    const t=currentMap&&(currentMap.tokens||[]).find(token=>token.id===aimDrag.id),sameTurn=encounter().playMode!=='turn'||Number(encounter().turnSerial)===aimDrag.turnSerial;
+    const valid=!cancelled&&t&&currentMap.id===aimDrag.mapId&&sameTurn&&canActWithToken(t);
+    if(valid)previewPlayerSpellAimAt(e);else if(t)t.spellRange={...aimDrag.previous};
+    const next=t?{...normalizeSpellRange(t.spellRange)}:null;
+    drag=null;spellAimTokenId=null;board.classList.remove('spell-aiming');
+    if(t&&!$('#detail').hidden)syncSpellRangeUi(t,canActWithToken(t));requestSpellRangeRender();
+    if(valid){sendPatch(t.id,{spellRange:next},{spellRange:{...aimDrag.previous}});toast('锥形方向：'+spellDirectionLabel(next.direction));}
+    else if(!cancelled)toast('🔒 回合已经变化，方向未修改');
+    return true;
+  }
 
   function encounter() { return state && state.encounter && typeof state.encounter==='object' ? state.encounter : {playMode:'free',round:1,currentEntryId:null,entries:[],turnSerial:1,turnPath:{mapId:null,tokenId:null,points:[]}}; }
   function tokenControlGroup(token) {
@@ -307,23 +582,48 @@
     while(changed){ changed=false; (currentMap.tokens||[]).forEach(candidate=>{ if(candidate.mountId && ids.has(candidate.mountId) && !ids.has(candidate.id)){ids.add(candidate.id);changed=true;} }); }
     return ids;
   }
+  function ridersOfToken(token,map=currentMap) {
+    return map&&token ? (map.tokens||[]).filter(candidate=>candidate.mountId===token.id) : [];
+  }
+  function movementAnchor(token,map=currentMap) {
+    if(!map||!token||!token.mountId)return token;
+    const mount=(map.tokens||[]).find(candidate=>candidate.id===token.mountId);
+    return mount&&(mount.size||1)>=2?mount:token;
+  }
+  function syncMountedCoordinates(token,map=currentMap) {
+    const anchor=movementAnchor(token,map);
+    if(!map||!anchor)return anchor;
+    if((anchor.size||1)>=2)ridersOfToken(anchor,map).forEach(rider=>{rider.x=anchor.x;rider.y=anchor.y;});
+    return anchor;
+  }
+  function currentTurnEntry() {
+    const e=encounter();
+    return (Array.isArray(e.entries)?e.entries:[]).find(x=>x&&x.id===e.currentEntryId)||null;
+  }
   function currentTurnToken() {
-    const e=encounter(), entry=(Array.isArray(e.entries)?e.entries:[]).find(x=>x&&x.id===e.currentEntryId);
+    const entry=currentTurnEntry();
     return entry&&entry.tokenId ? (currentMap&&currentMap.tokens||[]).find(t=>t.id===entry.tokenId)||null : null;
   }
-  function canMoveToken(token) {
-    if (!myName || !token) return false;
-    const controlled=tokenControlGroup(token).size>0 && [...tokenControlGroup(token)].some(id=>(currentMap.tokens||[]).some(candidate=>candidate.id===id && (candidate.owner||'')===myName));
-    if (!controlled) return false;
+  function ownedToken(token) {
+    if (!sessionToken || !myName || !token) return false;
+    const directOwner=(token.owner||'').trim(), player=myName.trim();
+    if(directOwner)return directOwner===player;
+    if(Number(token.size||1)<2)return false;
+    return ridersOfToken(token).some(rider=>(rider.owner||'').trim()===player);
+  }
+  function controlsCurrentTurn(token){
+    if(!token||!sessionToken||!myName)return false;
+    const directOwner=(token.owner||'').trim();
+    return directOwner?directOwner===myName.trim():ownedToken(token);
+  }
+  function canActWithToken(token) {
+    if (!ownedToken(token)) return false;
     const e=encounter();
     if (e.playMode!=='turn') return true;
     const current=currentTurnToken();
-    return !!current && tokenControlGroup(token).has(current.id);
+    return !!current && controlsCurrentTurn(current) && tokenControlGroup(token).has(current.id);
   }
-  function ownedToken(token) {
-    if (!token || !myName) return false;
-    return [...tokenControlGroup(token)].some(id=>(currentMap.tokens||[]).some(candidate=>candidate.id===id && (candidate.owner||'')===myName));
-  }
+  function canMoveToken(token) { return canActWithToken(token); }
   function drawTurnPath(points, color, dashed) {
     if (!Array.isArray(points)||points.length<2) return;
     turnPathCtx.save(); turnPathCtx.strokeStyle=color; turnPathCtx.fillStyle=color; turnPathCtx.lineWidth=4; turnPathCtx.lineCap='round'; turnPathCtx.lineJoin='round'; if(dashed)turnPathCtx.setLineDash([10,8]);
@@ -337,16 +637,42 @@
     drawTurnPath(saved,'rgba(224,179,76,.82)',false); if(Array.isArray(draftPoints))drawTurnPath(draftPoints,'rgba(255,232,145,.95)',true);
     if(measureDraft&&measureDraft.mapId===currentMap.id&&measureDraft.from&&measureDraft.to){
       turnPathCtx.save(); turnPathCtx.strokeStyle='rgba(126,205,255,.96)'; turnPathCtx.lineWidth=4; turnPathCtx.setLineDash([12,8]); turnPathCtx.beginPath(); turnPathCtx.moveTo(measureDraft.from.x,measureDraft.from.y); turnPathCtx.lineTo(measureDraft.to.x,measureDraft.to.y); turnPathCtx.stroke(); turnPathCtx.setLineDash([]); turnPathCtx.fillStyle='#7ecfff'; [measureDraft.from,measureDraft.to].forEach(p=>{turnPathCtx.beginPath();turnPathCtx.arc(p.x,p.y,6,0,Math.PI*2);turnPathCtx.fill();}); turnPathCtx.restore();
-      const mid={x:(measureDraft.from.x+measureDraft.to.x)/2,y:(measureDraft.from.y+measureDraft.to.y)/2}; const label=$('#measure-label'); label.hidden=false; label.textContent=(Math.hypot(measureDraft.to.x-measureDraft.from.x,measureDraft.to.y-measureDraft.from.y)/(currentMap.gridSize||50)).toFixed(1)+' 格'; label.style.left=(mid.x*view.scale+view.ox)+'px'; label.style.top=(mid.y*view.scale+view.oy)+'px';
+      const mid={x:(measureDraft.from.x+measureDraft.to.x)/2,y:(measureDraft.from.y+measureDraft.to.y)/2}, feet=Math.hypot(measureDraft.to.x-measureDraft.from.x,measureDraft.to.y-measureDraft.from.y)/(currentMap.gridSize||50)*5, rounded=Math.round(feet*10)/10; const label=$('#measure-label'); label.hidden=false; label.textContent=(Number.isInteger(rounded)?rounded:rounded.toFixed(1))+' 尺'; label.style.left=(mid.x*view.scale+view.ox)+'px'; label.style.top=(mid.y*view.scale+view.oy)+'px';
     } else $('#measure-label').hidden=true;
   }
-  function updateToolButtons(){document.querySelectorAll('#btn-measure,#dock-measure').forEach(el=>el.classList.toggle('active',measureMode));document.querySelectorAll('#btn-ping,#dock-ping').forEach(el=>el.classList.toggle('active',pingMode));$('#btn-ready').textContent=presenceStatus==='ready'?'取消准备':'✓ 准备';$('#dock-ready').textContent=presenceStatus==='ready'?'取消准备':'✓ 准备';}
-  function toggleMeasure(){measureMode=!measureMode; if(!measureMode)measureDraft=null; updateToolButtons(); renderTurnPath(); board.style.cursor=measureMode?'crosshair':'';}
-  function sendPingAt(p){ if(!currentMap||!sessionToken)return; requestAction({op:'ping',mapId:currentMap.id,x:Number(p.x),y:Number(p.y),label:'这里'}).then(r=>{if(!r.ok||r.data?.ok===false)toast('⚠ 指示未送达');}).catch(()=>toast('⚠ 指示未送达')); }
-  function showPing(a){ if(!currentMap||a.mapId!==currentMap.id)return; const marker=document.createElement('div');marker.className='map-ping';marker.style.left=Number(a.x)+'px';marker.style.top=Number(a.y)+'px';const label=document.createElement('span');label.textContent=a.name||'玩家';marker.appendChild(label);$('#ping-layer').appendChild(marker);setTimeout(()=>marker.remove(),1800); }
-  function togglePing(){ pingMode=!pingMode; measureMode=false; measureDraft=null; updateToolButtons(); renderTurnPath(); board.style.cursor=pingMode?'crosshair':''; }
-  function updateEndTurnUi(){const e=encounter(), current=currentTurnToken(), can=!!sessionToken&&e.playMode==='turn'&&!!current&&ownedToken(current);document.querySelectorAll('#end-turn').forEach(b=>{b.disabled=!can;b.title=can?'结束当前角色回合':'还没有轮到你的角色'});}
-  let pingMode=false;
+  function updateToolButtons(){
+    document.querySelectorAll('#btn-measure,#dock-measure').forEach(el=>el.classList.toggle('active',measureMode));
+    document.querySelectorAll('[data-doodle-tool]').forEach(el=>el.classList.toggle('active',el.dataset.doodleTool===doodleTool));
+    $('#btn-ready').textContent=presenceStatus==='ready'?'取消准备':'✓ 准备';$('#dock-ready').textContent=presenceStatus==='ready'?'取消准备':'✓ 准备';
+    board.style.cursor=measureMode||doodleTool?'crosshair':'';
+  }
+  function toggleMeasure(){
+    measureMode=!measureMode;if(measureMode){cancelMapReaction();cancelSpellAim();doodleTool=null;doodleDraft=null;renderDoodles();}else measureDraft=null;updateToolButtons();renderTurnPath();
+  }
+  function toggleDoodleTool(tool){
+    const allowed=['pen','line','arrow','circle','eraser'];if(!allowed.includes(tool))return;doodleTool=doodleTool===tool?null:tool;doodleDraft=null;
+    if(doodleTool){cancelMapReaction();cancelSpellAim();measureMode=false;measureDraft=null;renderTurnPath();hideTokenPeek();}renderDoodles();updateToolButtons();
+  }
+  function updateEndTurnUi(){
+    const e=encounter(), entry=currentTurnEntry(), current=currentTurnToken(), ownsCurrent=!!sessionToken&&e.playMode==='turn'&&!!current&&canActWithToken(current), can=ownsCurrent&&!endTurnPending, status=$('#turn-action-status');
+    document.querySelectorAll('#end-turn').forEach(b=>{b.disabled=!can;b.title=endTurnPending?'正在结束回合':can?'结束当前角色回合':e.playMode==='turn'?'还没有轮到你的角色':e.playMode==='prepare'?'战斗尚未开始':'自由模式没有回合结束操作';});
+    status.className='';
+    if(!sessionToken){status.textContent='尚未加入房间';}
+    else if(e.playMode==='prepare'){status.classList.add('prepare');status.textContent='战斗准备 · 同先攻玩家可换位';}
+    else if(e.playMode!=='turn'){status.classList.add('free');status.textContent='自由行动 · 可操控自己的棋子';}
+    else if(ownsCurrent){status.classList.add('mine');status.textContent=(endTurnPending?'… 正在结束 · ':'✓ 你的回合 · ')+(entry&&entry.name||current.name||'当前角色');}
+    else {status.classList.add('locked');status.textContent='🔒 等待 '+(entry&&entry.name||'主控台关联当前角色');}
+  }
+
+  function decrementCurrentTokenConditions(){
+    const token=currentTurnToken(); if(!token||!Array.isArray(token.conditions))return;
+    token.conditions=token.conditions.flatMap(condition=>{
+      const raw=condition&&condition.remainingTurns, turns=Number(raw);
+      if(raw==null||!Number.isFinite(turns)||turns<=0)return [condition];
+      const remaining=Math.max(0,Math.trunc(turns)-1);
+      return remaining?[Object.assign({},condition,{remainingTurns:remaining})]:[];
+    });
+  }
   function appendTurnPath(mapId, tokenId, points) {
     const e=encounter(); if(e.playMode!=='turn'||!mapId||!tokenId||!Array.isArray(points))return;
     const same=e.turnPath&&e.turnPath.mapId===mapId&&e.turnPath.tokenId===tokenId;
@@ -359,11 +685,20 @@
   }
 
   function renderMap(m) {
-    const g=m.gridSize||50;
-    const grid='repeating-linear-gradient(to right,rgba(255,255,255,.7) 0,rgba(255,255,255,.7) 1px,transparent 1px,transparent '+g+'px),repeating-linear-gradient(to bottom,rgba(255,255,255,.7) 0,rgba(255,255,255,.7) 1px,transparent 1px,transparent '+g+'px)';
+    const g=m.gridSize||50, hasMap=!!m.mapData, showGrid=typeof m.gridVisible==='boolean'?m.gridVisible:state.showGrid!==false;
+    const grid='repeating-linear-gradient(to right,rgba(255,255,255,.78) 0,rgba(255,255,255,.78) 2px,transparent 2px,transparent '+g+'px),repeating-linear-gradient(to bottom,rgba(255,255,255,.78) 0,rgba(255,255,255,.78) 2px,transparent 2px,transparent '+g+'px),repeating-linear-gradient(to right,rgba(0,0,0,.16) 0,rgba(0,0,0,.16) 2px,transparent 2px,transparent '+g+'px),repeating-linear-gradient(to bottom,rgba(0,0,0,.16) 0,rgba(0,0,0,.16) 2px,transparent 2px,transparent '+g+'px)';
     world.style.width=m.mapW+'px'; world.style.height=m.mapH+'px';
-    world.style.backgroundImage=m.mapData ? ((state.showGrid===false?'':' '+grid+',')+'url("'+m.mapData+'")') : (state.showGrid===false?'none':grid);
-    world.style.backgroundSize=m.mapData && state.showGrid!==false ? g+'px '+g+'px,'+'100% 100%' : '100% 100%';
+    world.style.backgroundColor=hasMap?'transparent':(showGrid?'#ddd6c2':'#0f1116');
+    if(hasMap){
+      world.style.backgroundImage=showGrid?grid+',url("'+m.mapData+'")':'url("'+m.mapData+'")';
+      world.style.backgroundSize=showGrid?g+'px '+g+'px,'+g+'px '+g+'px,'+g+'px '+g+'px,'+g+'px '+g+'px,100% 100%':'100% 100%';
+      world.style.backgroundRepeat=showGrid?'repeat,repeat,repeat,repeat,no-repeat':'no-repeat';
+    }else{
+      world.style.backgroundImage=showGrid?grid:'none';
+      world.style.backgroundSize=showGrid?g+'px '+g+'px,'+g+'px '+g+'px,'+g+'px '+g+'px,'+g+'px '+g+'px':'';
+      world.style.backgroundRepeat=showGrid?'repeat,repeat,repeat,repeat':'no-repeat';
+    }
+    world.style.backgroundPosition='0 0';
   }
   function renderFog(m) {
     fog.width=m.mapW; fog.height=m.mapH; fogCtx.clearRect(0,0,m.mapW,m.mapH);
@@ -371,39 +706,179 @@
     fogCtx.fillStyle='rgba(8,10,16,1)';
     Object.keys(m.fog).forEach(k=>{ const p=k.split(',').map(Number); fogCtx.fillRect(p[0]*m.gridSize,p[1]*m.gridSize,m.gridSize,m.gridSize); });
   }
-  function drawStroke(g,s) {
-    g.strokeStyle=s.color; g.fillStyle=s.color; g.lineWidth=s.width||5; g.lineCap='round'; g.lineJoin='round';
-    if (s.tool==='pen') { if (!s.points || s.points.length<2) return; g.beginPath(); g.moveTo(s.points[0].x,s.points[0].y); s.points.slice(1).forEach(p=>g.lineTo(p.x,p.y)); g.stroke(); return; }
-    g.beginPath(); g.moveTo(s.x0,s.y0); g.lineTo(s.x1,s.y1); g.stroke();
-    if (s.tool==='arrow') { const a=Math.atan2(s.y1-s.y0,s.x1-s.x0),h=Math.max(10,(s.width||5)*2); g.beginPath(); g.moveTo(s.x1,s.y1); g.lineTo(s.x1-h*Math.cos(a-Math.PI/6),s.y1-h*Math.sin(a-Math.PI/6)); g.lineTo(s.x1-h*Math.cos(a+Math.PI/6),s.y1-h*Math.sin(a+Math.PI/6)); g.closePath(); g.fill(); }
-    if (s.tool==='circle') { const r=Math.hypot(s.x1-s.x0,s.y1-s.y0); g.beginPath(); g.arc(s.x0,s.y0,r,0,Math.PI*2); g.stroke(); }
+  function cloneDoodleStroke(stroke) {
+    if(!stroke||typeof stroke!=='object')return null;
+    const copy={...stroke};
+    if(Array.isArray(stroke.points))copy.points=stroke.points.map(p=>({x:Number(p.x),y:Number(p.y)}));
+    return copy;
   }
-  function renderDoodles() { if (!currentMap) return; doodle.width=currentMap.mapW; doodle.height=currentMap.mapH; doodleCtx.clearRect(0,0,doodle.width,doodle.height); (currentMap.doodles||[]).forEach(s=>drawStroke(doodleCtx,s)); if (doodleDraft) drawStroke(doodleCtx,doodleDraft); }
+  function newDoodleId() {
+    if(window.crypto&&typeof window.crypto.randomUUID==='function')return 'p-'+window.crypto.randomUUID();
+    return 'p-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,10);
+  }
+  function doodleMap(mapId) { return state&&(state.maps||[]).find(m=>m.id===mapId)||null; }
+  function boundedDoodlePoint(raw,map=currentMap) {
+    if(!map||!raw)return null;
+    const x=Number(raw.x),y=Number(raw.y);if(!Number.isFinite(x)||!Number.isFinite(y))return null;
+    return{x:clamp(x,0,Number(map.mapW)||0),y:clamp(y,0,Number(map.mapH)||0)};
+  }
+  function drawStroke(g,s) {
+    if(!s)return;
+    const width=Number(s.width)||5,color=/^#[0-9a-f]{6}$/i.test(s.color||'')?s.color:'#ff4d4f';
+    g.save();g.strokeStyle=color;g.fillStyle=color;g.lineWidth=width;g.lineCap='round';g.lineJoin='round';
+    if(s.tool==='pen'){
+      if(!Array.isArray(s.points)||s.points.length<2){g.restore();return;}
+      g.beginPath();g.moveTo(s.points[0].x,s.points[0].y);s.points.slice(1).forEach(p=>g.lineTo(p.x,p.y));g.stroke();g.restore();return;
+    }
+    if(s.tool==='circle'){
+      const r=Math.hypot(s.x1-s.x0,s.y1-s.y0);g.beginPath();g.arc(s.x0,s.y0,r,0,Math.PI*2);g.globalAlpha=.15;g.fill();g.globalAlpha=1;g.stroke();g.restore();return;
+    }
+    if(s.tool==='line'||s.tool==='arrow'){
+      g.beginPath();g.moveTo(s.x0,s.y0);g.lineTo(s.x1,s.y1);g.stroke();
+      if(s.tool==='arrow'){
+        const a=Math.atan2(s.y1-s.y0,s.x1-s.x0),h=Math.max(10,width*2.2);g.beginPath();g.moveTo(s.x1,s.y1);g.lineTo(s.x1-h*Math.cos(a-Math.PI/6),s.y1-h*Math.sin(a-Math.PI/6));g.lineTo(s.x1-h*Math.cos(a+Math.PI/6),s.y1-h*Math.sin(a+Math.PI/6));g.closePath();g.fill();
+      }
+    }
+    g.restore();
+  }
+  function renderDoodles() {
+    if(!currentMap)return;if(doodle.width!==currentMap.mapW)doodle.width=currentMap.mapW;if(doodle.height!==currentMap.mapH)doodle.height=currentMap.mapH;doodleCtx.clearRect(0,0,doodle.width,doodle.height);
+    if(!Array.isArray(currentMap.doodles))currentMap.doodles=[];
+    const count=currentMap.doodles.length;$('#player-doodle-count').textContent=count+' 条';$('#player-doodle-undo').disabled=count===0;$('#player-doodle-clear').disabled=count===0;
+    currentMap.doodles.forEach(s=>drawStroke(doodleCtx,s));if(doodleDraft)drawStroke(doodleCtx,doodleDraft);
+  }
+  function startDoodleAt(raw) {
+    const p=boundedDoodlePoint(raw);if(!p||!doodleTool||doodleTool==='eraser')return;
+    doodleDraft=doodleTool==='pen'?{tool:'pen',color:doodleColor,width:doodleWidth,points:[p]}:{tool:doodleTool,color:doodleColor,width:doodleWidth,x0:p.x,y0:p.y,x1:p.x,y1:p.y};renderDoodles();
+  }
+  function continueDoodleAt(raw) {
+    if(!doodleDraft)return;const p=boundedDoodlePoint(raw);if(!p)return;
+    if(doodleDraft.tool==='pen'){
+      const points=doodleDraft.points,last=points[points.length-1],dx=p.x-last.x,dy=p.y-last.y,dist=Math.hypot(dx,dy),count=Math.min(MAX_DOODLE_POINTS-points.length,Math.max(1,Math.ceil(dist/6)));
+      for(let i=1;i<=count;i++)points.push({x:last.x+dx*i/count,y:last.y+dy*i/count});
+    }else{doodleDraft.x1=p.x;doodleDraft.y1=p.y;}
+    renderDoodles();
+  }
+  async function reconcileDoodles(mapId) {
+    try{
+      const res=await fetch('/api/state');if(!res.ok)return false;const snapshot=await res.json(),remote=(snapshot.maps||[]).find(m=>m.id===mapId),local=doodleMap(mapId);if(!remote||!local||!Array.isArray(remote.doodles))return false;
+      local.doodles=remote.doodles.map(cloneDoodleStroke).filter(Boolean);if(currentMap&&currentMap.id===mapId)renderDoodles();return true;
+    }catch(e){return false;}
+  }
+  function rollbackDoodleAdd(mapId,doodleId) {
+    const map=doodleMap(mapId);if(!map)return;map.doodles=(map.doodles||[]).filter(s=>s&&s.id!==doodleId);if(currentMap&&currentMap.id===mapId)renderDoodles();
+  }
+  function restoreDeletedDoodle(mapId,stroke,index) {
+    const map=doodleMap(mapId);if(!map||!stroke||(map.doodles||[]).some(s=>s&&s.id===stroke.id))return;if(!Array.isArray(map.doodles))map.doodles=[];map.doodles.splice(clamp(index,0,map.doodles.length),0,cloneDoodleStroke(stroke));if(currentMap&&currentMap.id===mapId)renderDoodles();
+  }
+  function endDoodle() {
+    if(!doodleDraft)return;const map=currentMap,draft=doodleDraft;doodleDraft=null;if(!map){renderDoodles();return;}
+    const pen=draft.tool==='pen',short=!pen&&Math.hypot(draft.x1-draft.x0,draft.y1-draft.y0)<=4;if((pen&&draft.points.length<2)||(!pen&&short)){renderDoodles();return;}
+    const stroke={...draft,id:newDoodleId(),author:myName||'玩家'};if(Array.isArray(draft.points))stroke.points=draft.points.slice(0,MAX_DOODLE_POINTS).map(p=>({...p}));if(!Array.isArray(map.doodles))map.doodles=[];map.doodles.push(stroke);renderDoodles();
+    requestAction({op:'doodleAdd',mapId:map.id,stroke:cloneDoodleStroke(stroke)}).then(result=>{const data=result.data||{};if(!result.ok||data.ok===false){rollbackDoodleAdd(map.id,stroke.id);toast('⚠ '+(data.error||'标注未送达'));}}).catch(async()=>{if(!(await reconcileDoodles(map.id)))rollbackDoodleAdd(map.id,stroke.id);toast('⚠ 标注同步中断，已重新核对');});
+  }
+  function distToDoodleSegment(px,py,a,b) { const dx=b.x-a.x,dy=b.y-a.y,len2=dx*dx+dy*dy;let t=len2?((px-a.x)*dx+(py-a.y)*dy)/len2:0;t=clamp(t,0,1);return Math.hypot(px-(a.x+t*dx),py-(a.y+t*dy)); }
+  function doodleHitTest(raw) {
+    const p=boundedDoodlePoint(raw);if(!p||!currentMap)return null;const strokes=currentMap.doodles||[];
+    for(let i=strokes.length-1;i>=0;i--){const s=strokes[i],tol=Math.max(10,(Number(s.width)||5)+6);if(s.tool==='pen'&&Array.isArray(s.points)){for(let j=1;j<s.points.length;j++)if(distToDoodleSegment(p.x,p.y,s.points[j-1],s.points[j])<=tol)return s;}else if(s.tool==='line'||s.tool==='arrow'){if(distToDoodleSegment(p.x,p.y,{x:s.x0,y:s.y0},{x:s.x1,y:s.y1})<=tol)return s;}else if(s.tool==='circle'){const r=Math.hypot(s.x1-s.x0,s.y1-s.y0);if(Math.abs(Math.hypot(p.x-s.x0,p.y-s.y0)-r)<=tol)return s;}}
+    return null;
+  }
+  function deleteSharedDoodle(stroke) {
+    const map=currentMap;if(!map||!stroke||!stroke.id)return false;const index=(map.doodles||[]).findIndex(s=>s&&s.id===stroke.id);if(index<0)return false;const snapshot=cloneDoodleStroke(map.doodles[index]);map.doodles.splice(index,1);renderDoodles();
+    requestAction({op:'doodleDelete',mapId:map.id,doodleId:stroke.id}).then(result=>{const data=result.data||{};if(!result.ok||data.ok===false){restoreDeletedDoodle(map.id,snapshot,index);toast('⚠ '+(data.error||'擦除未送达'));}}).catch(async()=>{if(!(await reconcileDoodles(map.id)))restoreDeletedDoodle(map.id,snapshot,index);toast('⚠ 擦除同步中断，已重新核对');});return true;
+  }
+  function eraseDoodleAt(raw,erased) { const stroke=doodleHitTest(raw);if(!stroke||(erased&&erased.has(stroke.id)))return false;if(erased)erased.add(stroke.id);return deleteSharedDoodle(stroke); }
+  function undoSharedDoodle() { const strokes=currentMap&&currentMap.doodles||[];if(!strokes.length){toast('没有可以撤销的标注');return;}deleteSharedDoodle(strokes[strokes.length-1]); }
+  function clearSharedDoodles() {
+    const map=currentMap;if(!map||!(map.doodles||[]).length){toast('当前地图没有标注');return;}const previous=map.doodles.map(cloneDoodleStroke).filter(Boolean);map.doodles=[];renderDoodles();
+    const restore=()=>{const local=doodleMap(map.id);if(!local)return;const current=local.doodles||[],ids=new Set(current.map(s=>s&&s.id));local.doodles=previous.filter(s=>!ids.has(s.id)).concat(current);if(currentMap&&currentMap.id===map.id)renderDoodles();};
+    requestAction({op:'doodleClear',mapId:map.id}).then(result=>{const data=result.data||{};if(!result.ok||data.ok===false){restore();toast('⚠ '+(data.error||'清空未送达'));}else toast('已一键清空共享标注');}).catch(async()=>{if(!(await reconcileDoodles(map.id)))restore();toast('⚠ 清空同步中断，已重新核对');});
+  }
+  function tokenNameGap(size) { return size*.38+3; }
+  function tokenLabelPositions(t,m) {
+    const size=(m.gridSize||50)*(t.size||1), out=[], riders=(m.tokens||[]).filter(r=>r.mountId===t.id);
+    if((t.size||1)>=2&&riders.length){
+      out.push({id:t.id,text:t.name,x:t.x,y:t.y+size/2+4,below:true});
+      riders.forEach((r,i)=>{let ox=0;if(riders.length>1)ox=(i-(riders.length-1)/2)*size*.34;out.push({id:r.id,text:r.name,x:t.x+ox,y:t.y-(size*.38+7),below:false});});
+    }else out.push({id:t.id,text:t.name,x:t.x,y:t.y-tokenNameGap(size),below:false});
+    return out;
+  }
+  function renderNamesLayer(m) {
+    const layer=$('#names-layer'); layer.innerHTML='';
+    if(!state.showNames)return;
+    const mountIds=new Set((m.tokens||[]).filter(t=>(t.size||1)>=2).map(t=>t.id));
+    (m.tokens||[]).forEach(t=>{
+      if(t.mountId&&mountIds.has(t.mountId))return;
+      tokenLabelPositions(t,m).forEach(p=>{
+        const labelToken=(m.tokens||[]).find(candidate=>candidate.id===p.id)||t, label=document.createElement('div'), name=document.createElement('span');
+        label.className='token-name-label'+(p.below?' below':''); label.dataset.id=p.id; name.className='token-name-text'; name.textContent=p.text; label.appendChild(name);
+        label.style.left=p.x+'px'; label.style.top=p.y+'px'; label.style.fontSize=Math.max(7,(m.gridSize||50)*(t.size||1)*.15)+'px';
+        if(friendly(labelToken)&&Number.isFinite(Number(labelToken.hp))&&Number.isFinite(Number(labelToken.hpMax))){
+          const pct=clamp(Number(labelToken.hp)/Math.max(1,Number(labelToken.hpMax))*100,0,100), bar=document.createElement('span'), fill=document.createElement('i');
+          bar.className='token-name-hp'; bar.style.width=Math.max(28,Math.min(56,(m.gridSize||50)*(labelToken.size||1)*.68))+'px'; bar.title=labelToken.hp+' / '+labelToken.hpMax;
+          fill.style.width=pct+'%'; fill.style.background=pct>50?'#4cc38a':pct>25?'#f4a261':'#e74c5e'; bar.appendChild(fill); label.appendChild(bar);
+        }
+        layer.appendChild(label);
+      });
+    });
+  }
+  function syncLabelsFor(t) {
+    if(!currentMap||!state.showNames)return;
+    const layer=$('#names-layer');
+    const anchor=movementAnchor(t,currentMap);
+    tokenLabelPositions(anchor,currentMap).forEach(p=>{const label=layer.querySelector('.token-name-label[data-id="'+p.id+'"]');if(label){label.style.left=p.x+'px';label.style.top=p.y+'px';}});
+  }
+  function appendConditionBadges(container,rawConditions) {
+    const conditions=(Array.isArray(rawConditions)?rawConditions:[]).filter(condition=>condition.visibility!=='gm');
+    if(!conditions.length)return;
+    const badges=document.createElement('div');badges.className='token-condition-badges';
+    conditions.slice(0,3).forEach(condition=>{const badge=document.createElement('span');badge.className='token-condition-badge';badge.style.setProperty('--condition-color',condition.color||'#a8b3c7');if(CONDITION_PIXEL_KEYS.has(condition.key))badge.dataset.conditionIcon=condition.key;badge.textContent=condition.icon||'◆';badge.title=(condition.label||'状态')+(condition.remainingTurns?' · 剩余 '+condition.remainingTurns+' 回合':'');badges.appendChild(badge);});
+    if(conditions.length>3){const more=document.createElement('span');more.className='token-condition-badge more';more.textContent='+'+(conditions.length-3);more.title='另有 '+(conditions.length-3)+' 个状态';badges.appendChild(more);}
+    container.appendChild(badges);
+  }
   function renderTokens(m) {
     const box=$('#tokens'); box.innerHTML='';
     const mountIds=new Set((m.tokens||[]).filter(t=>(t.size||1)>=2).map(t=>t.id));
     const current=currentTurnToken();
+    (m.tokens||[]).forEach(t=>{if(t.mountId&&mountIds.has(t.mountId))syncMountedCoordinates(t,m);});
     (m.tokens||[]).forEach(t=>{
       if (t.mountId && mountIds.has(t.mountId)) return;
       const size=(m.gridSize||50)*(t.size||1), meta=TYPE[t.type]||TYPE.npc, el=document.createElement('div'), owned=ownedToken(t), movable=canMoveToken(t), isCurrent=!!current&&tokenControlGroup(t).has(current.id);
-      el.className='token'+(owned?' mine':'')+(owned&&!movable?' locked':'')+(isCurrent?' current-turn':''); el.dataset.id=t.id; el.style.left=t.x+'px'; el.style.top=t.y+'px'; el.style.width=size+'px'; el.style.height=size+'px';
+      el.className='token'+(owned?' mine':'')+(owned&&!movable?' locked':'')+(isCurrent?' current-turn':''); el.dataset.id=t.id; el.style.left=t.x+'px'; el.style.top=t.y+'px'; el.style.width=size+'px'; el.style.height=size+'px';el.style.setProperty('--ring',meta.ring);
       el.title=owned&&!movable&&encounter().playMode==='turn'?'尚未轮到该角色':movable?'拖动以移动本回合角色':'';
       const circle=document.createElement('div'); circle.className='circle'; circle.style.setProperty('--ring',meta.ring);
-      const url=assetUrl(t); if (url) circle.style.backgroundImage='url("'+url+'")'; else circle.textContent=t.icon||'?';
-      const name=document.createElement('div'); name.className='token-name'; name.textContent=t.name;
-      el.append(circle,name);
-      const conditions=(t.conditions||[]).filter(c=>c.visibility!=='gm');
-      if (conditions.length) {
-        const badges=document.createElement('div'); badges.className='token-condition-badges';
-        conditions.slice(0,3).forEach(c=>{const badge=document.createElement('span');badge.className='token-condition-badge';badge.style.setProperty('--condition-color',c.color||'#a8b3c7');badge.textContent=c.icon||'◆';badge.title=(c.label||'状态')+(c.remainingTurns?' · 剩余 '+c.remainingTurns+' 回合':'');badges.appendChild(badge);});
-        if(conditions.length>3){const more=document.createElement('span');more.className='token-condition-badge more';more.textContent='+'+(conditions.length-3);badges.appendChild(more);}
-        el.appendChild(badges);
+      if (!applyPlayerPortrait(circle,t)) circle.textContent=t.icon||'?';
+      el.append(circle);
+      appendConditionBadges(el,t.conditions);
+      if((t.size||1)>=2){
+        const riders=ridersOfToken(t,m);
+        riders.forEach((r,i)=>{
+          const rMeta=TYPE[r.type]||TYPE.npc, rs=size*.4, rd=document.createElement('div');
+          rd.className='rider'+(mine(r)?' owned':'')+(current&&current.id===r.id?' current-rider':'');
+          rd.dataset.id=r.id; rd.dataset.mountId=t.id;
+          const publicConditions=(r.conditions||[]).filter(c=>c.visibility!=='gm').map(c=>c.label||'状态').filter(Boolean);
+          rd.title=r.name+(publicConditions.length?' · '+publicConditions.join('、'):'');
+          rd.setAttribute('aria-label',r.name||'骑手');
+          rd.style.width=rs+'px'; rd.style.height=rs+'px'; rd.style.setProperty('--ring',rMeta.ring);
+          const ox=(i%2===0?1:-1)*size*.22, oy=(i%2===0?-1:1)*size*.22;
+          rd.style.left=(size/2+ox-rs/2)+'px'; rd.style.top=(size/2+oy-rs/2)+'px';
+          if(!applyPlayerPortrait(rd,r)){rd.textContent=r.icon||'?';rd.style.fontSize=(rs*.45)+'px';}
+          appendConditionBadges(rd,r.conditions);
+          el.appendChild(rd);
+        });
       }
       box.appendChild(el);
     });
+    renderNamesLayer(m);
     updateEndTurnUi();
   }
   function renderLinks(list) { const box=$('#player-links'); box.innerHTML=''; (list||[]).forEach(l=>{ if (!l || !l.name || !/^https?:\/\//i.test(l.url)) return; const a=document.createElement('a'); a.href=l.url; a.target='_blank'; a.rel='noopener noreferrer'; a.textContent=l.name; box.appendChild(a); }); if(!box.children.length)box.innerHTML='<span class="hint">主控台尚未添加共享网站</span>'; }
+  const FLOW_SEASONS=[{key:'spring',label:'春季',icon:'🌱',first:1,last:13},{key:'summer',label:'夏季',icon:'☀️',first:14,last:26},{key:'autumn',label:'秋季',icon:'🍂',first:27,last:39},{key:'winter',label:'冬季',icon:'❄️',first:40,last:52}];
+  const FLOW_CLIMATES={temperate:{label:'温带',icon:'🌿',diurnalRange:5},cold:{label:'寒带',icon:'🧊',diurnalRange:6},tropical:{label:'热带',icon:'🌴',diurnalRange:3},arid:{label:'干旱',icon:'🏜️',diurnalRange:9},coastal:{label:'海洋',icon:'🌊',diurnalRange:3},highland:{label:'高山',icon:'⛰️',diurnalRange:7}};
+  const FLOW_WEATHER={clear:{label:'晴朗',icon:'☀️'},cloudy:{label:'多云',icon:'☁️'},rain:{label:'降雨',icon:'🌧️'},storm:{label:'雷暴',icon:'⛈️'},fog:{label:'浓雾',icon:'🌫️'},snow:{label:'降雪',icon:'🌨️'},wind:{label:'强风',icon:'💨'},heat:{label:'酷热',icon:'🏜️'}};
+  const FLOW_WINDS={calm:'无风',breeze:'微风',strong:'强风',gale:'烈风'};
+  const FLOW_HOURLY_TEMP_CURVE=[-.60,-.72,-.82,-.90,-1,-.95,-.70,-.35,0,.25,.50,.70,.85,.95,1,.95,.80,.55,.25,0,-.15,-.30,-.42,-.52];
+  function flowWeatherPresentation(raw,parts){const w=raw&&typeof raw==='object'?raw:{},climate=FLOW_CLIMATES[w.climate]||FLOW_CLIMATES.temperate,condition=FLOW_WEATHER[w.condition]||FLOW_WEATHER.clear,week=Number(parts&&parts.week)||1,hour=Math.max(0,Math.min(23,Math.trunc(Number(parts&&parts.hour)||0))),season=FLOW_SEASONS.find(s=>week>=s.first&&week<=s.last)||FLOW_SEASONS[0],baseTemperature=Number.isFinite(Number(w.temperature))?Math.round(Number(w.temperature)):18,temperature=Math.max(-100,Math.min(100,baseTemperature+Math.round(climate.diurnalRange*FLOW_HOURLY_TEMP_CURVE[hour]))),wind=FLOW_WINDS[w.wind]||FLOW_WINDS.breeze;return{icon:condition.icon,name:condition.label,compact:condition.icon+' '+condition.label+' · '+temperature+'°C',detail:climate.icon+' '+climate.label+' · '+season.icon+' '+season.label+' · '+temperature+'°C · '+wind};}
   function flowWorldParts(totalSeconds) {
     const total=Math.max(0,Math.floor(Number(totalSeconds)||0)), secondsPerDay=WORLD_MINUTES_PER_DAY*60, dayIndex=Math.floor(total/secondsPerDay), dayOfYear=dayIndex%(WORLD_DAYS_PER_WEEK*WORLD_WEEKS_PER_YEAR), inDay=total%secondsPerDay;
     return {year:Math.floor(dayIndex/(WORLD_DAYS_PER_WEEK*WORLD_WEEKS_PER_YEAR))+1,week:Math.floor(dayOfYear/WORLD_DAYS_PER_WEEK)+1,day:(dayOfYear%WORLD_DAYS_PER_WEEK)+1,hour:Math.floor(inDay/3600),minute:Math.floor((inDay%3600)/60),second:inDay%60};
@@ -413,75 +888,198 @@
   function flowWorldTotal(e) {
     const w=e&&e.worldTime&&typeof e.worldTime==='object'?e.worldTime:{};
     if (!w.runningSince) return Math.max(0,Math.floor(Number(w.totalSeconds ?? (Number(w.totalMinutes)||0)*60)||0));
-    const serverDelta=Math.max(0,(Number(flowClockAnchor.serverNow)||Date.now())-(Number(w.runningSince)||0));
+    const serverDeltaAtSnapshot=Math.max(0,(Number(flowClockAnchor.serverNow)||Date.now())-(Number(w.runningSince)||0));
     const localDelta=Math.max(0,performance.now()-flowClockAnchor.localNow);
     const rate=Number(w.rate)>0?Number(w.rate):1;
-    // 服务器时间是主控台所在主机的校准时钟；本地耗时只作为服务器时间异常时的兜底，不能与它相加。
-    const elapsed=serverDelta>0?serverDelta:localDelta;
+    // 快照到达时先用服务器锚点校准，再叠加本机经过时间，玩家端时钟才会持续前进。
+    const elapsed=serverDeltaAtSnapshot+localDelta;
     return Math.max(0,Math.floor((Number(w.totalSeconds ?? (Number(w.totalMinutes)||0)*60)||0)+elapsed*rate/1000));
+  }
+  function flowEncounterMap(next){return(next&&next.maps||[]).find(map=>map.id===next.activeMapId)||(next&&next.maps||[])[0]||null;}
+  function flowEntryToken(map,entry){return map&&entry&&entry.tokenId?(map.tokens||[]).find(token=>token.id===entry.tokenId)||null:null;}
+  function flowEntryControllers(map,entry){
+    const token=flowEntryToken(map,entry);if(!token)return[];
+    const owner=String(token.owner||'').trim();if(owner)return[owner];
+    if(Number(token.size||1)<2)return[];
+    return[...new Set((map.tokens||[]).filter(candidate=>candidate.mountId===token.id).map(candidate=>String(candidate.owner||'').trim()).filter(Boolean))];
+  }
+  function flowOwnsEntry(map,entry){return!!sessionToken&&!!myName&&flowEntryControllers(map,entry).includes(myName.trim());}
+  function sortFlowInitiativeEntries(e){
+    if(!e||!Array.isArray(e.entries))return;
+    e.entries.sort((a,b)=>{
+      const valueDelta=(Number(b&&b.value)||0)-(Number(a&&a.value)||0);
+      if(valueDelta)return valueDelta;
+      const aOrder=Number.isFinite(Number(a&&a.order))?Number(a.order):0,bOrder=Number.isFinite(Number(b&&b.order))?Number(b.order):0;
+      return aOrder-bOrder;
+    });
+  }
+  function applyFlowInitiativeAction(e,action){
+    if(!e||e.playMode!=='prepare'||!action||!Array.isArray(e.entries))return false;
+    const serial=Math.max(1,Math.trunc(Number(action.turnSerial)||1)),nextSerial=Math.max(serial+1,Math.trunc(Number(action.nextTurnSerial)||(serial+1))),currentSerial=Math.max(1,Math.trunc(Number(e.turnSerial)||1));
+    // 完整快照可能先于 SSE 到达；这时同一标准动作已经落地，不再重复交换。
+    if(currentSerial===nextSerial)return true;
+    if(currentSerial!==serial)return false;
+    const entry=e.entries.find(item=>item&&item.id===action.entryId);
+    if(!entry)return false;
+    if(action.op==='initiativeSwap'){
+      const target=e.entries.find(item=>item&&item.id===action.targetEntryId),entryOrder=Number(action.entryOrder),targetOrder=Number(action.targetOrder);
+      if(!target||Number(entry.value)!==Number(target.value)||!Number.isFinite(entryOrder)||!Number.isFinite(targetOrder))return false;
+      entry.order=entryOrder;target.order=targetOrder;
+    }else return false;
+    sortFlowInitiativeEntries(e);e.turnSerial=nextSerial;e.currentEntryId=null;e.turnPath={mapId:null,tokenId:null,points:[]};
+    return true;
+  }
+  function scrollFlowCurrentIntoView(list,e){
+    const targetId=e.playMode==='turn'?e.currentEntryId:null;
+    if(!targetId){const leftTurnMode=!!lastFlowScrollEntryId;lastFlowScrollEntryId=null;if(leftTurnMode)requestAnimationFrame(()=>list.scrollTo({top:0,behavior:'smooth'}));return;}
+    if(targetId===lastFlowScrollEntryId)return;
+    lastFlowScrollEntryId=targetId;
+    requestAnimationFrame(()=>{const current=list.querySelector('.flow-chip.current');if(!current||!list.isConnected)return;const listRect=list.getBoundingClientRect(),itemRect=current.getBoundingClientRect(),top=list.scrollTop+itemRect.top-listRect.top-(listRect.height-itemRect.height)/2;list.scrollTo({top:Math.max(0,top),behavior:'smooth'});});
+  }
+  async function submitFlowInitiativeAction(action){
+    const e=encounter();
+    if(!sessionToken){toast('请先加入房间');return;}
+    if(e.playMode!=='prepare'){toast('只能在战斗准备阶段调整先攻');return;}
+    if(initiativePending)return;
+    initiativePending=true;renderFlow(state);
+    try{
+      const result=await requestAction({...action,turnSerial:Number(e.turnSerial)||1}),data=result.data||{};
+      if(!result.ok||data.ok===false)toast('⚠ '+(data.error||'先攻调整失败'));
+      await syncRoomState();
+    }catch(error){toast('⚠ 先攻调整未送达');await syncRoomState();}
+    finally{initiativePending=false;renderFlow(state);}
   }
   function renderFlow(next) {
     const bar=$('#flowbar'), e=next&&next.encounter&&typeof next.encounter==='object'?next.encounter:{playMode:'free',round:1,currentEntryId:null,entries:[],worldTime:{totalSeconds:480*60}};
-    const p=flowWorldParts(flowWorldTotal(e)), entries=Array.isArray(e.entries)?e.entries:[], current=entries.find(x=>x.id===e.currentEntryId);
+    const p=flowWorldParts(flowWorldTotal(e)), entries=Array.isArray(e.entries)?e.entries:[], currentIndex=entries.findIndex(x=>x.id===e.currentEntryId), current=currentIndex>=0?entries[currentIndex]:null, nextEntry=entries.length&&currentIndex>=0?entries[(currentIndex+1)%entries.length]:entries[0]||null, weather=flowWeatherPresentation(e.weather,p), preparing=e.playMode==='prepare', inTurn=e.playMode==='turn', map=flowEncounterMap(next);
     bar.classList.toggle('collapsed',bar.dataset.collapsed!=='false');
     $('#flow-toggle').textContent=(bar.dataset.collapsed!=='false'?'▸':'▾')+' 游戏流程';
     $('#flow-toggle').setAttribute('aria-expanded',String(bar.dataset.collapsed==='false'));
-    $('#flow-mode').textContent=e.playMode==='turn'?'回合制':'自由模式';
+    $('#flow-mode').textContent=inTurn?'回合制':preparing?'战斗准备':'自由模式';
+    $('#flow-mode').classList.toggle('prepare',preparing);
+    $('#flow-current-summary').textContent=inTurn&&current?(current.name||'未命名单位'):preparing?'等待 DM 开始战斗':'所有单位可行动';
+    $('#flow-weather-summary').textContent=weather.compact;
     $('#flow-date').textContent=flowDateLabel(p)+' '+flowClockLabel(p);
-    $('#flow-round').textContent=e.playMode==='turn'?'第 '+(Math.max(1,Number(e.round)||1)+' 轮'):'自由行动';
-    $('#flow-current').textContent=e.playMode==='turn'&&current?current.name||'未命名单位':'未锁定';
+    $('#flow-round').textContent=inTurn?'第 '+(Math.max(1,Number(e.round)||1)+' 轮'):preparing?'战斗准备阶段':'自由行动';
+    $('#flow-current').textContent=inTurn&&current?current.name||'未命名单位':preparing?'确认你的先攻顺序':'所有单位可行动';
+    $('#flow-next').textContent=inTurn&&nextEntry?'下一位：'+(nextEntry.name||'未命名单位'):preparing?'先攻相同的玩家可以互换顺序':'进入战斗后显示下一位';
     $('#flow-time-date').textContent=flowDateLabel(p);
     $('#flow-time-clock').textContent=flowClockLabel(p);
-    $('#flow-time-mode').textContent=e.playMode==='turn'?'战斗轮推进：每轮 +'+(Number(e.secondsPerRound)||6)+' 秒':(e.worldTime.runningSince?'时间运行中':'时间已暂停');
+    $('#flow-time-mode').textContent=inTurn?'战斗轮推进：每轮 +'+(Number(e.secondsPerRound)||6)+' 秒':(e.worldTime.runningSince?'时间运行中':'时间已暂停');
+    $('#flow-weather-icon').textContent=weather.icon;
+    $('#flow-weather-name').textContent=weather.name;
+    $('#flow-weather-meta').textContent=weather.detail;
     document.querySelectorAll('[data-flow-panel]').forEach(tab=>{const active=tab.dataset.flowPanel===flowPanel;tab.classList.toggle('active',active);tab.setAttribute('aria-selected',String(active));});
     $('#flow-panel-initiative').hidden=flowPanel!=='initiative'; $('#flow-panel-time').hidden=flowPanel!=='time';
-    const list=$('#flow-init-list'); list.innerHTML='';
-    if(!entries.length){list.innerHTML='<span class="flow-empty">等待主控台设置先攻</span>';return;}
-    entries.forEach(entry=>{const chip=document.createElement('div');chip.className='flow-chip'+(e.playMode==='turn'&&entry.id===e.currentEntryId?' current':'');chip.innerHTML='<span class="flow-chip-dot" style="background:'+(entry.color||'#e0b34c')+'"></span><span>'+esc(entry.name||'未命名单位')+'</span><span class="flow-chip-value">'+(Number(entry.value)||0)+'</span>';list.appendChild(chip);});
+    const list=$('#flow-init-list'),previousScrollTop=list.scrollTop; list.innerHTML='';
+    if(!entries.length){list.innerHTML='<span class="flow-empty">等待主控台设置先攻</span>';lastFlowScrollEntryId=null;return;}
+    entries.forEach((entry,index)=>{
+      const active=inTurn&&entry.id===e.currentEntryId,owned=preparing&&flowOwnsEntry(map,entry),chip=document.createElement('div');
+      chip.className='flow-chip'+(active?' current':'')+(owned?' owned-adjustable':'');chip.dataset.entryId=entry.id;
+      chip.innerHTML='<span class="flow-chip-order">'+(index+1)+'</span><span class="flow-chip-dot" style="background:'+(entry.color||'#e0b34c')+'"></span><span class="flow-chip-name">'+esc(entry.name||'未命名单位')+'</span><span class="flow-chip-value">'+(Number(entry.value)||0)+'</span>'+(active?'<span class="flow-chip-current">行动中</span>':'');
+      if(owned){
+        const actions=document.createElement('div');actions.className='flow-chip-actions';actions.innerHTML='<span>同先攻换位</span>';
+        const makeSwap=(label,target,title)=>{const button=document.createElement('button');button.type='button';button.textContent=label;button.title=title;const allowed=!!target&&Number(target.value)===Number(entry.value)&&flowEntryControllers(map,target).length>0;button.disabled=initiativePending||!allowed;button.addEventListener('click',event=>{event.stopPropagation();if(allowed)submitFlowInitiativeAction({op:'initiativeSwap',entryId:entry.id,targetEntryId:target.id});});return button;};
+        actions.appendChild(makeSwap('↑',entries[index-1],entries[index-1]?'与上一位同先攻玩家换位':'已经是第一位'));
+        actions.appendChild(makeSwap('↓',entries[index+1],entries[index+1]?'与下一位同先攻玩家换位':'已经是最后一位'));
+        chip.appendChild(actions);
+      }
+      list.appendChild(chip);
+    });
+    list.scrollTop=previousScrollTop;scrollFlowCurrentIntoView(list,e);
   }
   function render(next) {
+    if(!next||typeof next!=='object')return;
+    const incomingRevision=Number(next._stateRevision)||0;if(incomingRevision&&incomingRevision<lastStateRevision)return;
     const incomingEncounter=next&&next.encounter&&typeof next.encounter==='object'?next.encounter:null;
     if(drag&&drag.kind==='token'&&incomingEncounter&&Number(incomingEncounter.turnSerial)!==Number(drag.turnSerial)){drag=null;toast('⚠ 回合已变化，当前移动已取消');}
-    state=next; lastStateRevision=Math.max(lastStateRevision,Number(next._stateRevision)||0); flowClockAnchor={localNow:performance.now(),serverNow:Number(next._serverNow)||Date.now()}; renderFlow(next); currentMap=(next.maps||[]).find(m=>m.id===next.activeMapId)||(next.maps||[])[0]||null;
+    if(drag&&drag.kind==='spell-aim'&&incomingEncounter&&Number(incomingEncounter.turnSerial)!==Number(drag.turnSerial)){cancelSpellAim();toast('⚠ 回合已变化，锥形方向未修改');}
+    const previousMapId=currentMap&&currentMap.id;
+    state=next; lastStateRevision=Math.max(lastStateRevision,incomingRevision);streamAppliedSeq=Math.max(streamAppliedSeq,Number(next._streamSeq)||0);flowClockAnchor={localNow:performance.now(),serverNow:Number(next._serverNow)||Date.now()}; renderFlow(next); currentMap=(next.maps||[]).find(m=>m.id===next.activeMapId)||(next.maps||[])[0]||null;updateEndTurnUi();
+    if(previousMapId&&(!currentMap||previousMapId!==currentMap.id)){hideTokenPeek();closeDetail();cancelMapReaction();cancelSpellAim();$('#reaction-layer').innerHTML='';doodleDraft=null;if(drag&&(drag.kind==='doodle'||drag.kind==='doodle-erase'))drag=null;}
     setConnection('已连接',true); $('#campaign').textContent=next.campaignName?'📂 '+next.campaignName:'';
     renderLinks(next.sharedResources || next._links);
     const sharedNote=$('#shared-note'); if(sharedNote){sharedNote.textContent=next.sharedNotes||''; if(!sharedNote.textContent)sharedNote.innerHTML='<span class="hint">等待主控台发布内容</span>';}
-    if (!currentMap) { $('#empty').style.display='grid'; return; }
-    $('#empty').style.display='none'; renderMap(currentMap); renderFog(currentMap); renderDoodles(); renderTurnPath(); renderTokens(currentMap);
+    if (!currentMap) { $('#empty').style.display='grid';renderSpellRanges();$('#reaction-layer').innerHTML='';return; }
+    $('#empty').style.display='none'; renderMap(currentMap); renderFog(currentMap); renderDoodles(); renderTurnPath(); renderTokens(currentMap);renderSpellRanges();
     const mapViewKey=currentMap.id+'|'+currentMap.mapW+'|'+currentMap.mapH;
     if(mapViewKey!==lastMapViewKey){lastMapViewKey=mapViewKey;fit();}
     if(next._bgm) applyBgm(next._bgm);
     if (selectedId) openDetail(selectedId); updateEndTurnUi();
   }
 
-  let patchTimer=null, pendingPatch={};
-  function sendPatch(id, patch) {
-    if (!myName || !id) return;
-    pendingPatch=Object.assign(pendingPatch,patch);
-    clearTimeout(patchTimer);
-    patchTimer=setTimeout(()=>{ const p=pendingPatch; pendingPatch={}; requestAction({op:'patchToken',tokenId:id,patch:p}).then(r=>{const d=r.data||{};if(!r.ok||d.ok===false)toast('⚠ '+(d.error||'同步失败'));}).catch(()=>toast('⚠ 修改未送达')); },180);
+  let patchTimer=null, pendingPatch=null, endTurnPending=false;
+  function clonePatchValue(value){return value&&typeof value==='object'?JSON.parse(JSON.stringify(value)):value;}
+  function patchValuesEqual(a,b){if(a&&typeof a==='object'&&b&&typeof b==='object')return JSON.stringify(a)===JSON.stringify(b);return Object.is(a,b)||String(a)===String(b);}
+  function restoreRejectedPatch(job){
+    const map=state&&(state.maps||[]).find(item=>(item.tokens||[]).some(token=>token.id===job.id)), token=map&&(map.tokens||[]).find(item=>item.id===job.id);
+    if(token)Object.keys(job.before).forEach(key=>{if(patchValuesEqual(token[key],job.patch[key]))token[key]=clonePatchValue(job.before[key]);});
+    if(currentMap&&map===currentMap){renderTokens(currentMap);renderSpellRanges();if(selectedId===job.id)openDetail(job.id);}
+    syncRoomState();
   }
+  async function dispatchPendingPatch(){
+    clearTimeout(patchTimer);patchTimer=null;const job=pendingPatch;pendingPatch=null;if(!job)return;
+    const action={op:'patchToken',tokenId:job.id,patch:job.patch,playMode:job.playMode};if(job.turnSerial!=null)action.turnSerial=job.turnSerial;
+    try{const r=await requestAction(action),d=r.data||{};if(!r.ok||d.ok===false){restoreRejectedPatch(job);toast('⚠ '+(d.error||'同步失败'));return false;}return true;}
+    catch(error){restoreRejectedPatch(job);toast('⚠ 修改未送达');return false;}
+  }
+  function sendPatch(id, patch, before) {
+    if (!sessionToken || !myName || !id) return;
+    const e=encounter(), playMode=e.playMode==='turn'?'turn':'free', turnSerial=playMode==='turn'?(Number(e.turnSerial)||1):null;
+    if(pendingPatch&&(pendingPatch.id!==id||pendingPatch.playMode!==playMode||pendingPatch.turnSerial!==turnSerial))dispatchPendingPatch();
+    if(!pendingPatch)pendingPatch={id,playMode,turnSerial,patch:{},before:{}};
+    Object.keys(patch).forEach(key=>{if(!(key in pendingPatch.before))pendingPatch.before[key]=clonePatchValue(before[key]);pendingPatch.patch[key]=clonePatchValue(patch[key]);});
+    clearTimeout(patchTimer);patchTimer=setTimeout(dispatchPendingPatch,180);
+  }
+  function closeDetail() { selectedId=null;cancelSpellAim(); $('#detail').hidden=true; $('#detail-empty').hidden=false;requestSpellRangeRender(); }
+  function hideTokenPeek() { clearTimeout(peekTimer); peekTimer=null; const peek=$('#token-peek'); peek.hidden=true; peek.dataset.tokenId=''; }
+  function populateTokenPeek(t) {
+    const peek=$('#token-peek'), meta=TYPE[t.type]||TYPE.npc, pct=clamp(Number(t.hp)/Math.max(1,Number(t.hpMax))*100,0,100);
+    const publicConditions=(t.conditions||[]).filter(c=>c.visibility!=='gm');
+    peek.innerHTML='<div class="token-peek-head"><div class="token-peek-icon"></div><div class="token-peek-title"><strong>'+esc(t.name||'未命名棋子')+'</strong><span>'+esc(meta.label)+'</span></div><button class="token-peek-close" type="button" aria-label="关闭">✕</button></div>'+
+      '<div class="token-peek-stats"><div class="token-peek-stat">生命值<b>'+esc(t.hp)+' / '+esc(t.hpMax)+'</b><div class="token-peek-hp"><i style="width:'+pct+'%;background:'+(pct>50?'#4cc38a':pct>25?'#f4a261':'#e74c5e')+'"></i></div></div><div class="token-peek-stat">护甲等级<b>AC '+esc(t.ac)+'</b></div></div>'+
+      '<div class="condition-list">'+(publicConditions.length?publicConditions.map(c=>'<span class="condition-chip" style="--condition-color:'+esc(c.color||'#a8b3c7')+'">'+esc(c.icon||'◆')+' '+esc(c.label||'状态')+(c.remainingTurns?' · '+esc(c.remainingTurns)+'回合':'')+'</span>').join(''):'<span class="hint">暂无公开状态</span>')+'</div>'+
+      (t.publicNote?'<div class="public-note">'+esc(t.publicNote)+'</div>':'');
+    const icon=peek.querySelector('.token-peek-icon'); icon.style.setProperty('--peek-ring',meta.ring); const hasPortrait=applyPlayerPortrait(icon,t); icon.textContent=hasPortrait?'':(t.icon||'?'); if(!hasPortrait)icon.style.backgroundImage='none';
+    peek.querySelector('.token-peek-close').onclick=hideTokenPeek;
+  }
+  function showTokenPeek(t,clientX,clientY) {
+    if(!t||ownedToken(t)||!friendly(t)||!Number.isFinite(Number(t.hp))){hideTokenPeek();return;}
+    closeDetail(); const peek=$('#token-peek'); populateTokenPeek(t); peek.dataset.tokenId=t.id; peek.hidden=false;
+    const margin=12, anchorX=Number.isFinite(Number(clientX))?Number(clientX):window.innerWidth/2, anchorY=Number.isFinite(Number(clientY))?Number(clientY):80, rect=peek.getBoundingClientRect();
+    let left=anchorX+14, top=anchorY+14; if(left+rect.width>window.innerWidth-margin)left=anchorX-rect.width-14; if(top+rect.height>window.innerHeight-margin)top=anchorY-rect.height-14;
+    peek.style.left=clamp(left,margin,Math.max(margin,window.innerWidth-rect.width-margin))+'px'; peek.style.top=clamp(top,60,Math.max(60,window.innerHeight-rect.height-margin))+'px';
+    clearTimeout(peekTimer); peekTimer=setTimeout(hideTokenPeek,5000);
+  }
+  function refreshTokenPeek(t) { const peek=$('#token-peek'); if(!peek.hidden&&peek.dataset.tokenId===t.id)populateTokenPeek(t); }
   function openDetail(id) {
     const t=currentMap && currentMap.tokens.find(x=>x.id===id);
-    if (!t || (!mine(t) && !friendly(t)) || !Number.isFinite(Number(t.hp))) { selectedId=null; $('#detail').hidden=true; $('#detail-empty').hidden=false; return; }
+    if (!t || !ownedToken(t) || !Number.isFinite(Number(t.hp))) { closeDetail(); return; }
+    hideTokenPeek();
     selectedId=id; $('#detail').hidden=false; $('#detail-empty').hidden=true;
     $('#detail-name').textContent=t.name; $('#detail-type').textContent=(TYPE[t.type]||TYPE.npc).label;
-    const icon=$('#detail-icon'), url=assetUrl(t); icon.textContent=url?'':(t.icon||'?'); icon.style.backgroundImage=url?'url("'+url+'")':'none';
+    const icon=$('#detail-icon'), hasPortrait=applyPlayerPortrait(icon,t); icon.textContent=hasPortrait?'':(t.icon||'?'); if(!hasPortrait)icon.style.backgroundImage='none';
     $('#hp').value=t.hp; $('#hp-max').value=t.hpMax; $('#ac').value=t.ac;
-    const editable=mine(t);
+    const editable=canActWithToken(t), e=encounter();
     $('#hp').disabled=!editable; $('#hp-max').disabled=!editable; $('#ac').disabled=!editable;
     document.querySelectorAll('[data-hp]').forEach(b=>b.disabled=!editable);
-    $('#ac-hint').textContent=editable?'由你自己维护':'友好棋子信息（只读）';
+    $('#ac-hint').textContent=editable?(e.playMode==='turn'?'✓ 当前回合可修改':e.playMode==='prepare'?'战斗准备阶段可修改':'自由模式可修改'):(e.playMode==='turn'?'🔒 等待你的回合':'请先加入房间');
+    syncSpellRangeUi(t,editable);requestSpellRangeRender();
     const pct=clamp((t.hp/Math.max(1,t.hpMax))*100,0,100); $('#hp-bar').style.width=pct+'%'; $('#hp-bar').style.background=pct>50?'#4cc38a':pct>25?'#f4a261':'#e74c5e';
     const conditions=$('#detail-conditions'); conditions.innerHTML=''; (t.conditions||[]).filter(c=>c.visibility!=='gm').forEach(c=>{const el=document.createElement('span');el.className='condition-chip';el.style.setProperty('--condition-color',c.color||'#a8b3c7');el.textContent=(c.icon||'◆')+' '+(c.label||'状态')+(c.remainingTurns?' · '+c.remainingTurns+'回合':'');conditions.appendChild(el);});
     if(!conditions.children.length)conditions.innerHTML='<span class="hint">暂无公开状态</span>';
     const note=$('#detail-public-note'); note.hidden=!t.publicNote; note.textContent=t.publicNote||'';
   }
-  function updateOwned(field,value) { const t=currentMap && currentMap.tokens.find(x=>x.id===selectedId); if (!t || !mine(t)) return; t[field]=value; sendPatch(t.id,{[field]:value}); openDetail(t.id); }
+  function updateOwned(field,value) { const t=currentMap && currentMap.tokens.find(x=>x.id===selectedId); if (!t || !ownedToken(t)) return; if(!canActWithToken(t)){openDetail(t.id);toast('🔒 只有轮到该角色时才能修改');return;} const previous=t[field];t[field]=value;sendPatch(t.id,{[field]:value},{[field]:previous});renderNamesLayer(currentMap);openDetail(t.id); }
   function setTokenPosition(t,x,y) {
-    t.x=x; t.y=y;
-    const el=document.querySelector('.token[data-id="'+t.id+'"]');
-    if(el){el.style.left=t.x+'px';el.style.top=t.y+'px';}
+    const anchor=movementAnchor(t,currentMap);
+    if(!anchor)return null;
+    anchor.x=x; anchor.y=y; syncMountedCoordinates(anchor,currentMap);
+    const el=document.querySelector('.token[data-id="'+anchor.id+'"]');
+    if(el){el.style.left=anchor.x+'px';el.style.top=anchor.y+'px';}
+    syncLabelsFor(anchor);
+    requestSpellRangeRender();
+    return anchor;
   }
   function rollbackMove(move) {
     const e=encounter();
@@ -493,31 +1091,56 @@
   function sendMove(t,move) {
     if (!myName || !currentMap || !t) return;
     move.endXWorld=Number(t.x); move.endYWorld=Number(t.y);
-    const action={op:'moveToken',mapId:move.mapId,tokenId:t.id,x:t.x,y:t.y};
+    const action={op:'moveToken',mapId:move.mapId,tokenId:t.id,x:t.x,y:t.y,playMode:move.turnMode?'turn':'free'};
     if(move.turnMode){action.turnSerial=move.turnSerial;action.path=move.pathPoints.slice(0,MAX_MOVE_POINTS);}
     requestAction(action)
       .then(result=>{
         const d=result.data||{};
         if(!result.ok||d.ok===false){rollbackMove(move);toast('⚠ '+(d.error||'移动失败'));return;}
-        if(move.turnMode&&Number(encounter().turnSerial)===move.turnSerial){appendTurnPath(move.mapId,t.id,move.pathPoints);renderTurnPath();}
       })
       .catch(()=>{rollbackMove(move);toast('⚠ 移动未送达');});
   }
-  function sendDoodles() { if (!myName || !currentMap || !sessionToken) return; requestAction({op:'doodle',mapId:currentMap.id,doodles:currentMap.doodles||[]}).then(r=>{if(!r.ok||r.data?.ok===false)toast('⚠ 涂鸦未送达');}).catch(()=>toast('⚠ 涂鸦未送达')); }
-
   function parseDice(expr) { const m=String(expr||'').trim().toLowerCase().match(/^(\d*)d(\d+)([+-]\d+)?$/); if (!m) return null; const n=+(m[1]||1), sides=+m[2], mod=+(m[3]||0); return n>0&&n<=100&&sides>=2&&sides<=1000?{n,sides,mod,label:m[0]}:null; }
-  function roll(expr) { const d=parseDice(expr); if(!d){toast('骰子格式如 2d6+3');return;} if(!sessionToken){toast('请先加入房间');return;} const dice=Array.from({length:d.n},()=>1+Math.floor(Math.random()*d.sides)), total=dice.reduce((a,b)=>a+b,0)+d.mod, detail=dice.join(' + ')+(d.mod?(d.mod>0?' + ':' ')+d.mod:''); const rid='r'+Date.now()+Math.random(); localRolls.add(rid); addRoll(myName||'我',d.label,detail,total); if(window.playDieAnimation) window.playDieAnimation(d.sides,d.label,total,{dice}); requestAction({op:'roll',rid,name:myName||'玩家',expr:d.label,detail,total,sides:d.sides,dice}).catch(()=>toast('⚠ 掷骰未送达')); }
+  function rollSet(count,sides) { return Array.from({length:count},()=>1+Math.floor(Math.random()*sides)); }
+  function d20CriticalOutcome(parsed,chosen,rollMode,pick,dicePayload){if(!parsed||parsed.n!==1||parsed.sides!==20)return{natural:null,critical:null};const natural=rollMode?Number(dicePayload[pick]):Number(chosen[0]);return{natural,critical:natural===20?'success':natural===1?'fail':null};}
+  function roll(expr,mode=0) {
+    const d=parseDice(expr); if(!d){toast('骰子格式如 2d6+3');return;} if(!sessionToken){toast('请先加入房间');return;}
+    const rollMode=(mode===1||mode===-1)&&d.n===1&&d.sides===20?mode:0, first=rollSet(d.n,d.sides); let second=null, chosen=first, pick;
+    if(rollMode){second=rollSet(d.n,d.sides);const sumA=first.reduce((a,b)=>a+b,0),sumB=second.reduce((a,b)=>a+b,0);pick=rollMode===1?(sumA>=sumB?0:1):(sumA<=sumB?0:1);chosen=pick===0?first:second;}
+    const total=chosen.reduce((a,b)=>a+b,0)+d.mod, label=d.label+(rollMode===1?' ⚖️优势':rollMode===-1?' ⬇️劣势':''), note=second?'（两次 '+first.reduce((a,b)=>a+b,0)+' / '+second.reduce((a,b)=>a+b,0)+'，取'+(rollMode===1?'大':'小')+'）':'', dice=second?[first[0],second[0]]:chosen.slice(), outcome=d20CriticalOutcome(d,chosen,rollMode,pick,dice), criticalText=outcome.critical==='success'?' · 天然 20，大成功！':outcome.critical==='fail'?' · 天然 1，大失败！':'', detail=chosen.join(' + ')+(d.mod?(d.mod>0?' + ':' ')+d.mod:'')+note+criticalText, rid='r'+Date.now()+Math.random().toString(36).slice(2,8);
+    localRolls.add(rid); if(localRolls.size>30)localRolls.delete(localRolls.values().next().value); addRoll(myName||'我',label,detail,total); if(window.playDieAnimation)window.playDieAnimation(d.sides,label,total,{dice,pick,mode:rollMode,natural:outcome.natural,critical:outcome.critical});
+    requestAction({op:'roll',rid,name:myName||'玩家',expr:label,detail,total,sides:d.sides,dice,pick,mode:rollMode,natural:outcome.natural,critical:outcome.critical}).then(r=>{if(!r.ok||r.data?.ok===false)toast('⚠ '+(r.data?.error||'掷骰未送达'));}).catch(()=>toast('⚠ 掷骰未送达'));
+  }
   function addRoll(who,expr,detail,total) { const row=document.createElement('div'); row.className='roll-line'; row.innerHTML='<span class="roll-who">'+esc(who)+'</span><span>'+esc(expr)+'</span><span>'+esc(detail)+'</span><span class="roll-total">'+total+'</span>'; $('#dice-log').prepend(row); while($('#dice-log').children.length>30) $('#dice-log').lastChild.remove(); $('#dice-result').textContent=expr+' → '+total; }
   function applyAction(a) {
     if (!a) return;
-    if (a.op==='ping') { showPing(a); return; }
-    if (a.op==='requestRest') { toast((a.name||'玩家')+' 请求休息'); return; }
-    if (a.op==='endTurn') {
-      const e=encounter(); if(Number(e.turnSerial)!==Number(a.turnSerial))return; e.currentEntryId=a.nextEntryId; e.round=Number(a.round)||e.round; e.turnSerial=Number(a.nextTurnSerial)||e.turnSerial+1; e.turnPath={mapId:null,tokenId:null,points:[]}; if(e.worldTime){e.worldTime.totalSeconds=Number(a.worldTimeSeconds)||e.worldTime.totalSeconds;e.worldTime.runningSince=null;} renderFlow(state); renderTokens(currentMap); renderTurnPath(); toast((a.name||'玩家')+' 已结束回合'); return;
+    if(a.op==='mapReaction'){
+      if(a.reactionId&&localReactionIds.has(a.reactionId)){localReactionIds.delete(a.reactionId);return;}
+      showMapReaction(a);return;
     }
-    if (a.op==='roll') { if(a.rid && localRolls.has(a.rid)){localRolls.delete(a.rid);return;} addRoll(a.name||'玩家',a.expr||'',a.detail||'',a.total); if(window.playDieAnimation) window.playDieAnimation(a.sides||20,a.expr||'',a.total,{dice:a.dice}); return; }
+    if(a.op==='doodleAdd'){
+      const map=doodleMap(a.mapId);if(!map||!a.stroke||!a.stroke.id)return;if(!Array.isArray(map.doodles))map.doodles=[];const stroke=cloneDoodleStroke(a.stroke),index=map.doodles.findIndex(item=>item&&item.id===stroke.id);if(index>=0)map.doodles[index]=stroke;else map.doodles.push(stroke);if(currentMap&&currentMap.id===map.id)renderDoodles();return;
+    }
+    if(a.op==='doodleDelete'){
+      const map=doodleMap(a.mapId);if(!map||!a.doodleId)return;map.doodles=(map.doodles||[]).filter(stroke=>stroke&&stroke.id!==a.doodleId);if(currentMap&&currentMap.id===map.id)renderDoodles();return;
+    }
+    if(a.op==='doodleClear'){
+      const map=doodleMap(a.mapId);if(!map)return;map.doodles=[];if(currentMap&&currentMap.id===map.id)renderDoodles();return;
+    }
+    if(a.op==='initiativeSwap'){
+      if(!applyFlowInitiativeAction(encounter(),a))return;
+      renderFlow(state);updateEndTurnUi();return;
+    }
+    if (a.op==='endTurn') {
+      const e=encounter(); if(Number(e.turnSerial)!==Number(a.turnSerial))return; decrementCurrentTokenConditions(); e.currentEntryId=a.nextEntryId; e.round=Number(a.round)||e.round; e.turnSerial=Number(a.nextTurnSerial)||e.turnSerial+1; e.turnPath={mapId:null,tokenId:null,points:[]}; if(e.worldTime){if(Number.isFinite(Number(a.worldTimeSeconds)))e.worldTime.totalSeconds=Math.max(0,Math.trunc(Number(a.worldTimeSeconds)));e.worldTime.runningSince=null;} renderFlow(state); renderTokens(currentMap); renderTurnPath(); if(selectedId)openDetail(selectedId); toast((a.name||'玩家')+' 已结束回合'); return;
+    }
+    if (a.op==='roll') { if(a.rid && localRolls.has(a.rid)){localRolls.delete(a.rid);return;} addRoll(a.name||'玩家',a.expr||'',a.detail||'',a.total); if(window.playDieAnimation) window.playDieAnimation(a.sides||20,a.expr||'',a.total,{dice:a.dice,pick:a.pick,mode:a.mode,natural:a.natural,critical:a.critical}); return; }
     if (a.op==='announce') { toast('📣 '+(a.text||'GM 发布了一条公告')); return; }
-    if (a.op==='doodle') { if(currentMap && a.mapId===currentMap.id && Array.isArray(a.doodles)){currentMap.doodles=a.doodles;renderDoodles();} return; }
+    if(a.op==='moveToken'||a.op==='patchToken'){
+      const e=encounter(),currentMode=e.playMode==='turn'?'turn':'free',actionMode=a.playMode==='turn'?'turn':a.playMode==='free'?'free':null;
+      if(actionMode&&actionMode!==currentMode)return;
+      if(currentMode==='turn'&&Number(a.turnSerial)!==Number(e.turnSerial))return;
+    }
     const m=state && (state.maps||[]).find(x=>x.id===(a.mapId||currentMap&&currentMap.id)); const t=m && (m.tokens||[]).find(x=>x.id===a.tokenId); if(!t) return;
     if (a.op==='moveToken') {
       setTokenPosition(t,a.x,a.y);
@@ -525,34 +1148,47 @@
       if(e.playMode==='turn'&&Number(a.turnSerial)===Number(e.turnSerial)&&Array.isArray(a.path)) appendTurnPath(m.id,t.id,a.path);
       renderTurnPath();
     }
-    if (a.op==='patchToken') { ['hp','hpMax','ac'].forEach(k=>{if(a.patch && k in a.patch)t[k]=a.patch[k];}); if(selectedId===t.id) openDetail(t.id); }
+    if (a.op==='patchToken') { ['hp','hpMax','ac'].forEach(k=>{if(a.patch && k in a.patch)t[k]=a.patch[k];});if(a.patch&&'spellRange' in a.patch)t.spellRange=normalizeSpellRange(a.patch.spellRange); if(m===currentMap){renderNamesLayer(currentMap);requestSpellRangeRender();} if(selectedId===t.id)openDetail(t.id); refreshTokenPeek(t); }
   }
 
   board.addEventListener('pointerdown',e=>{
+    if(e.button!==0)return;
     if(e.target.closest('button')) return;
-    if(pingMode){ sendPingAt(point(e)); togglePing(); return; }
-    if(measureMode){ const p=point(e); measureDraft={mapId:currentMap&&currentMap.id,from:p,to:p}; drag={kind:'measure'}; board.setPointerCapture(e.pointerId); renderTurnPath(); return; }
-    const token=e.target.closest('.token');
+    e.preventDefault();
+    if(pendingMapReaction&&placePlayerReactionAt(e))return;
+    if(spellAimTokenId&&beginPlayerSpellAim(e))return;
+    if(doodleTool&&currentMap){
+      if(!sessionToken){toast('请先加入房间');return;}hideTokenPeek();const p=boundedDoodlePoint(point(e));board.setPointerCapture(e.pointerId);
+      if(doodleTool==='eraser'){drag={kind:'doodle-erase',mapId:currentMap.id,erased:new Set()};eraseDoodleAt(p,drag.erased);}else{startDoodleAt(p);drag={kind:'doodle',mapId:currentMap.id};}return;
+    }
+    if(measureMode&&currentMap){ const p=snapMeasurePoint(point(e)); measureDraft={mapId:currentMap.id,from:p,to:p}; drag={kind:'measure'}; board.setPointerCapture(e.pointerId); renderTurnPath(); return; }
+    const riderEl=e.target.closest('.rider'), token=e.target.closest('.token');
     if(token){
-      const t=currentMap && currentMap.tokens.find(x=>x.id===token.dataset.id);
-      if(!t)return;
-      if((ownedToken(t) || friendly(t)) && Number.isFinite(Number(t.hp))){selectedId=t.id;openDetail(t.id);}
-      if(!canMoveToken(t)){
-        if(ownedToken(t)&&encounter().playMode==='turn') toast('⚠ 尚未轮到该角色');
+      const selected=currentMap && currentMap.tokens.find(x=>x.id===(riderEl?riderEl.dataset.id:token.dataset.id));
+      if(!selected)return;
+      const mover=movementAnchor(selected,currentMap);
+      if(ownedToken(selected)&&Number.isFinite(Number(selected.hp)))openDetail(selected.id);
+      else if(friendly(selected)&&Number.isFinite(Number(selected.hp)))showTokenPeek(selected,e.clientX,e.clientY);
+      else hideTokenPeek();
+      if(!canMoveToken(mover)){
+        if(ownedToken(mover)&&encounter().playMode==='turn') toast('⚠ 尚未轮到该角色');
         return;
       }
       board.setPointerCapture(e.pointerId);
-      drag={kind:'token',id:t.id,mapId:currentMap.id,startX:e.clientX,startY:e.clientY,startXWorld:t.x,startYWorld:t.y,turnMode:encounter().playMode==='turn',turnSerial:Number(encounter().turnSerial)||1,pathRecording:encounter().playMode==='turn',pathPoints:[{x:t.x,y:t.y}]};
+      drag={kind:'token',id:mover.id,mapId:currentMap.id,startX:e.clientX,startY:e.clientY,startXWorld:mover.x,startYWorld:mover.y,turnMode:encounter().playMode==='turn',turnSerial:Number(encounter().turnSerial)||1,pathRecording:encounter().playMode==='turn',pathPoints:[{x:mover.x,y:mover.y}]};
       token.classList.add('dragging');
       return;
     }
-    if(doodleTool && currentMap){ const p=point(e); doodleDraft=doodleTool==='pen'?{tool:'pen',color:doodleColor,width:5,points:[p]}:{tool:doodleTool,color:doodleColor,width:5,x0:p.x,y0:p.y,x1:p.x,y1:p.y}; drag={kind:'doodle'}; board.setPointerCapture(e.pointerId); renderDoodles(); return; }
+    hideTokenPeek();
     drag={kind:'pan',x:e.clientX,y:e.clientY,ox:view.ox,oy:view.oy}; board.setPointerCapture(e.pointerId);
   });
   board.addEventListener('pointermove',e=>{
     if(!drag || !currentMap) return;
+    if(drag.kind==='spell-aim'){previewPlayerSpellAimAt(e);return;}
+    if(drag.kind==='doodle'){continueDoodleAt(point(e));return;}
+    if(drag.kind==='doodle-erase'){eraseDoodleAt(point(e),drag.erased);return;}
     if(drag.kind==='pan'){view.ox=drag.ox+e.clientX-drag.x;view.oy=drag.oy+e.clientY-drag.y;applyView();return;}
-    if(drag.kind==='measure'){ if(measureDraft){measureDraft.to=point(e);renderTurnPath();} return; }
+    if(drag.kind==='measure'){ if(measureDraft){measureDraft.to=snapMeasurePoint(point(e));renderTurnPath();} return; }
     if(drag.kind==='token'){
       const t=currentMap.tokens.find(x=>x.id===drag.id);if(!t)return;
       const p=point(e), q=state.snap===false?p:snap(p.x,p.y,t);setTokenPosition(t,q.x,q.y);
@@ -563,51 +1199,71 @@
       }
       return;
     }
-    if(drag.kind==='doodle'){const p=point(e);if(doodleDraft.tool==='pen')doodleDraft.points.push(p);else{doodleDraft.x1=p.x;doodleDraft.y1=p.y;}renderDoodles();}
   });
   function finish(e){
     if(!drag)return;
     const finished=drag;
+    if(finished.kind==='spell-aim'){finishPlayerSpellAim(e,e.type==='pointercancel');return;}
+    if(finished.kind==='doodle'){endDoodle();drag=null;return;}
+    if(finished.kind==='doodle-erase'){drag=null;return;}
     if(finished.kind==='measure'){ renderTurnPath(); drag=null; return; }
     if(finished.kind==='token'){
       const t=currentMap&&currentMap.tokens.find(x=>x.id===finished.id);
       if(t){sendMove(t,finished);const el=document.querySelector('.token[data-id="'+finished.id+'"]');if(el)el.classList.remove('dragging');}
       renderTurnPath();
     }
-    if(finished.kind==='doodle'&&doodleDraft){const d=doodleDraft;const valid=d.tool==='pen'?d.points.length>1:Math.hypot(d.x1-d.x0,d.y1-d.y0)>4;if(valid){d.id='pd'+(doodleId++);currentMap.doodles=currentMap.doodles||[];currentMap.doodles.push(d);sendDoodles();}doodleDraft=null;renderDoodles();}
     drag=null;
   }
   board.addEventListener('pointerup',finish); board.addEventListener('pointercancel',finish);
   board.addEventListener('wheel',e=>{e.preventDefault();if(!currentMap)return;const r=world.getBoundingClientRect(),wx=(e.clientX-r.left)/view.scale,wy=(e.clientY-r.top)/view.scale,ns=clamp(view.scale*Math.exp(-e.deltaY*.0012),.2,4);view.ox+=e.clientX-r.left-wx*ns;view.oy+=e.clientY-r.top-wy*ns;view.scale=ns;applyView();},{passive:false});
   $('#zoom-in').onclick=()=>{view.scale=clamp(view.scale*1.25,.2,4);applyView();}; $('#zoom-out').onclick=()=>{view.scale=clamp(view.scale/1.25,.2,4);applyView();}; $('#fit').onclick=fit;
   $('#player-name').addEventListener('input',()=>{myName=$('#player-name').value.trim();try{localStorage.setItem('sangduoer-watch-name',myName);}catch(e){}if(currentMap)renderTokens(currentMap);if(selectedId)openDetail(selectedId);});
-  $('#detail-close').onclick=()=>{selectedId=null;$('#detail').hidden=true;$('#detail-empty').hidden=false;};
+  $('#detail-close').onclick=closeDetail;
   $('#hp').addEventListener('input',()=>updateOwned('hp',clamp(parseInt($('#hp').value,10)||0,0,99999)));
   $('#hp-max').addEventListener('input',()=>updateOwned('hpMax',clamp(parseInt($('#hp-max').value,10)||1,1,99999)));
   $('#ac').addEventListener('input',()=>updateOwned('ac',clamp(parseInt($('#ac').value,10)||0,0,99)));
-  document.querySelectorAll('[data-hp]').forEach(b=>b.onclick=()=>{const t=currentMap&&currentMap.tokens.find(x=>x.id===selectedId);if(!t)return;const v=b.dataset.hp;t.hp=v==='full'?t.hpMax:clamp(t.hp+parseInt(v,10),0,t.hpMax);updateOwned('hp',t.hp);});
-  document.querySelectorAll('[data-die]').forEach(b=>b.onclick=()=>roll(b.dataset.die)); $('#dice-roll').onclick=()=>roll($('#dice-expr').value); $('#dice-expr').addEventListener('keydown',e=>{if(e.key==='Enter')roll($('#dice-expr').value);});
-  document.querySelectorAll('[data-tool]').forEach(b=>b.onclick=()=>{doodleTool=doodleTool===b.dataset.tool?null:b.dataset.tool;document.querySelectorAll('[data-tool]').forEach(x=>x.classList.toggle('active',x===b&&!!doodleTool));});
-  document.querySelectorAll('[data-color]').forEach(b=>b.onclick=()=>{doodleColor=b.dataset.color;document.querySelectorAll('[data-color]').forEach(x=>x.classList.toggle('active',x===b));});
+  document.querySelectorAll('[data-hp]').forEach(b=>b.onclick=()=>{const t=currentMap&&currentMap.tokens.find(x=>x.id===selectedId);if(!t)return;const v=b.dataset.hp,next=v==='full'?t.hpMax:clamp(t.hp+parseInt(v,10),0,t.hpMax);updateOwned('hp',next);});
+  document.querySelectorAll('[data-die]').forEach(b=>b.onclick=()=>roll(b.dataset.die)); $('#dice-adv').onclick=()=>roll('d20',1); $('#dice-dis').onclick=()=>roll('d20',-1); $('#dice-roll').onclick=()=>roll($('#dice-expr').value); $('#dice-expr').addEventListener('keydown',e=>{if(e.key==='Enter')roll($('#dice-expr').value);});
   $('#flow-toggle').onclick=()=>{const bar=$('#flowbar');bar.dataset.collapsed=bar.dataset.collapsed==='false'?'true':'false';renderFlow(state);};
   document.querySelectorAll('[data-flow-panel]').forEach(tab=>tab.onclick=()=>{flowPanel=tab.dataset.flowPanel==='time'?'time':'initiative';renderFlow(state);});
   function bindToolButton(id,fn){const el=$(id);if(el)el.onclick=fn;}
-  bindToolButton('#btn-measure',toggleMeasure); bindToolButton('#dock-measure',toggleMeasure); bindToolButton('#btn-ping',togglePing); bindToolButton('#dock-ping',togglePing);
+  bindToolButton('#btn-measure',toggleMeasure); bindToolButton('#dock-measure',toggleMeasure);
+  bindToolButton('#btn-reaction',toggleReactionPalette);bindToolButton('#dock-reaction',toggleReactionPalette);
+  document.querySelectorAll('#reaction-palette [data-map-reaction]').forEach(button=>button.addEventListener('click',()=>selectMapReaction(button.dataset.mapReaction)));
+  document.querySelectorAll('[data-spell-shape]').forEach(button=>button.addEventListener('click',()=>updateOwnedSpellRange({shape:button.dataset.spellShape})));
+  $('#spell-feet').addEventListener('input',event=>updateOwnedSpellRange({feet:Number(event.target.value)}));
+  document.querySelectorAll('[data-spell-feet]').forEach(button=>button.addEventListener('click',()=>updateOwnedSpellRange({feet:Number(button.dataset.spellFeet)})));
+  $('#spell-direction').addEventListener('input',event=>updateOwnedSpellRange({direction:Number(event.target.value)}));
+  $('#spell-aim').addEventListener('click',toggleSpellAim);
+  document.querySelectorAll('[data-doodle-tool]').forEach(button=>button.addEventListener('click',()=>toggleDoodleTool(button.dataset.doodleTool)));
+  document.querySelectorAll('[data-doodle-color]').forEach(button=>button.addEventListener('click',()=>{doodleColor=button.dataset.doodleColor;document.querySelectorAll('[data-doodle-color]').forEach(item=>item.classList.toggle('active',item===button));}));
+  $('#player-doodle-width').addEventListener('change',event=>{doodleWidth=parseInt(event.target.value,10)||6;});
+  $('#player-doodle-undo').addEventListener('click',undoSharedDoodle);$('#player-doodle-clear').addEventListener('click',clearSharedDoodles);
   bindToolButton('#btn-ready',()=>{presenceStatus=presenceStatus==='ready'?'online':'ready';sendPresence(presenceStatus);updateToolButtons();}); bindToolButton('#dock-ready',()=>$('#btn-ready').click());
-  bindToolButton('#btn-rest',()=>{requestAction({op:'requestRest'}).then(r=>{if(r.ok)toast('已向主控台发送休息请求');});});
-  bindToolButton('#end-turn',()=>{const e=encounter();if(e.playMode!=='turn')return;requestAction({op:'endTurn',turnSerial:Number(e.turnSerial)||1}).then(r=>{if(!r.ok||r.data?.ok===false)toast('⚠ '+(r.data?.error||'结束回合失败'));}).catch(()=>toast('⚠ 结束回合未送达'));});
+  bindToolButton('#end-turn',async()=>{
+    if(endTurnPending)return;
+    let e=encounter(),current=currentTurnToken();if(e.playMode!=='turn'||!current||!canActWithToken(current)){updateEndTurnUi();toast('🔒 还没有轮到你的角色');return;}
+    endTurnPending=true;updateEndTurnUi();
+    if(await dispatchPendingPatch()===false){endTurnPending=false;updateEndTurnUi();return;}
+    e=encounter();current=currentTurnToken();if(e.playMode!=='turn'||!current||!canActWithToken(current)){endTurnPending=false;updateEndTurnUi();toast('⚠ 回合已经变化，请重新操作');return;}
+    try{const r=await requestAction({op:'endTurn',turnSerial:Number(e.turnSerial)||1});if(!r.ok||r.data?.ok===false)toast('⚠ '+(r.data?.error||'结束回合失败'));await syncRoomState();}
+    catch(error){toast('⚠ 结束回合未送达');await syncRoomState();}
+    finally{endTurnPending=false;updateEndTurnUi();}
+  });
   bindToolButton('#dock-notes',()=>$('#personal-notes').focus());
   bindToolButton('#btn-left-panel',()=>$('#left-panel').classList.toggle('mobile-open'));
   bindToolButton('#btn-join',leaveSession);
   $('#join-form').addEventListener('submit',async e=>{e.preventDefault();const err=$('#join-error');err.textContent='正在加入…';try{await joinSession($('#join-name').value,$('#join-room').value,false);if(!streamES)connectStream();}catch(error){err.textContent=error.message||'无法加入房间';}});
   try { $('#personal-notes').value=localStorage.getItem('sangduoer-watch-notes')||''; } catch(e) {}
   $('#personal-notes').addEventListener('input',()=>{try{localStorage.setItem('sangduoer-watch-notes',$('#personal-notes').value);}catch(e){}});
+  window.addEventListener('keydown',event=>{if(event.key!=='Escape')return;if(pendingMapReaction||!$('#reaction-palette').hidden){cancelMapReaction();toast('已取消地图表情');}if(spellAimTokenId){cancelSpellAim();toast('已取消锥形瞄准');}});
   updateToolButtons();
   window.addEventListener('resize',fit);
 
   const playerAudio=new Audio(); let bgmUrl='';
   function applyBgm(a){if(!a)return;if(a.action==='play'){if(a.url&&a.url!==bgmUrl){bgmUrl=a.url;playerAudio.src=a.url;playerAudio.currentTime=a.time||0;}playerAudio.play().catch(()=>toast('🔇 点击页面后可播放 BGM'));}else playerAudio.pause();}
-  function connectStream(){ if(streamES){try{streamES.close();}catch(e){}} streamES=new EventSource('/api/events'); streamES.onopen=()=>{setConnection('已连接',true);sendPresence(presenceStatus);}; streamES.onerror=()=>setConnection('重连中…',false); streamES.onmessage=e=>{try{const ev=JSON.parse(e.data), seq=Number(e.lastEventId)||Number(ev.seq)||0;if(seq&&seq<=streamAppliedSeq&&ev.type==='action')return;if(seq)streamAppliedSeq=Math.max(streamAppliedSeq,seq);if(ev.type==='state'){render(ev.state);}else if(ev.type==='presence'){renderPlayers(ev.players);}else if(ev.type==='action'){if(ev.action&&ev.action.op==='bgm')applyBgm(ev.action);else applyAction(ev.action);}}catch(err){}}; }
+  async function syncRoomState(){try{const res=await fetch('/api/state',{cache:'no-store'});if(!res.ok)return;render(await res.json());}catch(e){/* SSE 会继续自动重试 */}}
+  function connectStream(){ if(streamES){try{streamES.close();}catch(e){}} streamES=new EventSource('/api/events'); streamES.onopen=()=>{setConnection('已连接',true);sendPresence(presenceStatus);syncRoomState();}; streamES.onerror=()=>setConnection('重连中…',false); streamES.onmessage=e=>{try{const ev=JSON.parse(e.data), seq=Number(e.lastEventId)||Number(ev.seq)||0, instant=ev.type==='action'&&ev.action&&['roll','bgm','announce','mapReaction'].includes(ev.action.op);if(!instant&&seq&&seq<=streamAppliedSeq&&ev.type==='action')return;if(seq&&!instant)streamAppliedSeq=Math.max(streamAppliedSeq,seq);if(ev.type==='state'){render(ev.state);}else if(ev.type==='presence'){renderPlayers(ev.players);}else if(ev.type==='action'){if(ev.action&&ev.action.op==='bgm')applyBgm(ev.action);else applyAction(ev.action);}}catch(err){}}; }
   bootstrapSession().then(()=>{if(sessionToken)connectStream();});
   presenceTimer=setInterval(()=>sendPresence(presenceStatus),15000);
   flowTimer=setInterval(()=>{if(state&&state.encounter&&state.encounter.worldTime&&state.encounter.worldTime.runningSince)renderFlow(state);},500);

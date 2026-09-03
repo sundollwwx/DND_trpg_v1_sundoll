@@ -8,7 +8,9 @@ const LIBRARY_SAVED_AT_KEY = 'dnd-board-library-saved-at-v1';
 // 只用于首次打开且尚未连接“存档”时的内置模板；绝不是当前棋子库的第二份存档。
 const BUNDLED_LIBRARY = Array.isArray(window.__LIBRARY_SEED__) ? window.__LIBRARY_SEED__ : [];
 const SERVER_URL_KEY = 'sangduoer-server-url-v1';
-const APP_VERSION = 'v1.7';
+const APP_VERSION = 'v1.10';
+const MAX_DOODLE_POINTS = 800;
+const CONDITION_SPRITE_URL = '../asset/界面/状态图标-v1.png';
 
 const TYPE_META = {
   pc:    { label: '玩家角色', ring: '#5b8cff', glow: 'rgba(91,140,255,.45)', defaultIcon: '🧙' },
@@ -18,20 +20,20 @@ const TYPE_META = {
 };
 
 const CONDITION_META = {
-  prone:       { label: '倒地', icon: '↘', color: '#f4a261' },
+  prone:       { label: '倒地', icon: '🛌', color: '#f4a261' },
   unconscious: { label: '昏迷', icon: '💤', color: '#9b8cff' },
-  incapacitated:{ label: '失能', icon: '⛔', color: '#b9c0cc' },
-  blinded:     { label: '目盲', icon: '◌', color: '#c6a97d' },
-  deafened:    { label: '耳聋', icon: '耳', color: '#c6a97d' },
-  frightened:  { label: '恐慌', icon: '!', color: '#d879ff' },
-  charmed:     { label: '魅惑', icon: '♡', color: '#ff8fb3' },
-  poisoned:    { label: '中毒', icon: '☠', color: '#79c267' },
-  grappled:    { label: '擒抱', icon: '⚓', color: '#d99b62' },
-  restrained:  { label: '束缚', icon: '⛓', color: '#d99b62' },
-  stunned:     { label: '眩晕', icon: '✦', color: '#ffd166' },
-  petrified:   { label: '石化', icon: '◆', color: '#a9b3bf' },
-  invisible:   { label: '隐形', icon: '◇', color: '#8fbaff' },
-  concentrating:{ label: '专注', icon: '◎', color: '#68d9c0' },
+  incapacitated:{ label: '失能', icon: '🚫', color: '#b9c0cc' },
+  blinded:     { label: '目盲', icon: '🙈', color: '#c6a97d' },
+  deafened:    { label: '耳聋', icon: '🙉', color: '#c6a97d' },
+  frightened:  { label: '恐慌', icon: '😨', color: '#d879ff' },
+  charmed:     { label: '魅惑', icon: '💗', color: '#ff8fb3' },
+  poisoned:    { label: '中毒', icon: '☠️', color: '#79c267' },
+  grappled:    { label: '擒抱', icon: '✊', color: '#d99b62' },
+  restrained:  { label: '束缚', icon: '⛓️', color: '#d99b62' },
+  stunned:     { label: '眩晕', icon: '💫', color: '#ffd166' },
+  petrified:   { label: '石化', icon: '🗿', color: '#a9b3bf' },
+  invisible:   { label: '隐形', icon: '👻', color: '#8fbaff' },
+  concentrating:{ label: '专注', icon: '🎯', color: '#68d9c0' },
   burning:     { label: '燃烧', icon: '🔥', color: '#ef6c45' },
 };
 
@@ -121,12 +123,146 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => (
   { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
 ));
 
+function preloadConditionPixels() {
+  const image = new Image();
+  image.onload = () => document.documentElement.classList.add('condition-pixels-ready');
+  image.onerror = () => document.documentElement.classList.remove('condition-pixels-ready');
+  image.src = CONDITION_SPRITE_URL;
+}
+
 const WORLD_MINUTES_PER_DAY = 24 * 60;
 const WORLD_DAYS_PER_WEEK = 7;
 const WORLD_WEEKS_PER_YEAR = 52;
 const WORLD_MINUTES_PER_YEAR = WORLD_MINUTES_PER_DAY * WORLD_DAYS_PER_WEEK * WORLD_WEEKS_PER_YEAR;
 const MAX_MOVE_POINTS = 60;
 const MAX_TURN_PATH_POINTS = 200;
+const SPELL_RANGE_MIN_FEET = 5;
+const SPELL_RANGE_MAX_FEET = 180;
+const SPELL_RANGE_STEP_FEET = 5;
+const SPELL_CONE_HALF_ANGLE = Math.atan(0.5);
+const MAP_REACTION_EMOJIS = new Set(['👍', '❤️', '😂', '😮', '🔥', '✨', '❓', '⚔️', '🎯', '👏']);
+const MAP_THUMBNAIL_WIDTH = 400;
+const MAP_THUMBNAIL_HEIGHT = 225;
+const MAX_DIRECT_MAP_IMPORTS = 30;
+const AUTOSAVE_INTERVAL_MS = 60 * 1000;
+const WORLD_SECONDS_PER_DAY = WORLD_MINUTES_PER_DAY * 60;
+const WEATHER_ROLLOVER_SECONDS = 8 * 60 * 60;
+// 08:00 为当天基准温度；凌晨最低，午后最高，每个整点更新一次。
+const HOURLY_TEMPERATURE_CURVE = [
+  -0.60, -0.72, -0.82, -0.90, -1.00, -0.95,
+  -0.70, -0.35, 0, 0.25, 0.50, 0.70,
+  0.85, 0.95, 1.00, 0.95, 0.80, 0.55,
+  0.25, 0, -0.15, -0.30, -0.42, -0.52,
+];
+
+const SEASON_META = [
+  { key: 'spring', label: '春季', icon: '🌱', firstWeek: 1, lastWeek: 13 },
+  { key: 'summer', label: '夏季', icon: '☀️', firstWeek: 14, lastWeek: 26 },
+  { key: 'autumn', label: '秋季', icon: '🍂', firstWeek: 27, lastWeek: 39 },
+  { key: 'winter', label: '冬季', icon: '❄️', firstWeek: 40, lastWeek: 52 },
+];
+
+const WEATHER_META = {
+  clear: { label: '晴朗', icon: '☀️', temperatureDelta: 2 },
+  cloudy: { label: '多云', icon: '☁️', temperatureDelta: 0 },
+  rain: { label: '降雨', icon: '🌧️', temperatureDelta: -3 },
+  storm: { label: '雷暴', icon: '⛈️', temperatureDelta: -5 },
+  fog: { label: '浓雾', icon: '🌫️', temperatureDelta: -2 },
+  snow: { label: '降雪', icon: '🌨️', temperatureDelta: -7 },
+  wind: { label: '强风', icon: '💨', temperatureDelta: -2 },
+  heat: { label: '酷热', icon: '🏜️', temperatureDelta: 7 },
+};
+
+const WIND_META = {
+  calm: { label: '无风', icon: '·' },
+  breeze: { label: '微风', icon: '〰' },
+  strong: { label: '强风', icon: '≋' },
+  gale: { label: '烈风', icon: '➰' },
+};
+
+const CLIMATE_META = {
+  temperate: {
+    label: '温带', icon: '🌿', diurnalRange: 5, temperatures: { spring: 14, summer: 25, autumn: 15, winter: 3 },
+    weather: {
+      spring: ['clear', 'cloudy', 'rain', 'rain', 'fog', 'wind'],
+      summer: ['clear', 'clear', 'cloudy', 'rain', 'storm', 'heat'],
+      autumn: ['clear', 'cloudy', 'rain', 'fog', 'wind', 'wind'],
+      winter: ['clear', 'cloudy', 'snow', 'snow', 'fog', 'wind'],
+    },
+  },
+  cold: {
+    label: '寒带', icon: '🧊', diurnalRange: 6, temperatures: { spring: 0, summer: 12, autumn: 2, winter: -15 },
+    weather: {
+      spring: ['cloudy', 'snow', 'rain', 'wind', 'fog'],
+      summer: ['clear', 'cloudy', 'rain', 'fog', 'wind'],
+      autumn: ['cloudy', 'rain', 'snow', 'wind', 'fog'],
+      winter: ['snow', 'snow', 'clear', 'wind', 'fog'],
+    },
+  },
+  tropical: {
+    label: '热带', icon: '🌴', diurnalRange: 3, temperatures: { spring: 27, summer: 29, autumn: 28, winter: 26 },
+    weather: {
+      spring: ['clear', 'rain', 'rain', 'storm', 'fog'],
+      summer: ['clear', 'heat', 'rain', 'storm', 'storm'],
+      autumn: ['clear', 'rain', 'rain', 'storm', 'cloudy'],
+      winter: ['clear', 'clear', 'cloudy', 'rain', 'fog'],
+    },
+  },
+  arid: {
+    label: '干旱', icon: '🏜️', diurnalRange: 9, temperatures: { spring: 22, summer: 36, autumn: 25, winter: 14 },
+    weather: {
+      spring: ['clear', 'clear', 'heat', 'wind', 'cloudy'],
+      summer: ['clear', 'heat', 'heat', 'wind', 'storm'],
+      autumn: ['clear', 'clear', 'heat', 'wind', 'cloudy'],
+      winter: ['clear', 'clear', 'cloudy', 'wind', 'rain'],
+    },
+  },
+  coastal: {
+    label: '海洋', icon: '🌊', diurnalRange: 3, temperatures: { spring: 15, summer: 23, autumn: 17, winter: 9 },
+    weather: {
+      spring: ['cloudy', 'rain', 'fog', 'wind', 'clear'],
+      summer: ['clear', 'cloudy', 'rain', 'fog', 'storm'],
+      autumn: ['cloudy', 'rain', 'wind', 'storm', 'fog'],
+      winter: ['cloudy', 'rain', 'wind', 'fog', 'snow'],
+    },
+  },
+  highland: {
+    label: '高山', icon: '⛰️', diurnalRange: 7, temperatures: { spring: 5, summer: 16, autumn: 7, winter: -6 },
+    weather: {
+      spring: ['clear', 'cloudy', 'fog', 'rain', 'snow'],
+      summer: ['clear', 'cloudy', 'rain', 'storm', 'wind'],
+      autumn: ['cloudy', 'fog', 'rain', 'snow', 'wind'],
+      winter: ['snow', 'snow', 'clear', 'fog', 'wind'],
+    },
+  },
+};
+
+function seasonForWeek(week) {
+  const safeWeek = clamp(Math.trunc(Number(week) || 1), 1, WORLD_WEEKS_PER_YEAR);
+  return SEASON_META.find((season) => safeWeek >= season.firstWeek && safeWeek <= season.lastWeek) || SEASON_META[0];
+}
+
+function defaultWeatherState() {
+  return { climate: 'temperate', condition: 'clear', temperature: 18, wind: 'breeze', generatedDay: 0 };
+}
+
+function normalizeWeather(raw) {
+  const defaults = defaultWeatherState();
+  const source = raw && typeof raw === 'object' ? raw : {};
+  const climate = CLIMATE_META[source.climate] ? source.climate : defaults.climate;
+  const condition = WEATHER_META[source.condition] ? source.condition : defaults.condition;
+  const wind = WIND_META[source.wind] ? source.wind : defaults.wind;
+  const numericTemperature = Number(source.temperature);
+  const numericGeneratedDay = source.generatedDay === null || source.generatedDay === ''
+    ? NaN : Number(source.generatedDay);
+  return {
+    climate,
+    condition,
+    temperature: Number.isFinite(numericTemperature) ? clamp(Math.round(numericTemperature), -100, 100) : defaults.temperature,
+    wind,
+    generatedDay: Number.isFinite(numericGeneratedDay) ? Math.trunc(numericGeneratedDay) : null,
+  };
+}
 
 function defaultEncounterState() {
   return {
@@ -148,6 +284,7 @@ function defaultEncounterState() {
       rate: 1,
       resumeAfterTurn: false,
     },
+    weather: defaultWeatherState(),
     secondsPerRound: 6,
     lastEvent: null,
   };
@@ -176,6 +313,9 @@ let uid = 1;
 let drag = null;
 let toastTimer = null;
 let autosaveTimer = null;
+let restAnimationTimer = null;
+let restAnimationActive = false;
+let browserStateCacheFailed = false;
 let folderSaveQueue = Promise.resolve();
 let lastFolderSaveAt = 0;
 let streamOn = false;
@@ -188,6 +328,7 @@ let streamES = null;
 let streamAppliedSeq = 0;
 let streamInfo = null;
 let streamPlayersTimer = null;
+let pendingLegacyPortraitMigrations = 0;
 let streamPlayers = [];
 let sharedNoteTimer = null;
 let hostLocalRolls = new Set();
@@ -196,6 +337,12 @@ let boardTool = null;
 let editTile = 'floor';
 let editVariant = 0;
 let mapEditHistory = [];
+const mapThumbnailCache = new Map();
+let mapBrowserRenderToken = 0;
+let mapBrowserPointerDrag = null;
+let mapBrowserSuppressClickUntil = 0;
+let pendingMapImageImports = [];
+let mapImageImportBusy = false;
 let doodleTool = 'pen';
 let doodleColor = '#ff4d4f';
 let doodleWidth = 6;
@@ -203,6 +350,11 @@ let doodleDraft = null;
 let selectedDoodleId = null;
 let fogBrush = 3;
 let lastSelId = null;
+let detailActiveTab = 'status';
+let editingConditionId = null;
+let detailHpUndo = null;
+let detailTextSaveTimer = null;
+let detailTextSaveMarksStream = false;
 let libFilter = 'all';
 let libSearch = '';
 let libCategory = 'all';
@@ -210,6 +362,11 @@ let libEditorId = null;
 let libAvatar = null;
 let libEqDraft = [];
 let encounterClockTimer = null;
+let spellAimTokenId = null;
+let pendingMapReaction = null;
+let spellRangeRaf = null;
+let lastInitiativeScrollEntryId = null;
+const localReactionIds = new Set();
 
 /* ==================== 地图（多楼层） ==================== */
 
@@ -248,11 +405,13 @@ function normalizeEncounter(raw) {
   const legacyCurrentId = legacyCurrentIndex === null ? null : entries[legacyCurrentIndex].id;
   entries.sort((a, b) => b.value - a.value || a.order - b.order);
 
+  const playMode = source.playMode === 'turn' ? 'turn' : (source.playMode === 'prepare' ? 'prepare' : 'free');
   let currentEntryId = source.currentEntryId && usedIds.has(String(source.currentEntryId))
     ? String(source.currentEntryId)
     : null;
   if (!currentEntryId && legacyCurrentId && usedIds.has(legacyCurrentId)) currentEntryId = legacyCurrentId;
-  if (!currentEntryId && entries.length && source.playMode === 'turn') currentEntryId = entries[0].id;
+  if (!currentEntryId && entries.length && playMode === 'turn') currentEntryId = entries[0].id;
+  if (playMode !== 'turn') currentEntryId = null;
 
   const worldSource = source.worldTime && typeof source.worldTime === 'object' ? source.worldTime : {};
   const rawSeconds = Number(worldSource.totalSeconds);
@@ -267,8 +426,11 @@ function normalizeEncounter(raw) {
     rate: Number.isFinite(rawRate) && rawRate > 0 ? clamp(rawRate, 0.01, 60) : 1,
     resumeAfterTurn: worldSource.resumeAfterTurn === true,
   };
+  const weather = normalizeWeather(source.weather);
+  if (!Number.isInteger(weather.generatedDay)) {
+    weather.generatedDay = weatherDayIndex(worldTimeNow({ worldTime }));
+  }
   const panel = source.panel === 'time' ? 'time' : 'initiative';
-  const playMode = source.playMode === 'turn' ? 'turn' : 'free';
   const rawTurnSerial = Number(source.turnSerial);
   const turnSerial = Number.isFinite(rawTurnSerial) ? Math.max(1, Math.trunc(rawTurnSerial)) : 1;
   const rawSecondsPerRound = Number(source.secondsPerRound);
@@ -301,6 +463,7 @@ function normalizeEncounter(raw) {
     turnPath: playMode === 'turn' ? turnPath : { mapId: null, tokenId: null, points: [] },
     entries,
     worldTime,
+    weather,
     lastEvent,
   };
 }
@@ -312,7 +475,7 @@ function encounterState() {
   const e = state.encounter;
   if (!Array.isArray(e.entries)) e.entries = [];
   if (e.panel !== 'time') e.panel = 'initiative';
-  if (e.playMode !== 'turn') e.playMode = 'free';
+  if (!['free', 'prepare', 'turn'].includes(e.playMode)) e.playMode = 'free';
   e.round = Math.max(1, parseInt(e.round, 10) || 1);
   e.turnSerial = Math.max(1, parseInt(e.turnSerial, 10) || 1);
   e.secondsPerRound = clamp(Math.trunc(Number(e.secondsPerRound) || 6), 1, 3600);
@@ -324,7 +487,8 @@ function encounterState() {
   )).slice(0, MAX_TURN_PATH_POINTS).map((point) => ({ x: Number(point.x), y: Number(point.y) })) : [];
   if (e.playMode !== 'turn') e.turnPath = { mapId: null, tokenId: null, points: [] };
   e.entries = e.entries.filter((entry) => entry && entry.id);
-  if (!e.entries.some((entry) => entry.id === e.currentEntryId)) e.currentEntryId = e.entries[0]?.id || null;
+  if (e.playMode === 'turn' && !e.entries.some((entry) => entry.id === e.currentEntryId)) e.currentEntryId = e.entries[0]?.id || null;
+  if (e.playMode !== 'turn') e.currentEntryId = null;
   if (!e.worldTime || typeof e.worldTime !== 'object') e.worldTime = defaultEncounterState().worldTime;
   const totalSeconds = Number(e.worldTime.totalSeconds);
   const legacyMinutes = Number(e.worldTime.totalMinutes);
@@ -337,6 +501,10 @@ function encounterState() {
   e.worldTime.runningSince = Number.isFinite(Number(e.worldTime.runningSince)) && Number(e.worldTime.runningSince) > 0
     ? Number(e.worldTime.runningSince) : null;
   e.worldTime.resumeAfterTurn = e.worldTime.resumeAfterTurn === true;
+  e.weather = normalizeWeather(e.weather);
+  if (!Number.isInteger(e.weather.generatedDay)) {
+    e.weather.generatedDay = weatherDayIndex(worldTimeNow(e));
+  }
   return e;
 }
 
@@ -404,6 +572,82 @@ function formatWorldClock(parts) {
   return `${String(parts.hour).padStart(2, '0')}:${String(parts.minute).padStart(2, '0')}:${String(parts.second).padStart(2, '0')}`;
 }
 
+function weatherDayIndex(totalSeconds) {
+  const total = Math.max(0, Math.floor(Number(totalSeconds) || 0));
+  return Math.floor((total - WEATHER_ROLLOVER_SECONDS) / WORLD_SECONDS_PER_DAY);
+}
+
+function hourlyTemperatureOffset(climateKey, hour) {
+  const climate = CLIMATE_META[climateKey] || CLIMATE_META.temperate;
+  const safeHour = clamp(Math.trunc(Number(hour) || 0), 0, 23);
+  return Math.round((Number(climate.diurnalRange) || 0) * HOURLY_TEMPERATURE_CURVE[safeHour]);
+}
+
+function currentWeatherTemperature(weather, hour) {
+  const normalized = normalizeWeather(weather);
+  return clamp(normalized.temperature + hourlyTemperatureOffset(normalized.climate, hour), -100, 100);
+}
+
+function weatherPresentation(weather, worldParts) {
+  const normalized = normalizeWeather(weather);
+  const climate = CLIMATE_META[normalized.climate];
+  const condition = WEATHER_META[normalized.condition];
+  const wind = WIND_META[normalized.wind];
+  const world = worldParts && typeof worldParts === 'object'
+    ? worldParts : { week: Number(worldParts) || 1, hour: 8 };
+  const season = seasonForWeek(world.week);
+  const temperature = currentWeatherTemperature(normalized, world.hour);
+  return {
+    ...normalized,
+    baseTemperature: normalized.temperature,
+    temperature,
+    climateLabel: climate.label,
+    climateIcon: climate.icon,
+    conditionLabel: condition.label,
+    conditionIcon: condition.icon,
+    windLabel: wind.label,
+    season,
+    compact: `${condition.icon} ${condition.label} · ${temperature}°C`,
+    detail: `${climate.icon} ${climate.label} · ${season.icon} ${season.label} · ${temperature}°C · ${wind.label}`,
+  };
+}
+
+function generateClimateWeather(e = encounterState(), climateKey = null, totalSeconds = worldTimeNow(e)) {
+  const world = worldTimeParts(totalSeconds);
+  const season = seasonForWeek(world.week);
+  const climate = CLIMATE_META[climateKey] ? climateKey : e.weather.climate;
+  const profile = CLIMATE_META[climate];
+  const pool = profile.weather[season.key] || profile.weather.spring;
+  const condition = pool[Math.floor(Math.random() * pool.length)] || 'clear';
+  const weatherMeta = WEATHER_META[condition];
+  const temperature = clamp(
+    Math.round(profile.temperatures[season.key] + weatherMeta.temperatureDelta + (Math.random() * 6 - 3)),
+    -100,
+    100,
+  );
+  let wind = 'breeze';
+  if (condition === 'storm') wind = 'gale';
+  else if (condition === 'wind') wind = 'strong';
+  else if (Math.random() < 0.2) wind = 'calm';
+  e.weather = { climate, condition, temperature, wind, generatedDay: weatherDayIndex(world.totalSeconds) };
+  return weatherPresentation(e.weather, world);
+}
+
+function refreshScheduledWeather(e = encounterState(), totalSeconds = worldTimeNow(e)) {
+  e.weather = normalizeWeather(e.weather);
+  const currentDay = weatherDayIndex(totalSeconds);
+  if (!Number.isInteger(e.weather.generatedDay)) {
+    e.weather.generatedDay = currentDay;
+    return null;
+  }
+  if (currentDay > e.weather.generatedDay) {
+    return generateClimateWeather(e, e.weather.climate, totalSeconds);
+  }
+  // 回退时间后同步天气日标记；再次向前经过 08:00 时会重新生成。
+  if (currentDay < e.weather.generatedDay) e.weather.generatedDay = currentDay;
+  return null;
+}
+
 function materializeWorldTime(e = encounterState(), now = Date.now()) {
   if (!e.worldTime.runningSince) return e.worldTime.totalSeconds;
   e.worldTime.totalSeconds = worldTimeNow(e, now);
@@ -417,6 +661,48 @@ function currentInitiativeEntry(e = encounterState()) {
 
 function sortInitiativeEntries(e) {
   e.entries.sort((a, b) => b.value - a.value || (a.order || 0) - (b.order || 0));
+}
+
+function applyInitiativeRemoteAction(e, action) {
+  if (!e || e.playMode !== 'prepare' || !action) return false;
+  const serial = Math.max(1, Math.trunc(Number(action.turnSerial) || 1));
+  const nextSerial = Math.max(serial + 1, Math.trunc(Number(action.nextTurnSerial) || (serial + 1)));
+  if (Number(e.turnSerial) === nextSerial) return true;
+  if (Number(e.turnSerial) !== serial) return false;
+  const entry = e.entries.find((item) => item.id === action.entryId);
+  if (!entry) return false;
+  if (action.op === 'initiativeSwap') {
+    const target = e.entries.find((item) => item.id === action.targetEntryId);
+    const entryOrder = Number(action.entryOrder);
+    const targetOrder = Number(action.targetOrder);
+    if (!target || Number(entry.value) !== Number(target.value) || !Number.isFinite(entryOrder) || !Number.isFinite(targetOrder)) return false;
+    entry.order = entryOrder;
+    target.order = targetOrder;
+  } else return false;
+  sortInitiativeEntries(e);
+  e.turnSerial = nextSerial;
+  e.turnPath = emptyTurnPath();
+  return true;
+}
+
+function scrollCurrentInitiativeIntoView(list, e) {
+  const targetId = e.playMode === 'turn' ? e.currentEntryId : null;
+  if (!targetId) {
+    const leftTurnMode = Boolean(lastInitiativeScrollEntryId);
+    lastInitiativeScrollEntryId = null;
+    if (leftTurnMode) requestAnimationFrame(() => list.scrollTo({ top: 0, behavior: 'smooth' }));
+    return;
+  }
+  if (targetId === lastInitiativeScrollEntryId) return;
+  lastInitiativeScrollEntryId = targetId;
+  requestAnimationFrame(() => {
+    const current = list.querySelector('.init-chip.current');
+    if (!current || !list.isConnected) return;
+    const listRect = list.getBoundingClientRect();
+    const itemRect = current.getBoundingClientRect();
+    const top = list.scrollTop + itemRect.top - listRect.top - (listRect.height - itemRect.height) / 2;
+    list.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+  });
 }
 
 function addInitiativeEntry(e, { name, value, color = '#e0b34c', tokenId = null }) {
@@ -434,19 +720,23 @@ function addInitiativeEntry(e, { name, value, color = '#e0b34c', tokenId = null 
   return entry;
 }
 
-function addActiveTokensToEncounter() {
+function pruneInitiativeTokenRefs(tokenIds) {
+  const ids = tokenIds instanceof Set ? tokenIds : new Set(tokenIds || []);
+  if (!ids.size) return { removed: 0, currentChanged: false };
   const e = encounterState();
-  const existing = new Set(e.entries.map((entry) => entry.tokenId).filter(Boolean));
-  const candidates = activeTokens().filter((token) => token && token.id && !existing.has(token.id));
-  if (!candidates.length) { toast('当前地图的棋子都已在先攻列表中'); return; }
-  candidates.forEach((token) => addInitiativeEntry(e, {
-    name: token.name,
-    value: 0,
-    color: (TYPE_META[token.type] || TYPE_META.npc).ring,
-    tokenId: token.id,
-  }));
-  setEncounterEvent(e, `加入 ${candidates.length} 个地图棋子`);
-  renderEncounter(); scheduleAutosave();
+  const oldEntries = e.entries.slice();
+  const oldCurrentIndex = oldEntries.findIndex((entry) => entry.id === e.currentEntryId);
+  const oldCurrent = oldCurrentIndex >= 0 ? oldEntries[oldCurrentIndex] : null;
+  e.entries = oldEntries.filter((entry) => !entry.tokenId || !ids.has(entry.tokenId));
+  const removed = oldEntries.length - e.entries.length;
+  const currentChanged = Boolean(oldCurrent && !e.entries.some((entry) => entry.id === oldCurrent.id));
+  if (currentChanged) {
+    const nextIndex = e.entries.length ? Math.min(Math.max(0, oldCurrentIndex), e.entries.length - 1) : -1;
+    e.currentEntryId = nextIndex >= 0 ? e.entries[nextIndex].id : null;
+  } else if (!e.entries.some((entry) => entry.id === e.currentEntryId)) {
+    e.currentEntryId = e.entries[0]?.id || null;
+  }
+  return { removed, currentChanged };
 }
 
 function initiativeEntryLabel(entry) {
@@ -484,13 +774,16 @@ function publicEncounterState(visibleTokenIds = null) {
       value: entry.value,
       color: entry.color,
       tokenId: entry.tokenId,
+      order: Number.isFinite(Number(entry.order)) ? Number(entry.order) : 0,
     })),
     worldTime: {
-      totalSeconds: worldTimeNow(e),
+      // 运行中的时钟必须发送“起跑基数 + 起跑时间”，玩家端再用服务器锚点持续推算。
+      totalSeconds: e.worldTime.totalSeconds,
       runningSince: e.worldTime.runningSince,
       rate: e.worldTime.rate,
     },
-    // 事件文本可能包含被隐藏单位名称，观战端只需要知道状态已更新。
+    weather: { ...e.weather },
+    // 事件文本可能包含被隐藏单位名称，玩家端只需要知道状态已更新。
     lastEvent: e.lastEvent ? { at: e.lastEvent.at, label: '流程状态已更新' } : null,
   };
 }
@@ -501,16 +794,26 @@ function renderEncounter() {
   const e = encounterState();
   const world = worldTimeParts(worldTimeNow(e));
   const current = currentInitiativeEntry(e);
+  const currentIndex = e.entries.findIndex((entry) => entry.id === e.currentEntryId);
+  const nextEntry = e.entries.length && currentIndex >= 0 ? e.entries[(currentIndex + 1) % e.entries.length] : e.entries[0] || null;
+  const weather = weatherPresentation(e.weather, world);
+  const preparing = e.playMode === 'prepare';
+  const inTurn = e.playMode === 'turn';
   bar.classList.toggle('collapsed', Boolean(e.collapsed));
   $('#btn-init-collapse').setAttribute('aria-expanded', String(!e.collapsed));
   $('#btn-init-collapse').textContent = `${e.collapsed ? '▸' : '▾'} 游戏流程`;
-  $('#init-round-readout').textContent = e.playMode === 'turn' ? `第 ${e.round} 轮` : '自由行动';
+  $('#init-round-readout').textContent = inTurn ? `第 ${e.round} 轮` : (preparing ? '战斗准备' : '自由模式');
   $('#init-time-readout').textContent = `${formatWorldDate(world)} ${formatWorldClock(world)}`;
-  $('#init-current-readout').textContent = current && e.playMode === 'turn' ? `当前：${initiativeEntryLabel(current)}` : '未锁定行动单位';
+  $('#init-current-readout').textContent = current && inTurn ? initiativeEntryLabel(current) : (preparing ? '等待战斗开始' : '所有单位可行动');
+  $('#init-weather-readout').textContent = weather.compact;
+  $('#init-focus-current').textContent = current && inTurn ? initiativeEntryLabel(current) : (preparing ? '调整先攻，准备开战' : '所有单位自由行动');
+  $('#init-focus-round').textContent = inTurn ? `第 ${e.round} 轮` : (preparing ? '战斗准备阶段' : '自由模式');
+  $('#init-focus-next').textContent = inTurn && nextEntry ? `下一位：${initiativeEntryLabel(nextEntry)}` : (preparing ? '先攻相同的玩家可以互换顺序' : '点击“准备战斗”整理先攻顺序');
   $('#init-mode-free').classList.toggle('active', e.playMode === 'free');
-  $('#init-mode-turn').classList.toggle('active', e.playMode === 'turn');
+  $('#init-mode-turn').classList.toggle('active', preparing || inTurn);
   $('#init-mode-free').setAttribute('aria-pressed', String(e.playMode === 'free'));
-  $('#init-mode-turn').setAttribute('aria-pressed', String(e.playMode === 'turn'));
+  $('#init-mode-turn').setAttribute('aria-pressed', String(preparing || inTurn));
+  $('#init-mode-turn').textContent = inTurn ? '回合制' : (preparing ? '战斗准备' : '准备战斗');
   document.querySelectorAll('[data-encounter-panel]').forEach((tab) => {
     const active = tab.dataset.encounterPanel === e.panel;
     tab.classList.toggle('active', active);
@@ -518,36 +821,51 @@ function renderEncounter() {
   });
   $('#init-panel-initiative').hidden = e.panel !== 'initiative';
   $('#init-panel-time').hidden = e.panel !== 'time';
-  $('#btn-init-next').disabled = e.playMode !== 'turn' || !e.entries.length;
-  $('#btn-init-timer').textContent = e.playMode === 'turn'
+  $('#btn-combat-start').hidden = !preparing;
+  $('#btn-combat-start').disabled = !e.entries.length;
+  $('#btn-init-next').hidden = !inTurn;
+  $('#btn-init-next').disabled = !inTurn || !e.entries.length;
+  $('#btn-init-next').textContent = inTurn && nextEntry ? `结束当前回合 → ${initiativeEntryLabel(nextEntry)}` : '结束当前回合';
+  $('#btn-init-timer').textContent = inTurn
     ? '⏱ 按战斗轮推进' : (e.worldTime.runningSince ? '❚❚ 暂停时间' : '▶ 开始时间');
-  $('#btn-init-timer').disabled = e.playMode === 'turn';
-  $('#btn-time-short-rest').disabled = e.playMode === 'turn';
-  $('#btn-time-long-rest').disabled = e.playMode === 'turn';
+  $('#btn-init-timer').disabled = inTurn;
+  $('#btn-time-short-rest').disabled = inTurn || restAnimationActive;
+  $('#btn-time-long-rest').disabled = inTurn || restAnimationActive;
   const timeInputs = {
     year: $('#time-year'), week: $('#time-week'), day: $('#time-day'), clock: $('#time-clock'),
+    climate: $('#weather-climate'), condition: $('#weather-condition'), temperature: $('#weather-temperature'), wind: $('#weather-wind'),
   };
   if (timeInputs.year && document.activeElement !== timeInputs.year) timeInputs.year.value = world.year;
   if (timeInputs.week && document.activeElement !== timeInputs.week) timeInputs.week.value = world.week;
   if (timeInputs.day && document.activeElement !== timeInputs.day) timeInputs.day.value = world.day;
   if (timeInputs.clock && document.activeElement !== timeInputs.clock) timeInputs.clock.value = formatWorldClock(world);
+  if (timeInputs.climate && document.activeElement !== timeInputs.climate) timeInputs.climate.value = weather.climate;
+  if (timeInputs.condition && document.activeElement !== timeInputs.condition) timeInputs.condition.value = weather.condition;
+  if (timeInputs.temperature && document.activeElement !== timeInputs.temperature) timeInputs.temperature.value = weather.temperature;
+  if (timeInputs.wind && document.activeElement !== timeInputs.wind) timeInputs.wind.value = weather.wind;
   $('#world-date-display').textContent = formatWorldDate(world);
   $('#world-clock-display').textContent = formatWorldClock(world);
-  $('#time-running-state').textContent = e.playMode === 'turn'
+  $('#world-season-display').textContent = `${weather.season.icon} ${weather.season.label}`;
+  $('#weather-icon-display').textContent = weather.conditionIcon;
+  $('#weather-name-display').textContent = weather.conditionLabel;
+  $('#weather-detail-display').textContent = weather.detail;
+  $('#time-running-state').textContent = inTurn
     ? `战斗轮推进：每轮 +${e.secondsPerRound} 秒`
     : (e.worldTime.runningSince ? '时间运行中' : '时间已暂停');
   $('#time-event').textContent = e.lastEvent?.label || '—';
   const list = $('#init-bar-list');
+  const previousScrollTop = list.scrollTop;
   list.innerHTML = '';
   if (!e.entries.length) {
     list.innerHTML = '<span class="init-empty">添加单位后开始回合</span>';
   } else {
-    e.entries.forEach((entry) => {
+    e.entries.forEach((entry, index) => {
       const chip = document.createElement('div');
-      const currentClass = e.playMode === 'turn' && entry.id === e.currentEntryId ? ' current' : '';
+      const currentClass = inTurn && entry.id === e.currentEntryId ? ' current' : '';
       chip.className = `init-chip${currentClass}`;
-      chip.innerHTML = `<span class="init-dot" style="background:${entry.color || '#e0b34c'}"></span><span class="init-chip-name">${esc(initiativeEntryLabel(entry))}</span><span class="init-chip-val">${entry.value}</span>`;
-      chip.title = e.playMode === 'turn' ? '设为当前行动单位' : '回合制下可指定当前行动单位';
+      chip.dataset.entryId = entry.id;
+      chip.innerHTML = `<span class="init-chip-order">${index + 1}</span><span class="init-dot" style="background:${entry.color || '#e0b34c'}"></span><span class="init-chip-name">${esc(initiativeEntryLabel(entry))}</span><span class="init-chip-val">${entry.value}</span>${currentClass ? '<span class="init-chip-current">行动中</span>' : ''}`;
+      chip.title = inTurn ? '设为当前行动单位' : (preparing ? '战斗准备中' : '进入战斗后可指定当前行动单位');
       chip.addEventListener('click', () => {
         if (e.playMode !== 'turn') { toast('切换到回合制后才能指定当前行动单位'); return; }
         if (e.currentEntryId === entry.id) return;
@@ -565,8 +883,8 @@ function renderEncounter() {
         e.entries.splice(index, 1);
         if (wasCurrent) {
           e.currentEntryId = e.entries[index]?.id || e.entries[index - 1]?.id || null;
-          bumpEncounterTurn(e);
         }
+        if (e.playMode !== 'free') bumpEncounterTurn(e);
         setEncounterEvent(e, `移除先攻单位：${initiativeEntryLabel(entry)}`);
         renderEncounter(); scheduleAutosave();
       });
@@ -574,7 +892,11 @@ function renderEncounter() {
       list.appendChild(chip);
     });
   }
+  list.scrollTop = previousScrollTop;
+  scrollCurrentInitiativeIntoView(list, e);
   renderTurnPath();
+  const selected = state.selectedId ? findToken(state.selectedId) : null;
+  if (selected) updateDetailContext(selected);
 }
 
 function decrementCurrentTokenConditions(e) {
@@ -583,8 +905,10 @@ function decrementCurrentTokenConditions(e) {
   if (!token || !Array.isArray(token.conditions)) return;
   let changed = false;
   token.conditions = token.conditions.flatMap((condition) => {
-    if (!Number.isFinite(Number(condition.remainingTurns))) return [condition];
-    const remaining = Math.max(0, Math.trunc(Number(condition.remainingTurns)) - 1);
+    const rawRemaining = condition?.remainingTurns;
+    const turns = Number(rawRemaining);
+    if (rawRemaining == null || !Number.isFinite(turns) || turns <= 0) return [condition];
+    const remaining = Math.max(0, Math.trunc(turns) - 1);
     changed = true;
     if (!remaining) return [];
     return [{ ...condition, remainingTurns: remaining }];
@@ -606,17 +930,64 @@ function advanceEncounter() {
   decrementCurrentTokenConditions(e);
   const index = currentIndex;
   const nextIndex = (index + 1) % e.entries.length;
+  let automaticWeather = null;
   if (nextIndex === 0) {
     e.round += 1;
     materializeWorldTime(e);
     e.worldTime.totalSeconds += e.secondsPerRound;
+    automaticWeather = refreshScheduledWeather(e, e.worldTime.totalSeconds);
   }
   e.currentEntryId = e.entries[nextIndex].id;
   bumpEncounterTurn(e);
   setEncounterEvent(e, nextIndex === 0
-    ? `第 ${e.round} 轮开始：世界时间 +${e.secondsPerRound} 秒`
+    ? `第 ${e.round} 轮开始：世界时间 +${e.secondsPerRound} 秒${automaticWeather ? `；天气变为${automaticWeather.conditionLabel} ${automaticWeather.temperature}°C` : ''}`
     : `当前单位：${initiativeEntryLabel(e.entries[nextIndex])}`);
   renderEncounter(); scheduleAutosave();
+}
+
+function enterCombatPreparation() {
+  const e = encounterState();
+  if (e.playMode === 'turn') { toast('请先切换到自由模式来结束当前战斗'); return; }
+  if (e.playMode === 'prepare') return;
+  e.playMode = 'prepare';
+  e.round = 1;
+  e.currentEntryId = null;
+  e.panel = 'initiative';
+  e.collapsed = false;
+  bumpEncounterTurn(e);
+  setEncounterEvent(e, '进入战斗准备：等待玩家确认先攻顺序');
+  renderEncounter(); scheduleAutosave();
+}
+
+function startCombat() {
+  const e = encounterState();
+  if (e.playMode !== 'prepare') return;
+  if (!e.entries.length) { toast('请先把单位加入先攻列表'); return; }
+  sortInitiativeEntries(e);
+  const wasRunning = Boolean(e.worldTime.runningSince);
+  materializeWorldTime(e);
+  const automaticWeather = refreshScheduledWeather(e, e.worldTime.totalSeconds);
+  e.worldTime.resumeAfterTurn = wasRunning;
+  e.worldTime.runningSince = null;
+  e.playMode = 'turn';
+  e.round = 1;
+  e.currentEntryId = e.entries[0].id;
+  bumpEncounterTurn(e);
+  setEncounterEvent(e, `战斗开始：${initiativeEntryLabel(e.entries[0])} 先行动${automaticWeather ? `；天气变为${automaticWeather.conditionLabel}` : ''}`);
+  renderEncounter(); renderTokens(); scheduleAutosave();
+}
+
+function leaveCombatForFreeMode() {
+  const e = encounterState();
+  if (e.playMode === 'free') return;
+  if (e.playMode === 'turn' && e.worldTime.resumeAfterTurn) e.worldTime.runningSince = Date.now();
+  e.worldTime.resumeAfterTurn = false;
+  e.playMode = 'free';
+  e.currentEntryId = null;
+  e.round = 1;
+  bumpEncounterTurn(e);
+  setEncounterEvent(e, '已切换为自由模式');
+  renderEncounter(); renderTokens(); scheduleAutosave();
 }
 
 function setWorldClockRunning() {
@@ -625,17 +996,99 @@ function setWorldClockRunning() {
     toast('回合制按完整战斗轮推进时间，请使用“下一位”');
     return;
   }
-  if (e.worldTime.runningSince) materializeWorldTime(e);
-  else e.worldTime.runningSince = Date.now();
-  setEncounterEvent(e, e.worldTime.runningSince ? '世界时间开始运行' : '世界时间已暂停');
+  let automaticWeather = null;
+  if (e.worldTime.runningSince) {
+    materializeWorldTime(e);
+    automaticWeather = refreshScheduledWeather(e, e.worldTime.totalSeconds);
+  } else {
+    e.worldTime.runningSince = Date.now();
+  }
+  setEncounterEvent(e, automaticWeather
+    ? `每日 08:00：天气变为${automaticWeather.conditionLabel} ${automaticWeather.temperature}°C`
+    : (e.worldTime.runningSince ? '世界时间开始运行' : '世界时间已暂停'));
+  renderEncounter(); scheduleAutosave();
+}
+
+function shiftWorldTime(seconds, label) {
+  const e = encounterState();
+  const wasRunning = Boolean(e.worldTime.runningSince);
+  materializeWorldTime(e);
+  const before = e.worldTime.totalSeconds;
+  e.worldTime.totalSeconds = Math.max(0, before + Math.trunc(Number(seconds) || 0));
+  if (wasRunning && e.playMode !== 'turn') e.worldTime.runningSince = Date.now();
+  const world = worldTimeParts(e.worldTime.totalSeconds);
+  const automaticWeather = refreshScheduledWeather(e, e.worldTime.totalSeconds);
+  setEncounterEvent(e, `${label}：${formatWorldDate(world)} ${formatWorldClock(world)}${automaticWeather ? `；天气变为${automaticWeather.conditionLabel} ${automaticWeather.temperature}°C` : ''}`);
   renderEncounter(); scheduleAutosave();
 }
 
 function advanceWorldTime(seconds, label) {
+  shiftWorldTime(Math.max(0, Math.trunc(Number(seconds) || 0)), label);
+}
+
+function playRestTransition(kind) {
+  const isLong = kind === 'long';
+  const layer = $('#rest-transition');
+  const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+  const duration = reducedMotion ? (isLong ? 500 : 300) : (isLong ? 3200 : 1400);
+  restAnimationActive = true;
+  clearTimeout(restAnimationTimer);
+  if (layer) {
+    layer.hidden = false;
+    layer.className = `rest-transition ${isLong ? 'is-long' : 'is-short'}`;
+    layer.style.setProperty('--rest-duration', `${duration}ms`);
+    layer.setAttribute('aria-label', isLong ? '长休进行中' : '短休进行中');
+    $('#rest-transition-icon').textContent = isLong ? '🌙' : '🔥';
+    $('#rest-transition-title').textContent = isLong ? '长休' : '短休';
+    $('#rest-transition-subtitle').textContent = isLong ? '夜色流转，晨光将至' : '围火喘息，片刻整备';
+    // 重新触发布局，让连续两次休息都从动画第一帧开始。
+    void layer.offsetWidth;
+  }
+  restAnimationTimer = setTimeout(() => {
+    restAnimationTimer = null;
+    restAnimationActive = false;
+    if (layer) {
+      layer.hidden = true;
+      layer.className = 'rest-transition';
+      layer.removeAttribute('aria-label');
+    }
+    renderEncounter();
+  }, duration);
+}
+
+function takeRest(kind) {
+  if (restAnimationActive) return;
+  const isLong = kind === 'long';
+  playRestTransition(isLong ? 'long' : 'short');
+  advanceWorldTime(isLong ? 8 * 60 * 60 : 60 * 60, isLong
+    ? '完成长休：世界时间 +8 小时'
+    : '完成短休：世界时间 +1 小时');
+}
+
+function applyWeatherFromInputs() {
   const e = encounterState();
-  materializeWorldTime(e);
-  e.worldTime.totalSeconds += Math.max(0, Math.trunc(seconds));
-  setEncounterEvent(e, label);
+  const world = worldTimeParts(worldTimeNow(e));
+  const climate = CLIMATE_META[$('#weather-climate').value] ? $('#weather-climate').value : 'temperate';
+  const displayedTemperature = Number($('#weather-temperature').value);
+  const baseTemperature = Number.isFinite(displayedTemperature)
+    ? displayedTemperature - hourlyTemperatureOffset(climate, world.hour)
+    : defaultWeatherState().temperature;
+  e.weather = normalizeWeather({
+    climate,
+    condition: $('#weather-condition').value,
+    temperature: baseTemperature,
+    wind: $('#weather-wind').value,
+    generatedDay: weatherDayIndex(world.totalSeconds),
+  });
+  const presentation = weatherPresentation(e.weather, world);
+  setEncounterEvent(e, `气候更新：${presentation.detail}`);
+  renderEncounter(); scheduleAutosave();
+}
+
+function generateWeatherFromClimate() {
+  const e = encounterState();
+  const presentation = generateClimateWeather(e, $('#weather-climate').value, worldTimeNow(e));
+  setEncounterEvent(e, `按气候生成：${presentation.detail}`);
   renderEncounter(); scheduleAutosave();
 }
 
@@ -648,12 +1101,16 @@ function setWorldTimeFromInputs() {
   const hour = timeMatch ? clamp(Number(timeMatch[1]), 0, 23) : 8;
   const minute = timeMatch ? clamp(Number(timeMatch[2]), 0, 59) : 0;
   const second = timeMatch ? clamp(Number(timeMatch[3] || 0), 0, 59) : 0;
+  const wasRunning = Boolean(e.worldTime.runningSince);
   materializeWorldTime(e);
   e.worldTime.totalSeconds = ((year - 1) * WORLD_MINUTES_PER_YEAR * 60)
     + ((week - 1) * WORLD_DAYS_PER_WEEK * WORLD_MINUTES_PER_DAY * 60)
     + ((day - 1) * WORLD_MINUTES_PER_DAY * 60)
     + (hour * 3600) + (minute * 60) + second;
-  setEncounterEvent(e, `时间调整为：${formatWorldDate(worldTimeParts(e.worldTime.totalSeconds))}`);
+  if (wasRunning && e.playMode !== 'turn') e.worldTime.runningSince = Date.now();
+  const world = worldTimeParts(e.worldTime.totalSeconds);
+  const automaticWeather = refreshScheduledWeather(e, e.worldTime.totalSeconds);
+  setEncounterEvent(e, `时间调整为：${formatWorldDate(world)} ${formatWorldClock(world)}${automaticWeather ? `；天气变为${automaticWeather.conditionLabel} ${automaticWeather.temperature}°C` : ''}`);
   renderEncounter(); scheduleAutosave();
 }
 
@@ -670,7 +1127,18 @@ function mapById(id) {
   return state.maps.find((m) => m.id === id);
 }
 
-function makeMapEntry(name, dataUrl, w, h, gridSize, cells, cellStates, cellVariants) {
+function mapGridVisible(map = activeMap()) {
+  return map ? map.gridVisible !== false : state.showGrid !== false;
+}
+
+function syncActiveMapGridSetting() {
+  const visible = mapGridVisible();
+  state.showGrid = visible;
+  const toggle = $('#grid-toggle');
+  if (toggle) toggle.checked = visible;
+}
+
+function makeMapEntry(name, dataUrl, w, h, gridSize, cells, cellStates, cellVariants, gridVisible = true) {
   return {
     id: 'm' + (uid++),
     name: name || '未命名地图',
@@ -678,6 +1146,7 @@ function makeMapEntry(name, dataUrl, w, h, gridSize, cells, cellStates, cellVari
     mapW: w || 1400,
     mapH: h || 900,
     gridSize: gridSize || 50,
+    gridVisible: gridVisible !== false,
     cells: Array.isArray(cells) ? cells.map((r) => r.slice()) : null,
     cellStates: cellStates && typeof cellStates === 'object' ? { ...cellStates } : {},
     cellVariants: cellVariants && typeof cellVariants === 'object' ? { ...cellVariants } : {},
@@ -692,8 +1161,8 @@ function makeMapEntry(name, dataUrl, w, h, gridSize, cells, cellStates, cellVari
   };
 }
 
-function addMap(name, dataUrl, w, h, gridSize, cells, cellStates, cellVariants) {
-  const m = makeMapEntry(name, dataUrl, w, h, gridSize, cells, cellStates, cellVariants);
+function addMap(name, dataUrl, w, h, gridSize, cells, cellStates, cellVariants, gridVisible = true) {
+  const m = makeMapEntry(name, dataUrl, w, h, gridSize, cells, cellStates, cellVariants, gridVisible);
   state.maps.push(m);
   switchMap(m.id);
   fitView();
@@ -704,7 +1173,12 @@ function switchMap(id) {
   const m = mapById(id);
   if (!m) return;
   state.activeMapId = id;
+  syncActiveMapGridSetting();
   state.selectedId = null;
+  spellAimTokenId = null;
+  cancelMapReaction();
+  const reactionLayer = $('#reaction-layer');
+  if (reactionLayer) reactionLayer.innerHTML = '';
   boardTool = null;
   syncBoardTools();
   syncMapSelect();
@@ -712,22 +1186,31 @@ function switchMap(id) {
   scheduleAutosave();
 }
 
-function deleteActiveMap() {
+function deleteMapById(mapId) {
   if (state.maps.length <= 1) {
     toast('至少保留一张地图');
     return;
   }
-  const m = activeMap();
+  const m = mapById(mapId);
   if (!m || !confirm(`确定删除地图「${m.name}」？该地图上的棋子会一并删除。`)) return;
+  const mapIndex = state.maps.findIndex((map) => map.id === m.id);
+  const wasActive = m.id === state.activeMapId;
   const invalidatesTurn = m.tokens.some((token) => currentTurnIncludesToken(token.id));
+  const pruned = pruneInitiativeTokenRefs(new Set(m.tokens.map((token) => token.id)));
   state.maps = state.maps.filter((x) => x.id !== m.id);
-  state.activeMapId = state.maps[0].id;
-  state.selectedId = null;
+  if (wasActive) {
+    state.activeMapId = state.maps[Math.min(mapIndex, state.maps.length - 1)].id;
+    state.selectedId = null;
+    syncActiveMapGridSetting();
+  }
   syncMapSelect();
-  applyActiveMap();
-  if (invalidatesTurn) bumpEncounterTurn(encounterState());
+  if (wasActive) applyActiveMap();
+  else renderMapBrowser();
+  if (encounterState().playMode === 'turn' && (invalidatesTurn || pruned.removed)) bumpEncounterTurn(encounterState());
+  if (pruned.removed) renderEncounter();
   renderTurnPath();
   scheduleAutosave();
+  toast(`已删除地图「${m.name}」`);
 }
 
 function syncMapSelect() {
@@ -741,6 +1224,337 @@ function syncMapSelect() {
     sel.appendChild(opt);
   });
   sel.value = state.activeMapId;
+  const browserModal = $('#map-browser-modal');
+  if (browserModal && !browserModal.hidden) renderMapBrowser();
+}
+
+function mapNameFromFile(fileName) {
+  return String(fileName || '导入地图')
+    .replace(/\.[^.]+$/, '')
+    .trim()
+    .slice(0, 60) || '导入地图';
+}
+
+function uniqueMapName(rawName, usedNames = null) {
+  const used = usedNames || new Set(state.maps.map((map) => String(map.name || '').toLocaleLowerCase('zh-CN')));
+  const base = String(rawName || '导入地图').trim().slice(0, 60) || '导入地图';
+  let candidate = base;
+  let suffix = 2;
+  while (used.has(candidate.toLocaleLowerCase('zh-CN'))) {
+    candidate = `${base} ${suffix++}`;
+  }
+  used.add(candidate.toLocaleLowerCase('zh-CN'));
+  return candidate;
+}
+
+function drawMapThumbnailBase(canvas, map) {
+  const g = canvas.getContext('2d');
+  g.clearRect(0, 0, canvas.width, canvas.height);
+  const gradient = g.createLinearGradient(0, 0, canvas.width, canvas.height);
+  gradient.addColorStop(0, '#202633');
+  gradient.addColorStop(1, '#0e1118');
+  g.fillStyle = gradient;
+  g.fillRect(0, 0, canvas.width, canvas.height);
+  g.strokeStyle = 'rgba(255,255,255,.055)';
+  g.lineWidth = 1;
+  for (let x = 0; x <= canvas.width; x += 48) {
+    g.beginPath(); g.moveTo(x, 0); g.lineTo(x, canvas.height); g.stroke();
+  }
+  for (let y = 0; y <= canvas.height; y += 48) {
+    g.beginPath(); g.moveTo(0, y); g.lineTo(canvas.width, y); g.stroke();
+  }
+  if (!map?.mapData) {
+    g.fillStyle = 'rgba(224,179,76,.85)';
+    g.font = '700 42px system-ui, sans-serif';
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.fillText('空白地图', canvas.width / 2, canvas.height / 2);
+  }
+}
+
+function paintMapThumbnail(canvas, map, renderToken) {
+  if (!canvas || !map) return;
+  canvas.dataset.renderToken = String(renderToken);
+  drawMapThumbnailBase(canvas, map);
+  if (!map.mapData) return;
+  const cached = mapThumbnailCache.get(map.id);
+  const cacheValid = cached
+    && cached.source === map.mapData
+    && cached.mapW === map.mapW
+    && cached.mapH === map.mapH;
+  const img = new Image();
+  img.onload = () => {
+    if (!canvas.isConnected || canvas.dataset.renderToken !== String(renderToken)) return;
+    const g = canvas.getContext('2d');
+    drawMapThumbnailBase(canvas, { ...map, mapData: null });
+    const imageW = img.naturalWidth || img.width;
+    const imageH = img.naturalHeight || img.height;
+    if (!imageW || !imageH) return;
+    const scale = Math.min(canvas.width / imageW, canvas.height / imageH);
+    const drawW = imageW * scale;
+    const drawH = imageH * scale;
+    const drawX = (canvas.width - drawW) / 2;
+    const drawY = (canvas.height - drawH) / 2;
+    g.imageSmoothingEnabled = true;
+    g.imageSmoothingQuality = 'high';
+    g.drawImage(img, drawX, drawY, drawW, drawH);
+    if (!cacheValid) {
+      try {
+        mapThumbnailCache.set(map.id, {
+          source: map.mapData,
+          mapW: map.mapW,
+          mapH: map.mapH,
+          preview: canvas.toDataURL('image/jpeg', .76),
+        });
+      } catch (e) { /* 跨域图片仍能显示，只是不写缩略图缓存 */ }
+    }
+  };
+  img.onerror = () => {
+    if (!canvas.isConnected || canvas.dataset.renderToken !== String(renderToken)) return;
+    const g = canvas.getContext('2d');
+    g.fillStyle = '#9aa3b2';
+    g.font = '24px system-ui, sans-serif';
+    g.textAlign = 'center';
+    g.fillText('预览不可用', canvas.width / 2, canvas.height / 2);
+  };
+  img.src = cacheValid ? cached.preview : map.mapData;
+}
+
+function updateMapBrowserScrollButtons() {
+  const strip = $('#map-thumbnail-strip');
+  const left = $('#btn-map-scroll-left');
+  const right = $('#btn-map-scroll-right');
+  if (!strip || !left || !right) return;
+  const maxScroll = Math.max(0, strip.scrollWidth - strip.clientWidth);
+  left.disabled = strip.scrollLeft <= 2;
+  right.disabled = strip.scrollLeft >= maxScroll - 2;
+}
+
+function renderMapBrowser(focusActive = false) {
+  const strip = $('#map-thumbnail-strip');
+  if (!strip) return;
+  const liveMapIds = new Set(state.maps.map((map) => map.id));
+  for (const cachedId of mapThumbnailCache.keys()) {
+    if (!liveMapIds.has(cachedId)) mapThumbnailCache.delete(cachedId);
+  }
+  const previousScroll = strip.scrollLeft;
+  const renderToken = ++mapBrowserRenderToken;
+  const count = $('#map-browser-count');
+  if (count) count.textContent = `${state.maps.length} 张地图`;
+  strip.innerHTML = '';
+  if (!state.maps.length) {
+    const empty = document.createElement('div');
+    empty.className = 'map-thumbnail-empty';
+    empty.textContent = '当前还没有地图，点击“载入地图”添加第一张地图。';
+    strip.appendChild(empty);
+    requestAnimationFrame(updateMapBrowserScrollButtons);
+    return;
+  }
+
+  state.maps.forEach((map, index) => {
+    const card = document.createElement('article');
+    card.className = `map-thumb-card${map.id === state.activeMapId ? ' active' : ''}`;
+    card.dataset.mapId = map.id;
+
+    const open = document.createElement('button');
+    open.type = 'button';
+    open.className = 'map-thumb-open';
+    open.dataset.mapOpen = map.id;
+    open.setAttribute('aria-label', `切换到地图 ${map.name}`);
+
+    const preview = document.createElement('div');
+    preview.className = 'map-thumb-preview';
+    const canvas = document.createElement('canvas');
+    canvas.width = MAP_THUMBNAIL_WIDTH;
+    canvas.height = MAP_THUMBNAIL_HEIGHT;
+    canvas.setAttribute('aria-hidden', 'true');
+    preview.appendChild(canvas);
+
+    const orderBadge = document.createElement('span');
+    orderBadge.className = 'map-thumb-order-badge';
+    orderBadge.textContent = `#${index + 1}`;
+    preview.appendChild(orderBadge);
+    if (map.id === state.activeMapId) {
+      const activeBadge = document.createElement('span');
+      activeBadge.className = 'map-thumb-active-badge';
+      activeBadge.textContent = '当前';
+      preview.appendChild(activeBadge);
+    }
+
+    const copy = document.createElement('span');
+    copy.className = 'map-thumb-copy';
+    const name = document.createElement('span');
+    name.className = 'map-thumb-name';
+    name.textContent = map.name || '未命名地图';
+    name.title = map.name || '未命名地图';
+    const meta = document.createElement('span');
+    meta.className = 'map-thumb-meta';
+    meta.textContent = `${map.mapW || 0} × ${map.mapH || 0} · ${mapGridVisible(map) ? `网格 ${map.gridSize || 50}px` : `无网格 · ${map.gridSize || 50}px/5尺`}`;
+    copy.append(name, meta);
+    open.append(preview, copy);
+
+    const management = document.createElement('div');
+    management.className = 'map-thumb-management';
+    const gridToggleLabel = document.createElement('label');
+    gridToggleLabel.className = 'map-thumb-grid-toggle';
+    gridToggleLabel.title = '只控制这张地图是否显示网格';
+    const gridToggle = document.createElement('input');
+    gridToggle.type = 'checkbox';
+    gridToggle.checked = mapGridVisible(map);
+    gridToggle.dataset.mapGridVisible = map.id;
+    const gridToggleText = document.createElement('span');
+    gridToggleText.textContent = '显示网格';
+    gridToggleLabel.append(gridToggle, gridToggleText);
+    const gridSize = document.createElement('input');
+    gridSize.className = 'map-thumb-grid-size';
+    gridSize.type = 'number';
+    gridSize.min = '10';
+    gridSize.max = '300';
+    gridSize.step = '1';
+    gridSize.value = String(map.gridSize || 50);
+    const workshopGrid = Array.isArray(map.cells);
+    gridSize.disabled = workshopGrid;
+    gridSize.dataset.mapGridSize = map.id;
+    gridSize.title = workshopGrid ? '地图工坊的网格大小由地图文件决定' : '每格像素（每格代表 5 尺）';
+    gridSize.setAttribute('aria-label', `${map.name} 的每格像素`);
+    const rename = document.createElement('button');
+    rename.type = 'button';
+    rename.dataset.mapRename = map.id;
+    rename.title = '重命名地图';
+    rename.setAttribute('aria-label', `重命名 ${map.name}`);
+    rename.textContent = '✎';
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'map-thumb-delete';
+    remove.dataset.mapDelete = map.id;
+    remove.title = state.maps.length > 1 ? '删除地图' : '至少保留一张地图';
+    remove.setAttribute('aria-label', `删除 ${map.name}`);
+    remove.textContent = '×';
+    remove.disabled = state.maps.length <= 1;
+    management.append(gridToggleLabel, gridSize, rename, remove);
+
+    const actions = document.createElement('div');
+    actions.className = 'map-thumb-actions';
+    const moveLeft = document.createElement('button');
+    moveLeft.type = 'button';
+    moveLeft.dataset.mapStep = '-1';
+    moveLeft.dataset.mapId = map.id;
+    moveLeft.title = '向前移动';
+    moveLeft.setAttribute('aria-label', `将 ${map.name} 向前移动`);
+    moveLeft.textContent = '←';
+    moveLeft.disabled = index === 0;
+    const dragHint = document.createElement('span');
+    dragHint.className = 'map-thumb-drag-hint';
+    dragHint.dataset.mapDragHandle = map.id;
+    dragHint.title = state.maps.length > 1 ? '按住并拖动以调整顺序' : '';
+    dragHint.textContent = state.maps.length > 1 ? '⠿ 拖动排序' : '仅一张地图';
+    const moveRight = document.createElement('button');
+    moveRight.type = 'button';
+    moveRight.dataset.mapStep = '1';
+    moveRight.dataset.mapId = map.id;
+    moveRight.title = '向后移动';
+    moveRight.setAttribute('aria-label', `将 ${map.name} 向后移动`);
+    moveRight.textContent = '→';
+    moveRight.disabled = index === state.maps.length - 1;
+    actions.append(moveLeft, dragHint, moveRight);
+    card.append(open, management, actions);
+    strip.appendChild(card);
+    paintMapThumbnail(canvas, map, renderToken);
+  });
+
+  requestAnimationFrame(() => {
+    if (focusActive) {
+      strip.querySelector('.map-thumb-card.active')?.scrollIntoView({ block: 'nearest', inline: 'center' });
+    } else {
+      strip.scrollLeft = previousScroll;
+    }
+    updateMapBrowserScrollButtons();
+  });
+}
+
+function openMapBrowser() {
+  const modal = $('#map-browser-modal');
+  if (!modal) return;
+  modal.hidden = false;
+  renderMapBrowser(true);
+}
+
+function closeMapBrowser() {
+  const modal = $('#map-browser-modal');
+  if (modal) modal.hidden = true;
+  mapBrowserPointerDrag = null;
+  clearMapDropIndicators();
+  document.querySelectorAll('.map-thumb-card.dragging').forEach((card) => card.classList.remove('dragging'));
+}
+
+function clearMapDropIndicators() {
+  document.querySelectorAll('.map-thumb-card.drop-before,.map-thumb-card.drop-after')
+    .forEach((card) => card.classList.remove('drop-before', 'drop-after'));
+}
+
+function moveMapBy(mapId, step) {
+  const from = state.maps.findIndex((map) => map.id === mapId);
+  const to = clamp(from + Number(step || 0), 0, Math.max(0, state.maps.length - 1));
+  if (from < 0 || from === to) return;
+  const [map] = state.maps.splice(from, 1);
+  state.maps.splice(to, 0, map);
+  syncMapSelect();
+  scheduleAutosave();
+  toast(`已将「${map.name}」移到第 ${to + 1} 位`);
+}
+
+function reorderMapAround(mapId, targetId, placeAfter) {
+  if (!mapId || !targetId || mapId === targetId) return;
+  const from = state.maps.findIndex((map) => map.id === mapId);
+  if (from < 0) return;
+  const [map] = state.maps.splice(from, 1);
+  let targetIndex = state.maps.findIndex((item) => item.id === targetId);
+  if (targetIndex < 0) {
+    state.maps.splice(from, 0, map);
+    return;
+  }
+  if (placeAfter) targetIndex += 1;
+  state.maps.splice(targetIndex, 0, map);
+  syncMapSelect();
+  scheduleAutosave();
+  toast(`地图顺序已更新：「${map.name}」现在是第 ${targetIndex + 1} 张`);
+}
+
+function renameMapById(mapId) {
+  const map = mapById(mapId);
+  if (!map) return;
+  const name = prompt('地图名称', map.name || '未命名地图');
+  if (name === null || !name.trim()) return;
+  map.name = name.trim().slice(0, 60);
+  syncMapSelect();
+  scheduleAutosave();
+}
+
+function setMapGridVisibility(mapId, visible) {
+  const map = mapById(mapId);
+  if (!map) return;
+  map.gridVisible = Boolean(visible);
+  if (map.id === state.activeMapId) {
+    syncActiveMapGridSetting();
+    updateWorldBackground();
+  }
+  renderMapBrowser();
+  scheduleAutosave();
+}
+
+function setMapGridSize(mapId, value) {
+  const map = mapById(mapId);
+  if (!map || Array.isArray(map.cells)) return;
+  const next = clamp(Math.round(Number(value) || map.gridSize || 50), 10, 300);
+  if (next === map.gridSize) {
+    renderMapBrowser();
+    return;
+  }
+  map.gridSize = next;
+  if (map.id === state.activeMapId) applyActiveMap();
+  renderMapBrowser();
+  scheduleAutosave();
+  toast(`「${map.name}」网格已调整为 ${next}px/格`);
 }
 
 /* ==================== 高清头像（IndexedDB 存储） ==================== */
@@ -748,11 +1562,16 @@ function syncMapSelect() {
 const AVATAR_DB = 'dnd-board-assets';
 const AVATAR_HD_MAX = 2048;      // 高清上限：上传图最高保留 2048px
 const AVATAR_DISPLAY_MAX = 512;  // 显示上限：地图/卡片渲染时自动降到 512px，避免大纹理拖图卡顿
-const AVATAR_LOW_MAX = 128;      // 低清显示版：关高清时地图棋子使用，恢复以前的轻量纹理
+const AVATAR_LOW_MAX = 192;      // 常规显示版：足够覆盖高分屏小棋子，同时维持轻量纹理
+const AVATAR_LOW_CACHE_SUFFIX = '@s192';
+const PORTRAIT_LOD_SWITCH_UP = 168;
+const PORTRAIT_LOD_SWITCH_DOWN = 136;
 const avatarCache = new Map();
-const avatarLowCache = new Map(); // iconImgId -> 128px 低清版
+const avatarLowCache = new Map(); // iconImgId -> 192px 常规显示版
 const avatarLodEls = new Map();  // iconImgId -> Set<DOM元素>，用于缩放时切换画质
+const portraitLodProbes = new Map(); // 静态显示缓存 URL -> boolean | Promise<boolean>
 let lastAvatarZoom = null;
+let avatarLodFrame = 0;
 let hdEnabled = false;           // 高清立绘总开关（顶栏 🖼️ 高清），默认关＝最流畅
 
 function idbOpen() {
@@ -831,13 +1650,83 @@ function portraitAssetUrl(path) {
   return '../asset/棋子库/' + relativePath;
 }
 
-function applyAvatar(el, iconImg, iconImgId, iconImgHd, iconImgPath) {
+function portraitLodRelativePath(path, tier) {
+  const normalized = canonicalPortraitPath(path);
+  if (!normalized || /^(?:data:|blob:|https?:|\/)/.test(normalized)) return null;
+  const sourceRelative = normalized.replace(/^立绘\//, '');
+  if (sourceRelative === normalized) return null;
+  const webpRelative = sourceRelative.replace(/\.[^./]+$/, '.webp');
+  return `显示缓存/${tier === AVATAR_DISPLAY_MAX ? AVATAR_DISPLAY_MAX : AVATAR_LOW_MAX}/${webpRelative}`;
+}
+
+function portraitLodAssetUrl(path, tier) {
+  const relative = portraitLodRelativePath(path, tier);
+  return relative ? portraitAssetUrl(relative) : portraitAssetUrl(path);
+}
+
+function setAvatarBackground(el, url) {
+  if (!url || el.dataset.lodUrl === url) return;
+  el.dataset.lodUrl = url;
+  el.style.backgroundImage = `url("${url}")`;
+}
+
+function probePortraitLod(url) {
+  const known = portraitLodProbes.get(url);
+  if (known === true || known === false) return Promise.resolve(known);
+  if (known) return known;
+  const pending = new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => resolve(true);
+    img.onerror = () => resolve(false);
+    img.src = url;
+  }).then((ok) => {
+    portraitLodProbes.set(url, ok);
+    return ok;
+  });
+  portraitLodProbes.set(url, pending);
+  return pending;
+}
+
+function applyPortraitBackground(el, path, tier) {
+  const original = portraitAssetUrl(path);
+  const candidate = portraitLodAssetUrl(path, tier);
+  el.dataset.portraitTier = String(tier);
+  if (!candidate || candidate === original) {
+    setAvatarBackground(el, original);
+    return;
+  }
+  const known = portraitLodProbes.get(candidate);
+  if (known === false) {
+    setAvatarBackground(el, original);
+    return;
+  }
+  setAvatarBackground(el, candidate);
+  if (known === true) return;
+  probePortraitLod(candidate).then((ok) => {
+    if (!ok && el.isConnected && el.dataset.lodUrl === candidate) setAvatarBackground(el, original);
+  });
+}
+
+function applyPortraitImage(el, path, tier = AVATAR_DISPLAY_MAX) {
+  const original = portraitAssetUrl(path);
+  const candidate = portraitLodAssetUrl(path, tier);
+  el.dataset.portraitUrl = candidate;
+  el.onerror = () => {
+    if (el.dataset.portraitUrl !== candidate) return;
+    el.dataset.portraitUrl = original;
+    el.onerror = null;
+    el.src = original;
+  };
+  el.src = candidate;
+}
+
+function applyAvatar(el, iconImg, iconImgId, iconImgHd, iconImgPath, portraitTier = AVATAR_LOW_MAX) {
   if (iconImg) el.style.backgroundImage = `url("${iconImg}")`;
   if (hdEnabled && iconImgHd) el.style.backgroundImage = `url("${iconImgHd}")`;
   if (iconImgPath) {
     el.style.backgroundSize = '116.3% 116.3%';
     el.style.backgroundPosition = 'center';
-    el.style.backgroundImage = `url("${portraitAssetUrl(iconImgPath)}")`;
+    applyPortraitBackground(el, iconImgPath, portraitTier);
     return;
   }
   if (iconImgId && hdEnabled) {
@@ -904,7 +1793,7 @@ function avatarDisplayDataUrl(hdDataUrl, max = AVATAR_DISPLAY_MAX) {
   })();
 }
 
-// 高清入库时顺便生成 512 显示版并永久存入高清库（键 id@d），以后读取零计算
+// 高清入库时顺便生成 512/192 显示版并永久存入高清库，以后读取零计算
 async function storeAvatar(id, hd) {
   await avatarPut(id, hd);
   try {
@@ -912,7 +1801,7 @@ async function storeAvatar(id, hd) {
       avatarDisplayDataUrl(hd, AVATAR_DISPLAY_MAX),
       avatarDisplayDataUrl(hd, AVATAR_LOW_MAX),
     ]);
-    await Promise.all([avatarPut(id + '@d', disp), avatarPut(id + '@s', low)]);
+    await Promise.all([avatarPut(id + '@d', disp), avatarPut(id + AVATAR_LOW_CACHE_SUFFIX, low)]);
     avatarCache.set(id, disp);
     avatarLowCache.set(id, low);
   } catch (e) { /* 显示版失败不影响原图 */ }
@@ -932,17 +1821,17 @@ async function avatarGetDisplay(id) {
   return made;
 }
 
-// 低清显示版（128px）：关高清时地图棋子用，纹理轻，恢复以前的流畅度
+// 常规显示版（192px）：高分屏小棋子足够清楚，同时保持纹理轻量
 async function avatarGetLow(id) {
   const cached = avatarLowCache.get(id);
   if (cached) return cached;
-  const low = await avatarGet(id + '@s');
+  const low = await avatarGet(id + AVATAR_LOW_CACHE_SUFFIX);
   if (low) { avatarLowCache.set(id, low); return low; }
   const disp = await avatarGet(id + '@d');
   if (disp) {
     const made = await avatarDisplayDataUrl(disp, AVATAR_LOW_MAX);
     avatarLowCache.set(id, made);
-    try { await avatarPut(id + '@s', made); } catch (e) { /* 忽略 */ }
+    try { await avatarPut(id + AVATAR_LOW_CACHE_SUFFIX, made); } catch (e) { /* 忽略 */ }
     return made;
   }
   const hd = await avatarGet(id);
@@ -953,17 +1842,30 @@ async function avatarGetLow(id) {
     ]);
     avatarCache.set(id, disp2);
     avatarLowCache.set(id, low2);
-    try { await Promise.all([avatarPut(id + '@d', disp2), avatarPut(id + '@s', low2)]); } catch (e) { /* 忽略 */ }
+    try { await Promise.all([avatarPut(id + '@d', disp2), avatarPut(id + AVATAR_LOW_CACHE_SUFFIX, low2)]); } catch (e) { /* 忽略 */ }
     return low2;
   }
   return null;
 }
 
-// 自适应画质：关闭高清时优先使用 128px 缓存；没有缓存则直接使用项目原图。
+function tokenPortraitTier(el) {
+  if (!hdEnabled) return AVATAR_LOW_MAX;
+  const m = activeMap();
+  const zoom = m ? m.cam.zoom : 1;
+  const dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
+  const mapPixels = Math.max(el.offsetWidth || 0, el.offsetHeight || 0);
+  const requiredPixels = mapPixels * zoom * dpr * 1.16;
+  const currentTier = Number(el.dataset.portraitTier) || AVATAR_LOW_MAX;
+  if (currentTier === AVATAR_DISPLAY_MAX) {
+    return requiredPixels < PORTRAIT_LOD_SWITCH_DOWN ? AVATAR_LOW_MAX : AVATAR_DISPLAY_MAX;
+  }
+  return requiredPixels > PORTRAIT_LOD_SWITCH_UP ? AVATAR_DISPLAY_MAX : AVATAR_LOW_MAX;
+}
+
+// 自适应画质：小棋子读 192px，放大或大体型时才切换到 512px。
 function applyTokenAvatar(el, t) {
   if (t.iconImg) el.style.backgroundImage = `url("${t.iconImg}")`;
   if (hdEnabled && t.iconImgHd) el.style.backgroundImage = `url("${t.iconImgHd}")`;
-  if (t.iconImgPath) el.style.backgroundImage = `url("${portraitAssetUrl(t.iconImgPath)}")`;
   const assetKey = t.iconImgId || (t.iconImgPath ? 'path:' + t.iconImgPath : (t.iconImgHd ? 'embedded:' + t.id : ''));
   if (!assetKey) return;
   el.dataset.avatarId = assetKey;
@@ -974,6 +1876,14 @@ function applyTokenAvatar(el, t) {
 }
 
 function refreshAvatarLodElement(el, t) {
+  if (t.iconImgPath) {
+    const tier = tokenPortraitTier(el);
+    el.dataset.lod = tier === AVATAR_DISPLAY_MAX ? 'high' : 'low';
+    el.style.backgroundSize = '116.3% 116.3%';
+    el.style.backgroundPosition = 'center';
+    applyPortraitBackground(el, t.iconImgPath, tier);
+    return;
+  }
   if (!hdEnabled) {
     el.dataset.lod = 'low';
     const low = t.iconImgId ? avatarLowCache.get(t.iconImgId) : null;
@@ -984,35 +1894,15 @@ function refreshAvatarLodElement(el, t) {
       }
       return;
     }
-    // 正式棋子库只保存项目内路径；若没有低清缓存，直接回退到原图。
-    if (t.iconImgPath) {
-      const src = portraitAssetUrl(t.iconImgPath);
-      el.dataset.lodUrl = src;
-      el.style.backgroundSize = '116.3% 116.3%';
-      el.style.backgroundPosition = 'center';
-      el.style.backgroundImage = `url("${src}")`;
-      return;
-    } else {
-      if (t.iconImg) el.style.backgroundImage = `url("${t.iconImg}")`;
-      if (t.iconImgId && !avatarLowCache.has(t.iconImgId)) {
-        avatarGetLow(t.iconImgId).then((lv) => {
-          if (lv && el.isConnected && el.dataset.lod === 'low') {
-            el.dataset.lodUrl = lv;
-            el.style.backgroundImage = `url("${lv}")`;
-          }
-        }).catch(() => {});
-      }
+    if (t.iconImg) el.style.backgroundImage = `url("${t.iconImg}")`;
+    if (t.iconImgId && !avatarLowCache.has(t.iconImgId)) {
+      avatarGetLow(t.iconImgId).then((lv) => {
+        if (lv && el.isConnected && el.dataset.lod === 'low') {
+          el.dataset.lodUrl = lv;
+          el.style.backgroundImage = `url("${lv}")`;
+        }
+      }).catch(() => {});
     }
-    return;
-  }
-  if (t.iconImgPath) {
-    const src = portraitAssetUrl(t.iconImgPath);
-    el.dataset.lod = 'high';
-    el.dataset.lodUrl = src;
-    // 原图有效圆直径约为方图的 86%，放大 1/0.86 后正好铺满棋子圆片。
-    el.style.backgroundSize = '116.3% 116.3%';
-    el.style.backgroundPosition = 'center';
-    el.style.backgroundImage = `url("${src}")`;
     return;
   }
   if (t.iconImgHd) {
@@ -1060,12 +1950,24 @@ function refreshAvatarLOD() {
   });
 }
 
+function scheduleAvatarLODRefresh() {
+  if (avatarLodFrame) return;
+  avatarLodFrame = requestAnimationFrame(() => {
+    avatarLodFrame = 0;
+    refreshAvatarLOD();
+  });
+}
+
+function syncHdUi() {
+  const cb = $('#hd-toggle-check');
+  if (cb) cb.checked = hdEnabled;
+}
+
 function setHd(on) {
   hdEnabled = !!on;
   try { localStorage.setItem('sangduoer-hd-toggle', hdEnabled ? '1' : '0'); } catch (e) { /* 忽略 */ }
-  const cb = $('#hd-toggle-check');
-  if (cb) cb.checked = hdEnabled;
-  toast(hdEnabled ? '高清：开（所有棋子立即渲染高清）' : '高清：关（优先使用低清缓存）');
+  syncHdUi();
+  toast(hdEnabled ? '高清：开（放大时自动切到 512px）' : '高清：关（固定使用 192px 流畅档）');
   refreshAvatarLOD();
   renderLibrary();
   updateDetail();
@@ -1084,7 +1986,7 @@ async function prewarmAvatarCache() {
         if (disp) avatarCache.set(id, disp);
       }
       if (!avatarLowCache.has(id)) {
-        const low = await avatarGet(id + '@s');
+        const low = await avatarGet(id + AVATAR_LOW_CACHE_SUFFIX);
         if (low) avatarLowCache.set(id, low);
       }
     } catch (e) { /* 忽略单张失败 */ }
@@ -1231,49 +2133,195 @@ function newCampaignState(name, id) {
 
 const world = $('#world');
 const board = $('#board');
+const spellRangeCanvas = $('#spell-range-canvas');
+const spellRangeCtx = spellRangeCanvas ? spellRangeCanvas.getContext('2d') : null;
 const turnPathCanvas = $('#turn-path-canvas');
 const turnPathCtx = turnPathCanvas ? turnPathCanvas.getContext('2d') : null;
 
-/* ==================== 地图 ==================== */
-
-function setMap(dataUrl, w, h, cells, cellStates, cellVariants) {
-  const m = activeMap();
-  if (!m) return;
-  m.mapData = dataUrl;
-  m.mapW = w;
-  m.mapH = h;
-  if (Array.isArray(cells)) {
-    m.cells = cells.map((r) => r.slice());
-    m.baseCells = m.cells.map((r) => r.slice());
-  }
-  if (cellStates && typeof cellStates === 'object') {
-    m.cellStates = { ...cellStates };
-    m.baseCellStates = { ...cellStates };
-  }
-  if (cellVariants && typeof cellVariants === 'object') {
-    m.cellVariants = { ...cellVariants };
-    m.baseCellVariants = { ...cellVariants };
-  }
-  world.style.width = w + 'px';
-  world.style.height = h + 'px';
-  updateWorldBackground();
-  $('#drop-hint').classList.add('hidden');
-  fitView();
-  clampAllTokens();
-  renderTokens();
-  scheduleAutosave();
+function spellDirectionLabel(degrees) {
+  const labels = ['东', '东南', '南', '西南', '西', '西北', '北', '东北'];
+  return `${labels[Math.round((((Number(degrees) || 0) % 360) + 360) % 360 / 45) % 8]} · ${Math.round(Number(degrees) || 0)}°`;
 }
 
-function loadMapFromFile(file) {
-  const reader = new FileReader();
-  reader.onload = () => {
-    const img = new Image();
-    img.onload = () => setMap(reader.result, img.naturalWidth, img.naturalHeight);
-    img.onerror = () => toast('图片读取失败，请换一张试试');
-    img.src = reader.result;
+function spellRangeSummary(range) {
+  const r = normalizeSpellRange(range);
+  if (r.shape === 'off') return '未显示';
+  return `${r.shape === 'cone' ? '锥形' : '环形'} · ${r.feet} 尺`;
+}
+
+function drawSpellRangeForToken(ctx, token, map, selected = false) {
+  const range = normalizeSpellRange(token.spellRange);
+  if (range.shape === 'off') return;
+  const radius = range.feet / 5 * map.gridSize;
+  if (!Number.isFinite(radius) || radius <= 0) return;
+  const meta = TYPE_META[token.type] || TYPE_META.npc;
+  const color = meta.ring || '#6fa4ed';
+  const alpha = selected ? .25 : .12;
+  const strokeAlpha = selected ? .94 : .56;
+  ctx.save();
+  ctx.lineWidth = Math.max(2, map.gridSize * (selected ? .055 : .038));
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
+  ctx.globalAlpha = alpha;
+  ctx.beginPath();
+  if (range.shape === 'cone') {
+    const angle = range.direction * Math.PI / 180;
+    ctx.moveTo(token.x, token.y);
+    ctx.arc(token.x, token.y, radius, angle - SPELL_CONE_HALF_ANGLE, angle + SPELL_CONE_HALF_ANGLE);
+    ctx.closePath();
+  } else {
+    ctx.arc(token.x, token.y, radius, 0, Math.PI * 2);
+  }
+  ctx.fill();
+  ctx.globalAlpha = strokeAlpha;
+  ctx.setLineDash(selected ? [] : [Math.max(7, map.gridSize * .18), Math.max(5, map.gridSize * .12)]);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.globalAlpha = selected ? .45 : .23;
+  ctx.lineWidth = Math.max(1, map.gridSize * .018);
+  if (range.shape === 'radius') {
+    const rings = Math.min(6, Math.floor(range.feet / 30));
+    for (let i = 1; i <= rings; i++) {
+      const ringRadius = radius * i / (rings + 1);
+      ctx.beginPath(); ctx.arc(token.x, token.y, ringRadius, 0, Math.PI * 2); ctx.stroke();
+    }
+  } else {
+    const angle = range.direction * Math.PI / 180;
+    ctx.beginPath(); ctx.moveTo(token.x, token.y); ctx.lineTo(token.x + Math.cos(angle) * radius, token.y + Math.sin(angle) * radius); ctx.stroke();
+  }
+  const labelAngle = range.shape === 'cone' ? range.direction * Math.PI / 180 : -Math.PI / 2;
+  const labelX = token.x + Math.cos(labelAngle) * Math.min(radius * .82, radius - 12);
+  const labelY = token.y + Math.sin(labelAngle) * Math.min(radius * .82, radius - 12);
+  const fontSize = clamp(map.gridSize * .23, 10, 18);
+  ctx.globalAlpha = selected ? .95 : .68;
+  ctx.font = `700 ${fontSize}px system-ui, sans-serif`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.lineWidth = Math.max(3, fontSize * .26); ctx.strokeStyle = 'rgba(9,12,18,.84)';
+  ctx.strokeText(`${range.feet} 尺`, labelX, labelY);
+  ctx.fillStyle = '#f4f8ff'; ctx.fillText(`${range.feet} 尺`, labelX, labelY);
+  ctx.restore();
+}
+
+function renderSpellRanges() {
+  if (!spellRangeCanvas || !spellRangeCtx) return;
+  const map = activeMap();
+  if (!map) {
+    spellRangeCtx.clearRect(0, 0, spellRangeCanvas.width, spellRangeCanvas.height);
+    return;
+  }
+  if (spellRangeCanvas.width !== map.mapW) spellRangeCanvas.width = map.mapW;
+  if (spellRangeCanvas.height !== map.mapH) spellRangeCanvas.height = map.mapH;
+  spellRangeCtx.clearRect(0, 0, map.mapW, map.mapH);
+  const enabled = map.tokens.filter((token) => normalizeSpellRange(token.spellRange).shape !== 'off');
+  enabled.filter((token) => token.id !== state.selectedId).forEach((token) => drawSpellRangeForToken(spellRangeCtx, token, map, false));
+  const selected = enabled.find((token) => token.id === state.selectedId);
+  if (selected) drawSpellRangeForToken(spellRangeCtx, selected, map, true);
+}
+
+function requestSpellRangeRender() {
+  if (spellRangeRaf != null) return;
+  spellRangeRaf = requestAnimationFrame(() => {
+    spellRangeRaf = null;
+    renderSpellRanges();
+  });
+}
+
+function makeReactionId(prefix = 'gm') {
+  if (window.crypto && typeof window.crypto.randomUUID === 'function') return `${prefix}-${window.crypto.randomUUID()}`;
+  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function showMapReaction(action) {
+  const map = activeMap();
+  const layer = $('#reaction-layer');
+  if (!map || !layer || action?.mapId !== map.id || !MAP_REACTION_EMOJIS.has(action.emoji)) return;
+  const x = clamp(Number(action.x) || 0, 0, map.mapW);
+  const y = clamp(Number(action.y) || 0, 0, map.mapH);
+  const item = document.createElement('div');
+  item.className = 'map-reaction';
+  item.dataset.reactionId = String(action.reactionId || '');
+  item.style.left = `${x}px`;
+  item.style.top = `${y}px`;
+  item.style.setProperty('--reaction-scale', String(1 / clamp(Number(map.cam?.zoom) || 1, .2, 4)));
+  const bubble = document.createElement('div');
+  bubble.className = 'map-reaction-bubble';
+  const emoji = document.createElement('span');
+  emoji.className = 'map-reaction-emoji';
+  emoji.textContent = action.emoji;
+  const author = document.createElement('span');
+  author.className = 'map-reaction-author';
+  author.textContent = String(action.name || 'GM').slice(0, 24);
+  bubble.append(emoji, author);
+  item.appendChild(bubble);
+  layer.appendChild(item);
+  setTimeout(() => item.remove(), 2850);
+}
+
+function syncMapReactionUi() {
+  const palette = $('#map-reaction-palette');
+  const trigger = $('#btn-map-reaction');
+  const placing = Boolean(pendingMapReaction);
+  if (trigger) trigger.classList.toggle('active', placing || (palette && !palette.hidden));
+  board.classList.toggle('reaction-placing', placing);
+  palette?.querySelectorAll('[data-map-reaction]').forEach((button) => {
+    button.classList.toggle('active', button.dataset.mapReaction === pendingMapReaction);
+  });
+}
+
+function toggleMapReactionPalette() {
+  const palette = $('#map-reaction-palette');
+  if (!palette) return;
+  if (!palette.hidden) {
+    palette.hidden = true;
+    pendingMapReaction = null;
+  } else {
+    cancelSpellAim();
+    palette.hidden = false;
+  }
+  syncMapReactionUi();
+}
+
+function selectMapReaction(emoji) {
+  if (!MAP_REACTION_EMOJIS.has(emoji)) return;
+  cancelSpellAim();
+  pendingMapReaction = emoji;
+  const palette = $('#map-reaction-palette');
+  if (palette) palette.hidden = true;
+  syncMapReactionUi();
+  toast('点击地图发送表情；按 Esc 取消');
+}
+
+function cancelMapReaction() {
+  pendingMapReaction = null;
+  const palette = $('#map-reaction-palette');
+  if (palette) palette.hidden = true;
+  syncMapReactionUi();
+}
+
+function placeHostReactionAt(clientX, clientY) {
+  const map = activeMap();
+  if (!map || !pendingMapReaction) return false;
+  const rect = board.getBoundingClientRect();
+  const action = {
+    op: 'mapReaction',
+    reactionId: makeReactionId('gm'),
+    mapId: map.id,
+    x: clamp((clientX - rect.left - map.cam.x) / map.cam.zoom, 0, map.mapW),
+    y: clamp((clientY - rect.top - map.cam.y) / map.cam.zoom, 0, map.mapH),
+    emoji: pendingMapReaction,
+    name: 'GM',
   };
-  reader.readAsDataURL(file);
+  localReactionIds.add(action.reactionId);
+  setTimeout(() => localReactionIds.delete(action.reactionId), 5000);
+  showMapReaction(action);
+  cancelMapReaction();
+  sendHostAction(action).then((result) => {
+    if (!result.ok || result.data?.ok === false) toast(`⚠ 表情只在本机显示：${result.data?.error || '服务器未连接'}`);
+  }).catch(() => toast('⚠ 表情只在本机显示：服务器未连接'));
+  return true;
 }
+
+/* ==================== 地图载入 ==================== */
 
 function importMapFile(f) {
   const reader = new FileReader();
@@ -1285,7 +2333,8 @@ function importMapFile(f) {
       const cellStates = s.cellStates && typeof s.cellStates === 'object' ? { ...s.cellStates } : {};
       const cellVariants = s.cellVariants && typeof s.cellVariants === 'object' ? { ...s.cellVariants } : {};
       const dataUrl = cells ? renderCellsToDataUrl(cells, cellStates, s.gridSize, cellVariants) : s.mapData;
-      const m = addMap(s.mapName || '导入地图', dataUrl, s.mapW, s.mapH, s.gridSize, cells, cellStates, cellVariants);
+      const gridVisible = typeof s.gridVisible === 'boolean' ? s.gridVisible : s.showGrid !== false;
+      const m = addMap(s.mapName || '导入地图', dataUrl, s.mapW, s.mapH, s.gridSize, cells, cellStates, cellVariants, gridVisible);
       if (m && Array.isArray(s.tokens)) {
         s.tokens.forEach((raw) => {
           if (!raw || typeof raw !== 'object') return;
@@ -1308,28 +2357,255 @@ function importMapFile(f) {
   reader.readAsText(f);
 }
 
+function isSupportedDirectMapImage(file) {
+  if (!file) return false;
+  const type = String(file.type || '').toLowerCase();
+  if (['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(type)) return true;
+  return /\.(png|jpe?g|webp|gif)$/i.test(file.name || '');
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => typeof reader.result === 'string' ? resolve(reader.result) : reject(new Error('bad image data'));
+    reader.onerror = () => reject(reader.error || new Error('read failed'));
+    reader.readAsDataURL(file);
+  });
+}
+
+function inspectDirectMapImage(file) {
+  return new Promise((resolve, reject) => {
+    const objectUrl = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      if (!img.naturalWidth || !img.naturalHeight) {
+        URL.revokeObjectURL(objectUrl);
+        reject(new Error('empty image'));
+        return;
+      }
+      resolve({
+        file,
+        objectUrl,
+        width: img.naturalWidth,
+        height: img.naturalHeight,
+        name: mapNameFromFile(file.name),
+        gridSize: clamp(Number(activeMap()?.gridSize) || 50, 10, 300),
+        gridVisible: true,
+      });
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error('bad image'));
+    };
+    img.src = objectUrl;
+  });
+}
+
+function releasePendingMapImageImports() {
+  pendingMapImageImports.forEach((item) => {
+    try { URL.revokeObjectURL(item.objectUrl); } catch (e) { /* 忽略 */ }
+  });
+  pendingMapImageImports = [];
+}
+
+function renderMapImageImportList() {
+  const list = $('#map-image-import-list');
+  const confirmButton = $('#btn-map-image-import-confirm');
+  const sizeLabel = $('#map-image-import-size');
+  if (!list || !confirmButton || !sizeLabel) return;
+  list.innerHTML = '';
+  if (!pendingMapImageImports.length) {
+    const empty = document.createElement('div');
+    empty.className = 'map-image-import-empty';
+    empty.textContent = '还没有选择图片。点击“继续选择”添加地图。';
+    list.appendChild(empty);
+  }
+
+  pendingMapImageImports.forEach((item, index) => {
+    const row = document.createElement('div');
+    row.className = 'map-image-import-row';
+    const preview = document.createElement('img');
+    preview.className = 'map-image-import-preview';
+    preview.src = item.objectUrl;
+    preview.alt = '';
+
+    const nameLabel = document.createElement('label');
+    nameLabel.className = 'map-image-import-name';
+    nameLabel.textContent = '地图名称';
+    const nameInput = document.createElement('input');
+    nameInput.value = item.name;
+    nameInput.maxLength = 60;
+    nameInput.dataset.mapImportName = String(index);
+    const fileMeta = document.createElement('span');
+    fileMeta.className = 'map-image-import-file-meta';
+    fileMeta.textContent = `${item.width} × ${item.height} · ${(item.file.size / 1024 / 1024).toFixed(1)} MB`;
+    fileMeta.title = item.file.name || '';
+    nameLabel.append(nameInput, fileMeta);
+
+    const gridLabel = document.createElement('div');
+    gridLabel.className = 'map-image-import-grid';
+    gridLabel.classList.toggle('no-grid', !item.gridVisible);
+    const gridHead = document.createElement('label');
+    gridHead.className = 'map-image-import-grid-head';
+    const gridToggle = document.createElement('input');
+    gridToggle.type = 'checkbox';
+    gridToggle.checked = item.gridVisible !== false;
+    gridToggle.dataset.mapImportGridVisible = String(index);
+    const gridHeadText = document.createElement('span');
+    gridHeadText.textContent = '显示网格';
+    gridHead.append(gridToggle, gridHeadText);
+    const gridSizeWrap = document.createElement('label');
+    gridSizeWrap.className = 'map-image-import-grid-size';
+    const gridSizeText = document.createElement('span');
+    gridSizeText.textContent = '每格像素';
+    const gridInput = document.createElement('input');
+    gridInput.type = 'number';
+    gridInput.min = '10';
+    gridInput.max = '300';
+    gridInput.step = '1';
+    gridInput.value = String(item.gridSize);
+    gridInput.dataset.mapImportGrid = String(index);
+    gridSizeWrap.append(gridSizeText, gridInput);
+    gridLabel.append(gridHead, gridSizeWrap);
+
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'map-image-import-remove';
+    remove.dataset.mapImportRemove = String(index);
+    remove.setAttribute('aria-label', `移除 ${item.name}`);
+    remove.title = '移除这张图片';
+    remove.textContent = '✕';
+    row.append(preview, nameLabel, gridLabel, remove);
+    list.appendChild(row);
+  });
+
+  const totalBytes = pendingMapImageImports.reduce((sum, item) => sum + (Number(item.file.size) || 0), 0);
+  sizeLabel.textContent = pendingMapImageImports.length
+    ? `准备导入 ${pendingMapImageImports.length} 张，原文件合计 ${(totalBytes / 1024 / 1024).toFixed(1)} MB`
+    : '';
+  sizeLabel.classList.toggle('warning', totalBytes > 10 * 1024 * 1024);
+  confirmButton.disabled = mapImageImportBusy || !pendingMapImageImports.length;
+  $('#btn-map-image-import-more').disabled = mapImageImportBusy || pendingMapImageImports.length >= MAX_DIRECT_MAP_IMPORTS;
+  $('#btn-map-image-import-cancel').disabled = mapImageImportBusy;
+}
+
+async function appendDirectMapImages(fileList) {
+  const files = [...(fileList || [])];
+  if (!files.length) return;
+  const available = Math.max(0, MAX_DIRECT_MAP_IMPORTS - pendingMapImageImports.length);
+  const selected = files.filter(isSupportedDirectMapImage).slice(0, available);
+  const rejected = files.length - selected.length;
+  $('#map-image-import-modal').hidden = false;
+  renderMapImageImportList();
+  for (const file of selected) {
+    try {
+      pendingMapImageImports.push(await inspectDirectMapImage(file));
+      renderMapImageImportList();
+    } catch (e) {
+      toast(`无法读取地图图片：${file.name || '未知文件'}`);
+    }
+  }
+  if (rejected > 0) toast(`已忽略 ${rejected} 个不支持的文件或超出数量上限的文件`);
+}
+
+async function loadSelectedMapFiles(fileList) {
+  const files = [...(fileList || [])];
+  if (!files.length) return;
+  const images = files.filter(isSupportedDirectMapImage);
+  const workshopFiles = files.filter((file) => !isSupportedDirectMapImage(file)
+    && (/\.json$/i.test(file.name || '') || String(file.type || '').toLowerCase() === 'application/json'));
+  const unsupported = files.length - images.length - workshopFiles.length;
+  workshopFiles.forEach(importMapFile);
+  if (images.length) await appendDirectMapImages(images);
+  if (unsupported > 0) toast(`已忽略 ${unsupported} 个不支持的文件`);
+}
+
+function closeDirectMapImport() {
+  if (mapImageImportBusy) return;
+  releasePendingMapImageImports();
+  $('#map-image-import-modal').hidden = true;
+  renderMapImageImportList();
+}
+
+async function confirmDirectMapImport() {
+  if (mapImageImportBusy || !pendingMapImageImports.length) return;
+  mapImageImportBusy = true;
+  const button = $('#btn-map-image-import-confirm');
+  const originalLabel = button.textContent;
+  button.textContent = '正在导入…';
+  renderMapImageImportList();
+  try {
+    const prepared = [];
+    for (const item of pendingMapImageImports) {
+      prepared.push({
+        ...item,
+        dataUrl: await readFileAsDataUrl(item.file),
+        name: String(item.name || '').trim().slice(0, 60) || mapNameFromFile(item.file.name),
+        gridSize: clamp(Math.round(Number(item.gridSize) || 50), 10, 300),
+        gridVisible: item.gridVisible !== false,
+      });
+    }
+    const usedNames = new Set(state.maps.map((map) => String(map.name || '').toLocaleLowerCase('zh-CN')));
+    const added = prepared.map((item) => makeMapEntry(
+      uniqueMapName(item.name, usedNames),
+      item.dataUrl,
+      item.width,
+      item.height,
+      item.gridSize,
+      null,
+      null,
+      null,
+      item.gridVisible
+    ));
+    state.maps.push(...added);
+    if (added.length) {
+      state.activeMapId = added[0].id;
+      syncActiveMapGridSetting();
+      state.selectedId = null;
+      boardTool = null;
+      syncBoardTools();
+      syncMapSelect();
+      applyActiveMap();
+      fitView();
+      scheduleAutosave();
+    }
+    releasePendingMapImageImports();
+    $('#map-image-import-modal').hidden = true;
+    if (!$('#map-browser-modal').hidden) renderMapBrowser(true);
+    toast(`已导入 ${added.length} 张地图，当前打开「${added[0]?.name || ''}」`);
+  } catch (e) {
+    console.warn('导入地图图片失败', e);
+    toast('导入失败：至少有一张图片无法读取');
+  } finally {
+    mapImageImportBusy = false;
+    button.textContent = originalLabel;
+    renderMapImageImportList();
+  }
+}
+
 function updateWorldBackground() {
   const m = activeMap();
   const g = m ? m.gridSize : 50;
   const hasMap = !!m && !!m.mapData;
+  const showGrid = mapGridVisible(m);
   const gridLayer =
     `repeating-linear-gradient(to right, rgba(255,255,255,.78) 0, rgba(255,255,255,.78) 2px, transparent 2px, transparent ${g}px),` +
     `repeating-linear-gradient(to bottom, rgba(255,255,255,.78) 0, rgba(255,255,255,.78) 2px, transparent 2px, transparent ${g}px),` +
     `repeating-linear-gradient(to right, rgba(0,0,0,.16) 0, rgba(0,0,0,.16) 2px, transparent 2px, transparent ${g}px),` +
     `repeating-linear-gradient(to bottom, rgba(0,0,0,.16) 0, rgba(0,0,0,.16) 2px, transparent 2px, transparent ${g}px)`;
 
-  world.style.backgroundColor = hasMap ? 'transparent' : (state.showGrid ? '#ddd6c2' : '#0f1116');
+  world.style.backgroundColor = hasMap ? 'transparent' : (showGrid ? '#ddd6c2' : '#0f1116');
 
   if (hasMap) {
-    world.style.backgroundImage = state.showGrid
+    world.style.backgroundImage = showGrid
       ? `${gridLayer}, url("${m.mapData}")`
       : `url("${m.mapData}")`;
-    world.style.backgroundSize = state.showGrid
+    world.style.backgroundSize = showGrid
       ? `${g}px ${g}px, ${g}px ${g}px, ${g}px ${g}px, ${g}px ${g}px, 100% 100%`
       : '100% 100%';
   } else {
-    world.style.backgroundImage = state.showGrid ? gridLayer : 'none';
-    world.style.backgroundSize = state.showGrid ? `${g}px ${g}px, ${g}px ${g}px, ${g}px ${g}px, ${g}px ${g}px` : '';
+    world.style.backgroundImage = showGrid ? gridLayer : 'none';
+    world.style.backgroundSize = showGrid ? `${g}px ${g}px, ${g}px ${g}px, ${g}px ${g}px, ${g}px ${g}px` : '';
   }
 }
 
@@ -1351,7 +2627,7 @@ function applyCamera() {
   world.style.transform = `translate(${m.cam.x}px, ${m.cam.y}px) scale(${m.cam.zoom})`;
   if (m.cam.zoom !== lastAvatarZoom) {
     lastAvatarZoom = m.cam.zoom;
-    refreshAvatarLOD();
+    scheduleAvatarLODRefresh();
   }
 }
 
@@ -1913,6 +3189,22 @@ function normalizeCondition(condition) {
   };
 }
 
+function normalizeSpellRange(raw) {
+  const source = raw && typeof raw === 'object' ? raw : {};
+  const shape = source.shape === 'radius' || source.shape === 'cone' ? source.shape : 'off';
+  const rawFeet = Number(source.feet);
+  const feet = clamp(
+    Math.round((Number.isFinite(rawFeet) ? rawFeet : 30) / SPELL_RANGE_STEP_FEET) * SPELL_RANGE_STEP_FEET,
+    SPELL_RANGE_MIN_FEET,
+    SPELL_RANGE_MAX_FEET,
+  );
+  const rawDirection = Number(source.direction);
+  const direction = Number.isFinite(rawDirection)
+    ? ((Math.round(rawDirection / 5) * 5) % 360 + 360) % 360
+    : 0;
+  return { shape, feet, direction };
+}
+
 function normalizeSheet(t) {
   const hpMax = Math.max(1, Math.min(99999, parseInt(t.hpMax, 10) || 10));
   const hp = Math.max(0, Math.min(99999, Number.isFinite(parseInt(t.hp, 10)) ? parseInt(t.hp, 10) : hpMax));
@@ -1929,6 +3221,7 @@ function normalizeSheet(t) {
     hp,
     hpMax,
     ac: Math.max(0, Math.min(99, parseInt(t.ac, 10) || 10)),
+    spellRange: normalizeSpellRange(t.spellRange),
     conditions: Array.isArray(t.conditions) ? t.conditions.slice(0, 20).map(normalizeCondition) : [],
     publicNote: typeof t.publicNote === 'string' ? t.publicNote.slice(0, 240) : '',
     gmNote: typeof t.gmNote === 'string' ? t.gmNote.slice(0, 500) : '',
@@ -1944,6 +3237,31 @@ function normalizeSheet(t) {
   return t;
 }
 
+function appendConditionBadges(container, rawConditions, includeGm = false) {
+  const conditions = (Array.isArray(rawConditions) ? rawConditions : [])
+    .filter((condition) => includeGm || condition.visibility !== 'gm');
+  if (!conditions.length) return;
+  const badges = document.createElement('div');
+  badges.className = 'token-condition-badges';
+  conditions.slice(0, 3).forEach((condition) => {
+    const badge = document.createElement('span');
+    badge.className = 'token-condition-badge';
+    badge.style.setProperty('--condition-color', condition.color || '#a8b3c7');
+    if (CONDITION_META[condition.key]) badge.dataset.conditionIcon = condition.key;
+    badge.textContent = condition.icon || '◆';
+    badge.title = `${condition.label || '状态'}${condition.remainingTurns ? ` · 剩余 ${condition.remainingTurns} 回合` : ''}${condition.visibility === 'gm' ? ' · 仅 GM' : ''}`;
+    badges.appendChild(badge);
+  });
+  if (conditions.length > 3) {
+    const more = document.createElement('span');
+    more.className = 'token-condition-badge more';
+    more.textContent = `+${conditions.length - 3}`;
+    more.title = `另有 ${conditions.length - 3} 个状态`;
+    badges.appendChild(more);
+  }
+  container.appendChild(badges);
+}
+
 function createTokenEl(t) {
   const m = activeMap();
   const size = (m ? m.gridSize : 50) * t.size;
@@ -1955,6 +3273,7 @@ function createTokenEl(t) {
   el.style.top = t.y + 'px';
   el.style.width = size + 'px';
   el.style.height = size + 'px';
+  el.style.setProperty('--ring', meta.ring);
 
   const circle = document.createElement('div');
   circle.className = 'circle';
@@ -1978,26 +3297,8 @@ function createTokenEl(t) {
 
   el.appendChild(circle);
   if (t.hiddenFromPlayers) el.classList.add('gm-hidden-token');
-  const visibleConditions = (t.conditions || []).filter((condition) => condition.visibility !== 'gm');
-  if (visibleConditions.length) {
-    const badges = document.createElement('div');
-    badges.className = 'token-condition-badges';
-    visibleConditions.slice(0, 3).forEach((condition) => {
-      const badge = document.createElement('span');
-      badge.className = 'token-condition-badge';
-      badge.style.setProperty('--condition-color', condition.color || '#a8b3c7');
-      badge.textContent = condition.icon || '◆';
-      badge.title = `${condition.label}${condition.remainingTurns ? ` · 剩余 ${condition.remainingTurns} 回合` : ''}`;
-      badges.appendChild(badge);
-    });
-    if (visibleConditions.length > 3) {
-      const more = document.createElement('span');
-      more.className = 'token-condition-badge more';
-      more.textContent = `+${visibleConditions.length - 3}`;
-      badges.appendChild(more);
-    }
-    el.appendChild(badges);
-  }
+  // 主控台能看到公开与仅 GM 状态；玩家端会继续过滤仅 GM 状态。
+  appendConditionBadges(el, t.conditions, true);
 
   // 骑乘：坐骑上叠加骑手小圆 + 🐎 标记
   if (m && t.size >= 2) {
@@ -2027,6 +3328,7 @@ function createTokenEl(t) {
           rd.style.fontSize = (rs * 0.45) + 'px';
           rd.textContent = r.icon || rMeta.defaultIcon;
         }
+        appendConditionBadges(rd, r.conditions, true);
         el.appendChild(rd);
       });
     }
@@ -2052,6 +3354,7 @@ function renderTokens() {
   });
   world.appendChild(frag);
   renderNamesLayer();
+  renderSpellRanges();
   refreshAvatarLOD();
 }
 
@@ -2191,9 +3494,20 @@ function currentTurnIncludesToken(id) {
 }
 
 function selectToken(id) {
+  const changed = state.selectedId !== id;
   state.selectedId = id;
+  const unitCard = document.querySelector('#unit-card');
+  if (unitCard) unitCard.classList.remove('collapsed');
+  if (changed) {
+    detailActiveTab = 'status';
+    closeConditionEditor();
+  }
   renderTokens();
   updateDetail();
+  if (changed) requestAnimationFrame(() => {
+    const scroll = $('#detail-scroll');
+    if (scroll) scroll.scrollTop = 0;
+  });
 }
 
 function moveToken(id, x, y, { persist = true } = {}) {
@@ -2219,6 +3533,7 @@ function moveToken(id, x, y, { persist = true } = {}) {
     el.style.top = y + 'px';
   }
   syncLabelsFor(t);
+  requestSpellRangeRender();
   if (persist) scheduleAutosave();
 }
 
@@ -2236,6 +3551,7 @@ function deleteToken(id, silent) {
   if (!t) return;
   const m = activeMap();
   const invalidatesTurn = currentTurnIncludesToken(id);
+  const pruned = pruneInitiativeTokenRefs(new Set([id]));
   // 删除坐骑时，骑手自动下马（留在原地）
   if (m && t.size >= 2) m.tokens.forEach((r) => { if (r.mountId === id) r.mountId = null; });
   if (m) m.tokens = m.tokens.filter((x) => x.id !== id);
@@ -2243,7 +3559,8 @@ function deleteToken(id, silent) {
   if (state.selectedId === id) state.selectedId = null;
   renderTokens();
   updateDetail();
-  if (invalidatesTurn) bumpEncounterTurn(encounterState());
+  if (encounterState().playMode === 'turn' && (invalidatesTurn || pruned.removed)) bumpEncounterTurn(encounterState());
+  if (pruned.removed) renderEncounter();
   renderTurnPath();
   if (!silent) toast(`已删除「${t.name}」`);
   scheduleAutosave();
@@ -2317,10 +3634,13 @@ function mountRider(riderId, mountId) {
   if (rider.size >= 2) { toast('只有 1×1 棋子可以骑乘'); return; }
   if (mount.size < 2) { toast('只能骑乘 2×2 的大型棋子'); return; }
   if (rider.mountId) { toast('「' + rider.name + '」已经在坐骑上'); return; }
+  const invalidatesTurn = currentTurnIncludesToken(rider.id) || currentTurnIncludesToken(mount.id);
   rider.mountId = mount.id;
   rider.x = mount.x;
   rider.y = mount.y;
+  if (encounterState().playMode === 'turn' && invalidatesTurn) bumpEncounterTurn(encounterState());
   renderTokens();
+  renderEncounter();
   updateDetail();
   scheduleAutosave();
   toast(`「${rider.name}」骑上了「${mount.name}」`);
@@ -2329,8 +3649,12 @@ function mountRider(riderId, mountId) {
 function dismountRider(riderId) {
   const rider = findToken(riderId);
   if (!rider || !rider.mountId) return;
+  const mount = findToken(rider.mountId);
+  const invalidatesTurn = currentTurnIncludesToken(rider.id) || (mount && currentTurnIncludesToken(mount.id));
   rider.mountId = null;
+  if (encounterState().playMode === 'turn' && invalidatesTurn) bumpEncounterTurn(encounterState());
   renderTokens();
+  renderEncounter();
   updateDetail();
   scheduleAutosave();
   toast(`「${rider.name}」下马`);
@@ -2377,7 +3701,7 @@ function renderMountBox(t) {
     }
     return;
   }
-  box.innerHTML = '<div class="mount-info">1×1 棋子可以骑乘 2×2 的大型棋子</div>';
+  box.innerHTML = '';
   const actions = document.createElement('div');
   actions.className = 'mount-actions';
   const btn = document.createElement('button');
@@ -2424,12 +3748,17 @@ function transferToken(id, targetId, copy) {
     x: clamp(t.x, 0, target.mapW),
     y: clamp(t.y, 0, target.mapH),
   };
+  const transferredIds = new Map([[t.id, nt.id]]);
   if (!copy) {
     // 移动坐骑时，骑手跟随；移动骑手时，骑手在目的地自动下马
     if (t.size >= 2) {
       m.tokens.filter((r) => r.mountId === id).forEach((r) => {
-        target.tokens.push({ ...r, id: 't' + (uid++), mountId: nt.id, x: clamp(r.x, 0, target.mapW), y: clamp(r.y, 0, target.mapH) });
+        const riderCopy = { ...r, id: 't' + (uid++), mountId: nt.id, x: clamp(r.x, 0, target.mapW), y: clamp(r.y, 0, target.mapH) };
+        transferredIds.set(r.id, riderCopy.id);
+        target.tokens.push(riderCopy);
       });
+    } else if (t.mountId) {
+      nt.mountId = null;
     }
     m.tokens = m.tokens.filter((x) => x.id !== id && (t.size < 2 || x.mountId !== id));
     if (state.selectedId === id) state.selectedId = null;
@@ -2438,11 +3767,22 @@ function transferToken(id, targetId, copy) {
     nt.mountId = null;
   }
   target.tokens.push(nt);
+  let relinkedInitiative = false;
+  if (!copy) {
+    const e = encounterState();
+    e.entries.forEach((entry) => {
+      const nextId = entry.tokenId ? transferredIds.get(entry.tokenId) : null;
+      if (!nextId) return;
+      entry.tokenId = nextId;
+      relinkedInitiative = true;
+    });
+    if (e.playMode === 'turn' && (invalidatesTurn || relinkedInitiative)) bumpEncounterTurn(e);
+  }
   renumberTokens(target);
   if (!copy) renumberTokens(m);
   switchMap(target.id);
   selectToken(nt.id);
-  if (invalidatesTurn) bumpEncounterTurn(encounterState());
+  if (relinkedInitiative) renderEncounter();
   renderTurnPath();
   scheduleAutosave();
   toast(copy ? `已复制「${nt.name}」到「${target.name}」` : `已移动「${nt.name}」到「${target.name}」`);
@@ -2463,15 +3803,21 @@ function renderDetailConditions(t) {
     chip.className = 'condition-chip';
     chip.style.setProperty('--condition-color', condition.color || '#a8b3c7');
     chip.title = condition.visibility === 'gm' ? '仅 GM 可见' : '玩家可见';
-    const label = document.createElement('span');
-    label.textContent = `${condition.icon || '◆'} ${condition.label}${condition.remainingTurns ? ` · ${condition.remainingTurns}回合` : ''}`;
+    const edit = document.createElement('button');
+    edit.type = 'button';
+    edit.className = 'condition-main';
+    edit.textContent = `${condition.icon || '◆'} ${condition.label} · ${condition.remainingTurns ? `${condition.remainingTurns} 回合` : '永久'}`;
+    edit.title = '编辑状态与持续时间';
+    edit.addEventListener('click', () => openConditionEditor(condition.id));
     const toggle = document.createElement('button');
     toggle.type = 'button';
     toggle.className = 'condition-visibility';
-    toggle.textContent = condition.visibility === 'gm' ? 'GM' : '公';
-    toggle.title = '切换玩家可见性';
+    toggle.textContent = condition.visibility === 'gm' ? '🔒' : '👁';
+    toggle.title = condition.visibility === 'gm' ? '仅 GM 可见；点击改为玩家可见' : '玩家可见；点击改为仅 GM';
+    toggle.setAttribute('aria-label', toggle.title);
     toggle.addEventListener('click', () => {
       condition.visibility = condition.visibility === 'gm' ? 'public' : 'gm';
+      if (editingConditionId === condition.id) setConditionVisibilityDraft(condition.visibility);
       renderDetailConditions(t);
       renderTokens();
       scheduleAutosave();
@@ -2483,11 +3829,12 @@ function renderDetailConditions(t) {
     remove.title = '移除状态';
     remove.addEventListener('click', () => {
       t.conditions = t.conditions.filter((item) => item.id !== condition.id);
+      if (editingConditionId === condition.id) closeConditionEditor();
       renderDetailConditions(t);
       renderTokens();
       scheduleAutosave();
     });
-    chip.append(label, toggle, remove);
+    chip.append(edit, toggle, remove);
     box.appendChild(chip);
   });
 }
@@ -2508,36 +3855,502 @@ function populateConditionSelect() {
   select.appendChild(custom);
 }
 
+function syncConditionCustomFields() {
+  const custom = $('#detail-condition-custom-fields');
+  if (custom) custom.hidden = $('#detail-condition-select')?.value !== 'custom';
+}
+
+function setConditionDurationDraft(value) {
+  const normalized = value == null ? '' : String(value);
+  const input = $('#detail-condition-turns');
+  if (input) input.value = normalized;
+  document.querySelectorAll('[data-condition-duration]').forEach((button) => {
+    button.classList.toggle('active', button.dataset.conditionDuration === normalized);
+  });
+}
+
+function syncConditionDurationButtons() {
+  const value = String($('#detail-condition-turns')?.value || '');
+  document.querySelectorAll('[data-condition-duration]').forEach((button) => {
+    button.classList.toggle('active', button.dataset.conditionDuration === value);
+  });
+}
+
+function setConditionVisibilityDraft(value) {
+  const normalized = value === 'gm' ? 'gm' : 'public';
+  document.querySelectorAll('[data-condition-visibility]').forEach((button) => {
+    const active = button.dataset.conditionVisibility === normalized;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-pressed', String(active));
+  });
+}
+
+function closeConditionEditor() {
+  editingConditionId = null;
+  const editor = $('#detail-condition-editor');
+  if (editor) editor.hidden = true;
+}
+
+function openConditionEditor(conditionId = null) {
+  const t = state.selectedId ? findToken(state.selectedId) : null;
+  const editor = $('#detail-condition-editor');
+  if (!t || !editor) return;
+  const condition = conditionId ? (t.conditions || []).find((item) => item.id === conditionId) : null;
+  editingConditionId = condition?.id || null;
+  editor.hidden = false;
+  $('#detail-condition-editor-title').textContent = condition ? '编辑状态' : '添加状态';
+  $('#btn-detail-condition-add').textContent = condition ? '保存状态' : '添加状态';
+  const select = $('#detail-condition-select');
+  const knownKey = condition && CONDITION_META[condition.key] ? condition.key : 'custom';
+  select.value = condition ? knownKey : '';
+  $('#detail-condition-custom-name').value = condition && knownKey === 'custom' ? condition.label : '';
+  $('#detail-condition-custom-icon').value = condition && knownKey === 'custom' ? (condition.icon || '◆') : '◆';
+  syncConditionCustomFields();
+  setConditionDurationDraft(condition ? (condition.remainingTurns ?? '') : '1');
+  setConditionVisibilityDraft(condition?.visibility || 'public');
+  requestAnimationFrame(() => {
+    if (select.value) {
+      const target = select.value === 'custom' ? $('#detail-condition-custom-name') : select;
+      target?.focus();
+    } else select.focus();
+  });
+}
+
 function addSelectedCondition() {
   const t = state.selectedId ? findToken(state.selectedId) : null;
   const select = $('#detail-condition-select');
-  if (!t || !select || !select.value) return;
+  if (!t || !select || !select.value) {
+    toast('请先选择一个状态');
+    return;
+  }
   const key = select.value;
   const meta = CONDITION_META[key] || {};
   let label = meta.label || '';
   let icon = meta.icon || '◆';
   if (key === 'custom') {
-    label = prompt('状态名称', '')?.trim() || '';
-    if (!label) return;
-    icon = prompt('状态图标（可留空）', '◆')?.slice(0, 4) || '◆';
+    label = $('#detail-condition-custom-name').value.trim().slice(0, 24);
+    icon = $('#detail-condition-custom-icon').value.trim().slice(0, 4) || '◆';
+    if (!label) {
+      toast('请输入自定义状态名称');
+      $('#detail-condition-custom-name').focus();
+      return;
+    }
   }
-  const rawTurns = Number($('#detail-condition-turns').value);
-  const existing = (t.conditions || []).find((condition) => condition.key === key && condition.label === label);
+  const rawTurnsText = $('#detail-condition-turns').value.trim();
+  const rawTurns = rawTurnsText === '' ? null : Number(rawTurnsText);
+  if (rawTurns !== null && (!Number.isFinite(rawTurns) || rawTurns < 1)) {
+    toast('持续回合数必须是 1–999，留空表示永久');
+    return;
+  }
+  const editing = editingConditionId
+    ? (t.conditions || []).find((condition) => condition.id === editingConditionId)
+    : null;
+  const existing = editing || (t.conditions || []).find((condition) => condition.key === key && condition.label === label);
+  const visibilityDraft = document.querySelector('[data-condition-visibility].active')?.dataset.conditionVisibility || 'public';
+  const visibility = existing && !editing ? existing.visibility : visibilityDraft;
   const condition = normalizeCondition({
     ...(existing || {}), key, label, icon,
-    remainingTurns: Number.isFinite(rawTurns) && rawTurns > 0 ? rawTurns : null,
-    visibility: existing?.visibility || 'public',
+    color: meta.color || existing?.color,
+    remainingTurns: rawTurns === null ? null : clamp(Math.trunc(rawTurns), 1, 999),
+    visibility,
   });
   if (existing) Object.assign(existing, condition);
   else {
     if (!Array.isArray(t.conditions)) t.conditions = [];
     t.conditions.push(condition);
   }
-  $('#detail-condition-select').value = '';
-  $('#detail-condition-turns').value = '';
+  closeConditionEditor();
   renderDetailConditions(t);
   renderTokens();
   scheduleAutosave();
+  toast(existing ? `已更新状态：${condition.label}` : `已添加状态：${condition.label}`);
+}
+
+function updateSpellRangeEditor(t) {
+  const range = normalizeSpellRange(t.spellRange);
+  t.spellRange = range;
+  $('#detail-spell-summary').textContent = spellRangeSummary(range);
+  document.querySelectorAll('#detail-spell-range [data-spell-shape]').forEach((button) => {
+    const active = button.dataset.spellShape === range.shape;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-pressed', String(active));
+  });
+  $('#detail-spell-controls').hidden = range.shape === 'off';
+  $('#detail-spell-feet').value = range.feet;
+  $('#detail-spell-feet-output').textContent = `${range.feet} 尺`;
+  $('#detail-spell-grid-output').textContent = `${range.feet / 5} 格`;
+  document.querySelectorAll('#detail-spell-range [data-spell-feet]').forEach((button) => {
+    button.classList.toggle('active', Number(button.dataset.spellFeet) === range.feet);
+  });
+  $('#detail-spell-direction-row').hidden = range.shape !== 'cone';
+  $('#detail-spell-direction').value = range.direction;
+  $('#detail-spell-direction-output').textContent = spellDirectionLabel(range.direction);
+  const aimButton = $('#btn-detail-spell-aim');
+  const aiming = spellAimTokenId === t.id;
+  aimButton.classList.toggle('active', aiming);
+  aimButton.textContent = aiming ? '按住左键旋转…' : '⌖ 在地图上瞄准';
+  board.classList.toggle('spell-aiming', Boolean(spellAimTokenId));
+}
+
+function updateSelectedSpellRange(patch) {
+  const token = state.selectedId ? findToken(state.selectedId) : null;
+  if (!token) return;
+  token.spellRange = normalizeSpellRange({ ...token.spellRange, ...patch });
+  if (token.spellRange.shape !== 'cone' && spellAimTokenId === token.id) cancelSpellAim({ restore: false });
+  updateSpellRangeEditor(token);
+  renderSpellRanges();
+  scheduleAutosave();
+}
+
+function spellDirectionAtClientPoint(token, map, clientX, clientY) {
+  if (!token || !map) return null;
+  const rect = board.getBoundingClientRect();
+  const x = (clientX - rect.left - map.cam.x) / map.cam.zoom;
+  const y = (clientY - rect.top - map.cam.y) / map.cam.zoom;
+  return ((Math.atan2(y - token.y, x - token.x) * 180 / Math.PI) + 360) % 360;
+}
+
+function previewSelectedSpellAimAt(clientX, clientY) {
+  const token = spellAimTokenId ? findToken(spellAimTokenId) : null;
+  const map = activeMap();
+  if (!token || !map) return false;
+  const direction = spellDirectionAtClientPoint(token, map, clientX, clientY);
+  if (direction == null) return false;
+  token.spellRange = normalizeSpellRange({ ...token.spellRange, shape: 'cone', direction });
+  updateSpellRangeEditor(token);
+  renderSpellRanges();
+  return true;
+}
+
+function beginSelectedSpellAim(e) {
+  const token = spellAimTokenId ? findToken(spellAimTokenId) : null;
+  const map = activeMap();
+  if (!token || !map) { cancelSpellAim(); return false; }
+  drag = {
+    mode: 'spell-aim',
+    id: token.id,
+    mapId: map.id,
+    pointerId: e.pointerId,
+    startX: e.clientX,
+    startY: e.clientY,
+    previous: { ...normalizeSpellRange(token.spellRange) },
+  };
+  try { board.setPointerCapture(e.pointerId); } catch (error) { /* 浏览器不支持时仍继续 */ }
+  previewSelectedSpellAimAt(e.clientX, e.clientY);
+  return true;
+}
+
+function finishSelectedSpellAim(e, cancelled = false) {
+  const aimDrag = drag && drag.mode === 'spell-aim' ? drag : null;
+  if (!aimDrag) return false;
+  try {
+    if (board.hasPointerCapture?.(aimDrag.pointerId)) board.releasePointerCapture(aimDrag.pointerId);
+  } catch (error) { /* 指针捕获可能已由浏览器释放 */ }
+  const token = findToken(aimDrag.id);
+  const map = activeMap();
+  if (!cancelled && token && map && map.id === aimDrag.mapId) {
+    previewSelectedSpellAimAt(e.clientX, e.clientY);
+  } else if (token) {
+    token.spellRange = { ...aimDrag.previous };
+  }
+  drag = null;
+  spellAimTokenId = null;
+  board.classList.remove('spell-aiming');
+  if (token) {
+    updateSpellRangeEditor(token);
+    renderSpellRanges();
+  }
+  if (!cancelled && token && map && map.id === aimDrag.mapId) {
+    scheduleAutosave();
+    toast(`锥形方向：${spellDirectionLabel(token.spellRange.direction)}`);
+  }
+  return true;
+}
+
+function cancelSpellAim(options = {}) {
+  const restore = options.restore !== false;
+  const aimDrag = drag && drag.mode === 'spell-aim' ? drag : null;
+  const aimingId = aimDrag?.id || spellAimTokenId;
+  if (aimDrag) {
+    const aimedToken = findToken(aimDrag.id);
+    if (restore && aimedToken) aimedToken.spellRange = { ...aimDrag.previous };
+    try {
+      if (board.hasPointerCapture?.(aimDrag.pointerId)) board.releasePointerCapture(aimDrag.pointerId);
+    } catch (error) { /* 指针捕获可能已由浏览器释放 */ }
+    drag = null;
+  }
+  spellAimTokenId = null;
+  board.classList.remove('spell-aiming');
+  const token = aimingId ? findToken(aimingId) : (state.selectedId ? findToken(state.selectedId) : null);
+  if (token) {
+    updateSpellRangeEditor(token);
+    renderSpellRanges();
+  }
+}
+
+function setDetailTab(tab, options = {}) {
+  const normalized = ['status', 'tactics', 'manage'].includes(tab) ? tab : 'status';
+  detailActiveTab = normalized;
+  document.querySelectorAll('[data-detail-tab]').forEach((button) => {
+    const active = button.dataset.detailTab === normalized;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-selected', String(active));
+    button.tabIndex = active ? 0 : -1;
+  });
+  document.querySelectorAll('[data-detail-panel]').forEach((panel) => {
+    panel.hidden = panel.dataset.detailPanel !== normalized;
+  });
+  if (options.resetScroll !== false) {
+    const scroll = $('#detail-scroll');
+    if (scroll) scroll.scrollTop = 0;
+  }
+  if (options.focus) $(`[data-detail-tab="${normalized}"]`)?.focus();
+}
+
+function syncDetailDraftInput(input, value, tokenId) {
+  if (!input) return;
+  input.dataset.tokenId = tokenId;
+  if (document.activeElement === input && input.dataset.dirty === 'true') return;
+  input.value = value;
+  input.dataset.dirty = 'false';
+}
+
+function updateDetailVitals(t) {
+  syncDetailDraftInput($('#detail-hp-current'), t.hp, t.id);
+  syncDetailDraftInput($('#detail-hp-max'), t.hpMax, t.id);
+  syncDetailDraftInput($('#detail-ac-input'), t.ac, t.id);
+  const pct = t.hpMax > 0 ? clamp((t.hp / t.hpMax) * 100, 0, 100) : 0;
+  const bar = $('#detail-hp-bar');
+  bar.style.width = pct + '%';
+  bar.style.background = hpColor(pct);
+  const percent = $('#detail-hp-percent');
+  percent.textContent = `${Math.round(pct)}%`;
+  percent.style.color = hpColor(pct);
+  percent.style.borderColor = `${hpColor(pct)}66`;
+  const undo = $('#btn-detail-hp-undo');
+  undo.disabled = !detailHpUndo || detailHpUndo.tokenId !== t.id;
+}
+
+function updateDetailContext(t) {
+  const encounter = encounterState();
+  const turn = $('#detail-turn-summary');
+  if (encounter.playMode === 'turn') {
+    const current = isCurrentTurnToken(t);
+    turn.textContent = current ? '当前回合' : '等待回合';
+    turn.className = `detail-context-badge${current ? ' current' : ''}`;
+  } else if (encounter.playMode === 'prepare') {
+    turn.textContent = '战斗准备';
+    turn.className = 'detail-context-badge';
+  } else {
+    turn.textContent = '自由模式';
+    turn.className = 'detail-context-badge';
+  }
+  const visibility = $('#detail-visibility-summary');
+  visibility.textContent = t.hiddenFromPlayers ? '已对玩家隐藏' : '玩家可见';
+  visibility.className = `detail-context-badge ${t.hiddenFromPlayers ? 'hidden' : 'public'}`;
+}
+
+function updateDetailHeader(t) {
+  const meta = TYPE_META[t.type] || TYPE_META.npc;
+  const iconEl = $('#detail-icon');
+  if (t.iconImg || t.iconImgHd || t.iconImgPath || t.iconImgId) {
+    iconEl.textContent = '';
+    iconEl.style.backgroundSize = 'cover';
+    iconEl.style.backgroundPosition = 'center';
+    applyAvatar(iconEl, t.iconImg, t.iconImgId, t.iconImgHd, t.iconImgPath, AVATAR_DISPLAY_MAX);
+  } else {
+    iconEl.textContent = t.icon || meta.defaultIcon;
+    iconEl.style.backgroundImage = 'none';
+  }
+  $('#btn-detail-icon-remove').hidden = !(t.iconImg || t.iconImgHd || t.iconImgPath || t.iconImgId);
+  const name = $('#detail-name');
+  if (document.activeElement !== name) name.value = t.name;
+  const typeSel = $('#detail-type-select');
+  typeSel.value = t.type;
+  typeSel.className = 'type-tag type-select type-' + t.type;
+  const iconInput = $('#detail-icon-input');
+  if (document.activeElement !== iconInput) iconInput.value = t.icon || '';
+  updateDetailContext(t);
+}
+
+function populateDetailOwnerOptions(t) {
+  const select = $('#detail-owner');
+  if (!select) return;
+  if (document.activeElement === select) return;
+  const online = new Set(streamPlayers
+    .filter((player) => player && player.online && String(player.name || '').trim())
+    .map((player) => String(player.name).trim()));
+  const known = new Set(online);
+  (state.maps || []).forEach((m) => (m.tokens || []).forEach((token) => {
+    const owner = String(token.owner || '').trim();
+    if (owner) known.add(owner);
+  }));
+  const current = String(t.owner || '').trim();
+  if (current) known.add(current);
+  const names = [...known].sort((a, b) => {
+    if (online.has(a) !== online.has(b)) return online.has(a) ? -1 : 1;
+    return a.localeCompare(b, 'zh-CN');
+  });
+  select.innerHTML = '';
+  const gm = document.createElement('option');
+  gm.value = '';
+  gm.textContent = 'GM 控制';
+  select.appendChild(gm);
+  names.forEach((name) => {
+    const option = document.createElement('option');
+    option.value = name;
+    option.textContent = online.has(name) ? `${name} · 在线` : `${name} · 已记录`;
+    select.appendChild(option);
+  });
+  select.value = current;
+}
+
+function updateDetailNotes(t) {
+  const publicNote = $('#detail-public-note');
+  const gmNote = $('#detail-gm-note');
+  if (document.activeElement !== publicNote) publicNote.value = t.publicNote || '';
+  if (document.activeElement !== gmNote) gmNote.value = t.gmNote || '';
+  $('#detail-public-note-summary').textContent = t.publicNote ? `已填写 ${t.publicNote.length} 字` : '未填写';
+  $('#detail-gm-note-summary').textContent = t.gmNote ? `已填写 ${t.gmNote.length} 字` : '未填写';
+}
+
+function updateDetailMapOptions() {
+  const select = $('#detail-map-move');
+  const move = $('#btn-token-move');
+  const copy = $('#btn-token-copy');
+  if (!select) return;
+  const previous = select.value;
+  const targets = state.maps.filter((m) => m.id !== state.activeMapId);
+  select.innerHTML = '';
+  if (!targets.length) {
+    const option = document.createElement('option');
+    option.value = '';
+    option.textContent = '没有其他地图';
+    select.appendChild(option);
+  } else {
+    targets.forEach((m) => {
+      const option = document.createElement('option');
+      option.value = m.id;
+      option.textContent = m.name;
+      select.appendChild(option);
+    });
+    if (targets.some((m) => m.id === previous)) select.value = previous;
+  }
+  select.disabled = !targets.length;
+  move.disabled = !targets.length;
+  copy.disabled = !targets.length;
+}
+
+function scheduleDetailTextSave(markStream = true) {
+  detailTextSaveMarksStream = detailTextSaveMarksStream || markStream;
+  clearTimeout(detailTextSaveTimer);
+  detailTextSaveTimer = setTimeout(() => {
+    detailTextSaveTimer = null;
+    const shouldStream = detailTextSaveMarksStream;
+    detailTextSaveMarksStream = false;
+    scheduleAutosave(shouldStream);
+  }, 400);
+}
+
+function flushDetailTextSave() {
+  if (!detailTextSaveTimer) return;
+  clearTimeout(detailTextSaveTimer);
+  detailTextSaveTimer = null;
+  const shouldStream = detailTextSaveMarksStream;
+  detailTextSaveMarksStream = false;
+  scheduleAutosave(shouldStream);
+}
+
+function rememberDetailHp(t) {
+  detailHpUndo = { tokenId: t.id, hp: t.hp, hpMax: t.hpMax };
+}
+
+function commitDetailNumberInput(input, property, min, max) {
+  if (!input || input.dataset.dirty !== 'true') return false;
+  const t = input.dataset.tokenId ? findToken(input.dataset.tokenId) : null;
+  input.dataset.dirty = 'false';
+  if (!t) return false;
+  const raw = input.value.trim();
+  const parsed = Number(raw);
+  if (!raw || !Number.isFinite(parsed)) {
+    input.value = t[property];
+    return false;
+  }
+  const next = clamp(Math.trunc(parsed), min, max);
+  if (next === t[property]) {
+    input.value = next;
+    return false;
+  }
+  if (property === 'hp' || property === 'hpMax') rememberDetailHp(t);
+  t[property] = next;
+  input.value = next;
+  if (state.selectedId === t.id) updateDetailVitals(t);
+  if (property === 'hp' || property === 'hpMax') renderTokens();
+  scheduleAutosave();
+  return true;
+}
+
+function cancelDetailNumberInput(input, property) {
+  const t = input?.dataset.tokenId ? findToken(input.dataset.tokenId) : null;
+  if (!input || !t) return;
+  input.dataset.dirty = 'false';
+  input.value = t[property];
+}
+
+function detailHpAmount() {
+  const input = $('#detail-hp-delta');
+  const numeric = Number(input.value);
+  const value = Number.isFinite(numeric) && numeric > 0 ? clamp(Math.trunc(numeric), 1, 99999) : 5;
+  input.value = value;
+  return value;
+}
+
+function setDetailHpAmount(value) {
+  $('#detail-hp-delta').value = value;
+  document.querySelectorAll('[data-hp-amount]').forEach((button) => {
+    button.classList.toggle('active', Number(button.dataset.hpAmount) === Number(value));
+  });
+}
+
+function applyDetailHpChange(mode) {
+  const t = state.selectedId ? findToken(state.selectedId) : null;
+  if (!t) return;
+  const amount = mode === 'full' ? 0 : detailHpAmount();
+  const next = mode === 'full'
+    ? t.hpMax
+    : clamp(t.hp + (mode === 'heal' ? amount : -amount), 0, t.hpMax);
+  if (next === t.hp) return;
+  rememberDetailHp(t);
+  t.hp = next;
+  updateDetailVitals(t);
+  renderTokens();
+  scheduleAutosave();
+}
+
+function undoDetailHpChange() {
+  if (!detailHpUndo) return;
+  const t = findToken(detailHpUndo.tokenId);
+  if (!t) {
+    detailHpUndo = null;
+    return;
+  }
+  t.hp = detailHpUndo.hp;
+  t.hpMax = detailHpUndo.hpMax;
+  detailHpUndo = null;
+  if (state.selectedId === t.id) updateDetailVitals(t);
+  renderTokens();
+  scheduleAutosave();
+  toast(`已撤销「${t.name}」上一次生命值变化`);
+}
+
+function closeDetailPanel() {
+  cancelSpellAim();
+  closeConditionEditor();
+  state.selectedId = null;
+  lastSelId = null;
+  renderTokens();
+  updateDetail();
+  $('#unit-card')?.classList.add('collapsed');
 }
 
 function updateDetail() {
@@ -2548,71 +4361,27 @@ function updateDetail() {
     lastSelId = null;
     return;
   }
-  if (t.id !== lastSelId) $('#unit-card').classList.remove('collapsed');
+  const changed = t.id !== lastSelId;
+  if (changed) {
+    $('#unit-card').classList.remove('collapsed');
+    detailActiveTab = 'status';
+    closeConditionEditor();
+  }
   lastSelId = t.id;
-  const meta = TYPE_META[t.type] || TYPE_META.npc;
-  const iconEl = $('#detail-icon');
-  if (t.iconImg || t.iconImgHd || t.iconImgPath || t.iconImgId) {
-    iconEl.textContent = '';
-    iconEl.style.backgroundSize = 'cover';
-    iconEl.style.backgroundPosition = 'center';
-    applyAvatar(iconEl, t.iconImg, t.iconImgId, t.iconImgHd, t.iconImgPath);
-  } else {
-    iconEl.textContent = t.icon || meta.defaultIcon;
-    iconEl.style.backgroundImage = 'none';
-  }
-  $('#btn-detail-icon-remove').hidden = !(t.iconImg || t.iconImgHd || t.iconImgPath || t.iconImgId);
-  $('#detail-name').value = t.name;
-  const ownerInput = $('#detail-owner');
-  if (ownerInput) ownerInput.value = t.owner || '';
-  const dl = $('#owner-list');
-  if (dl) {
-    const owners = new Set();
-    streamPlayers.filter((player) => player && player.online).forEach((player) => {
-      if (player.name) owners.add(player.name.trim());
-    });
-    (state.maps || []).forEach((m) => (m.tokens || []).forEach((x) => {
-      if ((x.owner || '').trim()) owners.add(x.owner.trim());
-    }));
-    if ((t.owner || '').trim()) owners.add(t.owner.trim());
-    dl.innerHTML = '';
-    [...owners].filter(Boolean).forEach((name) => {
-      const o = document.createElement('option');
-      o.value = name;
-      dl.appendChild(o);
-    });
-  }
-  const typeSel = $('#detail-type-select');
-  if (typeSel) {
-    typeSel.value = t.type;
-    typeSel.className = 'type-tag type-select type-' + t.type;
-  }
-  $('#detail-hp-current').value = t.hp;
-  $('#detail-hp-max').value = t.hpMax;
-  $('#detail-ac-input').value = t.ac;
-  $('#detail-icon-input').value = t.icon || '';
-
-  const pct = t.hpMax > 0 ? clamp((t.hp / t.hpMax) * 100, 0, 100) : 0;
-  $('#detail-hp-bar').style.width = pct + '%';
-  $('#detail-hp-bar').style.background = hpColor(pct);
-  $('#detail-public-note').value = t.publicNote || '';
-  $('#detail-gm-note').value = t.gmNote || '';
+  updateDetailHeader(t);
+  updateDetailVitals(t);
+  populateDetailOwnerOptions(t);
+  updateDetailNotes(t);
   $('#detail-hidden-players').checked = t.hiddenFromPlayers === true;
   renderDetailConditions(t);
+  updateSpellRangeEditor(t);
   renderMountBox(t);
-
-  // 移到其他地图的下拉框（不含当前地图）
-  const sel = $('#detail-map-move');
-  const prev = sel.value;
-  sel.innerHTML = '';
-  state.maps.forEach((m) => {
-    if (m.id === state.activeMapId) return;
-    const opt = document.createElement('option');
-    opt.value = m.id;
-    opt.textContent = m.name;
-    sel.appendChild(opt);
+  updateDetailMapOptions();
+  setDetailTab(detailActiveTab, { resetScroll: false });
+  if (changed) requestAnimationFrame(() => {
+    const scroll = $('#detail-scroll');
+    if (scroll) scroll.scrollTop = 0;
   });
-  if ([...sel.options].some((o) => o.value === prev)) sel.value = prev;
 }
 
 /* ==================== 骰子 ==================== */
@@ -2631,26 +4400,54 @@ function rollSet(count, sides) {
   return Array.from({ length: count }, () => 1 + Math.floor(Math.random() * sides));
 }
 
-function doRoll(expr) {
+function d20CriticalOutcome(parsed, chosen, rollMode, pick, dicePayload) {
+  // 只有一次 d20 检定会触发大成功/大失败；加值和未被选中的优势骰都不参与判断。
+  if (!parsed || parsed.sides !== 20 || parsed.count !== 1) return { natural: null, critical: null };
+  const natural = rollMode ? Number(dicePayload[pick === 1 ? 1 : 0]) : Number(chosen[0]);
+  return {
+    natural,
+    critical: natural === 20 ? 'success' : natural === 1 ? 'fail' : null,
+  };
+}
+
+function doRoll(expr, mode = 0) {
   const parsed = parseExpr(expr);
   if (!parsed) {
     toast('无法识别的骰子表达式，示例：2d6+3');
     return;
   }
 
-  const chosen = rollSet(parsed.count, parsed.sides);
+  const rollMode = (mode === 1 || mode === -1) && parsed.count === 1 && parsed.sides === 20 ? mode : 0;
+  const first = rollSet(parsed.count, parsed.sides);
+  let second = null;
+  let chosen = first;
+  let pick;
+  if (rollMode) {
+    second = rollSet(parsed.count, parsed.sides);
+    const sumA = first.reduce((a, b) => a + b, 0);
+    const sumB = second.reduce((a, b) => a + b, 0);
+    pick = rollMode === 1 ? (sumA >= sumB ? 0 : 1) : (sumA <= sumB ? 0 : 1);
+    chosen = pick === 0 ? first : second;
+  }
   const sum = chosen.reduce((a, b) => a + b, 0) + parsed.mod;
-  const label = parsed.label;
-  const detail = chosen.join(' + ') + (parsed.mod ? (parsed.mod > 0 ? ` + ${parsed.mod}` : ` ${parsed.mod}`) : '');
+  const label = parsed.label + (rollMode === 1 ? ' ⚖️优势' : rollMode === -1 ? ' ⬇️劣势' : '');
+  const note = second
+    ? `（两次 ${first.reduce((a, b) => a + b, 0)} / ${second.reduce((a, b) => a + b, 0)}，取${rollMode === 1 ? '大' : '小'}）`
+    : '';
+  const dicePayload = second ? [first[0], second[0]] : chosen.slice();
+  const outcome = d20CriticalOutcome(parsed, chosen, rollMode, pick, dicePayload);
+  const criticalText = outcome.critical === 'success' ? ' · 天然 20，大成功！' : outcome.critical === 'fail' ? ' · 天然 1，大失败！' : '';
+  const detail = chosen.join(' + ') + (parsed.mod ? (parsed.mod > 0 ? ` + ${parsed.mod}` : ` ${parsed.mod}`) : '') + note + criticalText;
   // GM 默认只在本机显示；勾选“广播结果”后才发送给玩家。
-  playDiceFx(parsed.sides, label, sum, { dice: chosen.slice() });
+  playDiceFx(parsed.sides, label, sum, { dice: dicePayload, pick, mode: rollMode, natural: outcome.natural, critical: outcome.critical });
   addLogLine(label, detail, sum);
   const broadcastBox = $('#dice-broadcast');
   if (broadcastBox && broadcastBox.checked) {
     const rid = `gm-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     hostLocalRolls.add(rid);
     sendHostAction({
-      op: 'roll', rid, expr: label, detail, total: sum, sides: parsed.sides, dice: chosen.slice(),
+      op: 'roll', rid, expr: label, detail, total: sum, sides: parsed.sides,
+      dice: dicePayload, pick, mode: rollMode, natural: outcome.natural, critical: outcome.critical,
     }).then((result) => {
       if (!result.ok || result.data?.ok === false) {
         hostLocalRolls.delete(rid);
@@ -2759,42 +4556,6 @@ function playerViewerUrl() {
   const ip = streamInfo?.ip || '127.0.0.1';
   const port = streamInfo?.port || 8090;
   return `http://${ip}:${port}/主控台/玩家.html${room}`;
-}
-
-function updateServerUrlUi() {
-  const input = $('#server-url-input');
-  const hint = $('#server-url-hint');
-  const override = queryServerBase() || savedServerBase();
-  if (input && document.activeElement !== input) input.value = override;
-  if (!hint) return;
-  const base = serverApiBase();
-  hint.textContent = location.protocol === 'file:' && !override
-    ? `当前使用默认地址 ${base}；填写后会保存到本机。`
-    : `当前 API：${base}${queryServerBase() ? '（来自 URL 参数）' : ''}`;
-}
-
-function applyServerUrlSetting() {
-  const input = $('#server-url-input');
-  const raw = input?.value.trim() || '';
-  if (raw && !normalizeServerBase(raw)) {
-    toast('服务器地址无效：请填写 http:// 或 https:// 地址');
-    return;
-  }
-  try {
-    if (raw) localStorage.setItem(SERVER_URL_KEY, normalizeServerBase(raw));
-    else localStorage.removeItem(SERVER_URL_KEY);
-  } catch (e) {
-    toast('无法保存服务器地址，请检查浏览器存储权限');
-    return;
-  }
-  // URL 参数优先级最高；清空时一并移除本页的 server 参数，避免继续连接旧地址。
-  try {
-    const url = new URL(location.href);
-    if (!raw) url.searchParams.delete('server');
-    window.location.href = url.toString();
-  } catch (e) {
-    window.location.reload();
-  }
 }
 
 function sendHostAction(action) {
@@ -2926,23 +4687,53 @@ async function restoreFolderIfAvailable() {
 
 function scheduleAutosave(markStream = true) {
   if (markStream) streamDirty = true;
-  clearTimeout(autosaveTimer);
-  autosaveTimer = setTimeout(saveNow, 600);
+  // 第一处修改启动一分钟窗口；后续操作会一并写入，不会无限延后保存。
+  if (autosaveTimer) return;
+  autosaveTimer = setTimeout(() => {
+    autosaveTimer = null;
+    saveNow();
+  }, AUTOSAVE_INTERVAL_MS);
 }
 
 function saveNow(options = {}) {
+  if (autosaveTimer) {
+    clearTimeout(autosaveTimer);
+    autosaveTimer = null;
+  }
+  let compact;
   try {
     // 棋子库有独立存档；本回合路径属于联机临时显示，不写入战役存档。
-    const compact = stateStorageJson();
-    localStorage.setItem(STORAGE_KEY, compact);
-    localStorage.setItem('dnd-board-local-save-at', String(Date.now()));
-    if (projectDirHandle) queueCurrentFolderSave({ backup: options.backup === true });
-    else updateSaveStatus('仅浏览器缓存 · 请连接“存档”文件夹', 'error');
-    return true;
+    compact = stateStorageJson();
   } catch (e) {
-    toast('⚠ 自动保存失败：地图图片可能太大（>5MB）');
+    toast('⚠ 无法生成存档数据');
     return false;
   }
+
+  let browserSaved = false;
+  try {
+    localStorage.setItem(STORAGE_KEY, compact);
+    localStorage.setItem('dnd-board-local-save-at', String(Date.now()));
+    browserSaved = true;
+    browserStateCacheFailed = false;
+  } catch (e) {
+    if (!browserStateCacheFailed) {
+      toast(projectDirHandle
+        ? '浏览器临时缓存已满，将继续写入“存档”文件夹'
+        : '⚠ 地图较大，请连接“存档”文件夹后保存');
+    }
+    browserStateCacheFailed = true;
+  }
+
+  if (projectDirHandle) {
+    if (!browserSaved) updateSaveStatus('浏览器缓存已满 · 正在写入存档文件夹', 'busy');
+    queueCurrentFolderSave({ backup: options.backup === true });
+    return true;
+  }
+  updateSaveStatus(browserSaved ? '仅浏览器缓存 · 请连接“存档”文件夹' : '地图较大且未连接“存档”文件夹', 'error');
+  if (!browserSaved) {
+    return false;
+  }
+  return true;
 }
 
 async function saveNowWithFeedback() {
@@ -2989,6 +4780,11 @@ function applySavedState(s) {
       saveLibrary();
     }
 
+    const portraitLibrary = [
+      ...loadLibrary(),
+      ...BUNDLED_LIBRARY.map(normalizeLibPreset),
+    ];
+    let migratedPortraits = 0;
     const normalizeToken = (t) => {
       const portraitPath = canonicalPortraitPath(t.iconImgPath);
       if (portraitPath) {
@@ -2996,6 +4792,8 @@ function applySavedState(s) {
         t.iconImg = null;
         t.iconImgHd = null;
         t.iconImgId = null;
+      } else if (migrateLegacyTokenPortrait(t, portraitLibrary)) {
+        migratedPortraits++;
       }
       if (typeof t.size !== 'number') t.size = 1;
       if (typeof t.hp !== 'number') t.hp = t.hpMax || 10;
@@ -3012,6 +4810,7 @@ function applySavedState(s) {
         mapW: m.mapW || 1400,
         mapH: m.mapH || 900,
         gridSize: m.gridSize || 50,
+        gridVisible: typeof m.gridVisible === 'boolean' ? m.gridVisible : s.showGrid !== false,
         cells: Array.isArray(m.cells) ? m.cells.map((r) => r.slice()) : null,
         cellStates: m.cellStates && typeof m.cellStates === 'object' ? { ...m.cellStates } : {},
         cellVariants: m.cellVariants && typeof m.cellVariants === 'object' ? { ...m.cellVariants } : {},
@@ -3031,7 +4830,11 @@ function applySavedState(s) {
         s.mapData || null,
         s.mapW || 1400,
         s.mapH || 900,
-        s.gridSize || 50
+        s.gridSize || 50,
+        null,
+        null,
+        null,
+        s.showGrid !== false
       );
       legacy.tokens = Array.isArray(s.tokens) ? s.tokens.map(normalizeToken) : [];
       legacy.cells = null;
@@ -3046,6 +4849,7 @@ function applySavedState(s) {
       state.maps = [legacy];
       state.activeMapId = legacy.id;
     }
+    state.showGrid = mapGridVisible(mapById(state.activeMapId));
 
     const ids = state.maps.flatMap((m) => [m.id, ...m.tokens.map((t) => t.id)])
       .map((id) => parseInt(String(id).replace(/\D/g, ''), 10) || 0)
@@ -3053,6 +4857,7 @@ function applySavedState(s) {
       .concat(state.encounter.entries.map((entry) => parseInt(String(entry.id).replace(/\D/g, ''), 10) || 0));
     uid = Math.max(1, ...ids) + 1;
     renumberAllMaps();
+    pendingLegacyPortraitMigrations = migratedPortraits;
     return true;
   } catch (e) {
     console.warn('读取存档失败', e);
@@ -3061,7 +4866,7 @@ function applySavedState(s) {
 }
 
 function applyAllState() {
-  $('#grid-toggle').checked = state.showGrid;
+  syncActiveMapGridSetting();
   $('#names-toggle').checked = state.showNames;
   $('#mark-toggle').checked = state.markMode;
   $('#fog-toggle').checked = state.fogOn;
@@ -3075,12 +4880,17 @@ function applyAllState() {
 function applyActiveMap() {
   const m = activeMap();
   if (!m) return;
+  syncActiveMapGridSetting();
   world.style.width = m.mapW + 'px';
   world.style.height = m.mapH + 'px';
   $('#fog-canvas').width = m.mapW;
   $('#fog-canvas').height = m.mapH;
   $('#doodle-canvas').width = m.mapW;
   $('#doodle-canvas').height = m.mapH;
+  if (spellRangeCanvas) {
+    spellRangeCanvas.width = m.mapW;
+    spellRangeCanvas.height = m.mapH;
+  }
   if (turnPathCanvas) {
     turnPathCanvas.width = m.mapW;
     turnPathCanvas.height = m.mapH;
@@ -3110,29 +4920,156 @@ function toast(msg) {
 
 function bindEvents() {
   populateConditionSelect();
-  // 地图
-  $('#file-map').addEventListener('change', (e) => {
-    if (e.target.files[0]) loadMapFromFile(e.target.files[0]);
-    e.target.value = '';
-  });
-  $('#file-map-import').addEventListener('change', (e) => {
-    if (e.target.files[0]) importMapFile(e.target.files[0]);
-    e.target.value = '';
-  });
-  $('#file-map-folder').addEventListener('change', (e) => {
+  // 所有地图格式共用一个载入入口
+  $('#file-map-load').addEventListener('change', async (e) => {
     const files = [...e.target.files];
     e.target.value = '';
-    if (!files.length) return;
-    files.forEach(importMapFile);
-    toast(`已从地图文件夹加载 ${files.length} 张地图`);
+    await loadSelectedMapFiles(files);
   });
 
-  // 拼接地图
-  $('#stitch-layout').addEventListener('change', renderStitchSlots);
-  $('#btn-stitch-cancel').addEventListener('click', closeStitchModal);
-  $('#btn-stitch-go').addEventListener('click', stitchGo);
-  $('#stitch-modal').addEventListener('click', (e) => {
-    if (e.target === $('#stitch-modal')) closeStitchModal();
+  // 地图缩略图浏览、横向滑动与排序
+  $('#btn-map-browser-top').addEventListener('click', openMapBrowser);
+  $('#btn-map-browser-close').addEventListener('click', closeMapBrowser);
+  $('#btn-map-browser-load').addEventListener('click', () => $('#file-map-load').click());
+  $('#map-browser-modal').addEventListener('click', (e) => {
+    if (e.target === $('#map-browser-modal')) closeMapBrowser();
+  });
+  const mapStrip = $('#map-thumbnail-strip');
+  mapStrip.addEventListener('click', (e) => {
+    if (performance.now() < mapBrowserSuppressClickUntil) return;
+    const deleteButton = e.target.closest('[data-map-delete]');
+    if (deleteButton) {
+      deleteMapById(deleteButton.dataset.mapDelete);
+      return;
+    }
+    const renameButton = e.target.closest('[data-map-rename]');
+    if (renameButton) {
+      renameMapById(renameButton.dataset.mapRename);
+      return;
+    }
+    const stepButton = e.target.closest('[data-map-step]');
+    if (stepButton) {
+      moveMapBy(stepButton.dataset.mapId, Number(stepButton.dataset.mapStep));
+      return;
+    }
+    const openButton = e.target.closest('[data-map-open]');
+    if (openButton) {
+      switchMap(openButton.dataset.mapOpen);
+      closeMapBrowser();
+    }
+  });
+  mapStrip.addEventListener('change', (e) => {
+    const visibilityMapId = e.target.dataset.mapGridVisible;
+    if (visibilityMapId !== undefined) {
+      setMapGridVisibility(visibilityMapId, e.target.checked);
+      return;
+    }
+    const sizeMapId = e.target.dataset.mapGridSize;
+    if (sizeMapId !== undefined) setMapGridSize(sizeMapId, e.target.value);
+  });
+  mapStrip.addEventListener('scroll', updateMapBrowserScrollButtons, { passive: true });
+  mapStrip.addEventListener('wheel', (e) => {
+    if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
+    e.preventDefault();
+    mapStrip.scrollBy({ left: e.deltaY, behavior: 'auto' });
+  }, { passive: false });
+  $('#btn-map-scroll-left').addEventListener('click', () => {
+    mapStrip.scrollBy({ left: -Math.max(280, mapStrip.clientWidth * .72), behavior: 'smooth' });
+  });
+  $('#btn-map-scroll-right').addEventListener('click', () => {
+    mapStrip.scrollBy({ left: Math.max(280, mapStrip.clientWidth * .72), behavior: 'smooth' });
+  });
+  mapStrip.addEventListener('pointerdown', (e) => {
+    const handle = e.target.closest('[data-map-drag-handle]');
+    if (!handle || state.maps.length < 2 || (e.pointerType === 'mouse' && e.button !== 0)) return;
+    const card = handle.closest('.map-thumb-card');
+    if (!card) return;
+    mapBrowserPointerDrag = {
+      pointerId: e.pointerId,
+      mapId: card.dataset.mapId,
+      startX: e.clientX,
+      startY: e.clientY,
+      card,
+      handle,
+      active: false,
+      targetId: null,
+      placeAfter: false,
+    };
+    try { handle.setPointerCapture(e.pointerId); } catch (error) { /* 浏览器不支持时仍继续 */ }
+    e.preventDefault();
+  });
+  mapStrip.addEventListener('pointermove', (e) => {
+    const pending = mapBrowserPointerDrag;
+    if (!pending || pending.pointerId !== e.pointerId) return;
+    if (!pending.active && Math.hypot(e.clientX - pending.startX, e.clientY - pending.startY) < 6) return;
+    if (!pending.active) {
+      pending.active = true;
+      pending.card.classList.add('dragging');
+    }
+    e.preventDefault();
+    const stripRect = mapStrip.getBoundingClientRect();
+    if (e.clientX < stripRect.left + 44) mapStrip.scrollLeft -= 18;
+    if (e.clientX > stripRect.right - 44) mapStrip.scrollLeft += 18;
+    clearMapDropIndicators();
+    pending.targetId = null;
+    const target = document.elementFromPoint(e.clientX, e.clientY)?.closest('.map-thumb-card');
+    if (!target || target.dataset.mapId === pending.mapId || !mapStrip.contains(target)) return;
+    const rect = target.getBoundingClientRect();
+    pending.targetId = target.dataset.mapId;
+    pending.placeAfter = e.clientX > rect.left + rect.width / 2;
+    target.classList.add(pending.placeAfter ? 'drop-after' : 'drop-before');
+  });
+  const finishMapPointerDrag = (e, cancelled = false) => {
+    const pending = mapBrowserPointerDrag;
+    if (!pending || pending.pointerId !== e.pointerId) return;
+    try {
+      if (pending.handle.hasPointerCapture(e.pointerId)) pending.handle.releasePointerCapture(e.pointerId);
+    } catch (error) { /* 忽略 */ }
+    const shouldReorder = !cancelled && pending.active && pending.targetId;
+    const mapId = pending.mapId;
+    const targetId = pending.targetId;
+    const placeAfter = pending.placeAfter;
+    pending.card.classList.remove('dragging');
+    mapBrowserPointerDrag = null;
+    clearMapDropIndicators();
+    if (!shouldReorder) return;
+    mapBrowserSuppressClickUntil = performance.now() + 300;
+    reorderMapAround(mapId, targetId, placeAfter);
+  };
+  mapStrip.addEventListener('pointerup', (e) => finishMapPointerDrag(e));
+  mapStrip.addEventListener('pointercancel', (e) => finishMapPointerDrag(e, true));
+
+  // 普通图片直接导入为独立地图
+  $('#btn-map-image-import-more').addEventListener('click', () => $('#file-map-load').click());
+  $('#btn-map-image-import-cancel').addEventListener('click', closeDirectMapImport);
+  $('#btn-map-image-import-confirm').addEventListener('click', confirmDirectMapImport);
+  $('#map-image-import-modal').addEventListener('click', (e) => {
+    if (e.target === $('#map-image-import-modal')) closeDirectMapImport();
+  });
+  $('#map-image-import-list').addEventListener('input', (e) => {
+    const nameIndex = e.target.dataset.mapImportName;
+    const gridIndex = e.target.dataset.mapImportGrid;
+    const visibilityIndex = e.target.dataset.mapImportGridVisible;
+    if (nameIndex !== undefined && pendingMapImageImports[Number(nameIndex)]) {
+      pendingMapImageImports[Number(nameIndex)].name = e.target.value;
+    }
+    if (gridIndex !== undefined && pendingMapImageImports[Number(gridIndex)]) {
+      pendingMapImageImports[Number(gridIndex)].gridSize = e.target.value;
+    }
+    if (visibilityIndex !== undefined && pendingMapImageImports[Number(visibilityIndex)]) {
+      pendingMapImageImports[Number(visibilityIndex)].gridVisible = e.target.checked;
+      renderMapImageImportList();
+    }
+  });
+  $('#map-image-import-list').addEventListener('click', (e) => {
+    const remove = e.target.closest('[data-map-import-remove]');
+    if (!remove || mapImageImportBusy) return;
+    const index = Number(remove.dataset.mapImportRemove);
+    const item = pendingMapImageImports[index];
+    if (!item) return;
+    try { URL.revokeObjectURL(item.objectUrl); } catch (error) { /* 忽略 */ }
+    pendingMapImageImports.splice(index, 1);
+    renderMapImageImportList();
   });
 
   // 封面页
@@ -3203,20 +5140,22 @@ function bindEvents() {
   board.addEventListener('dragenter', (e) => { e.preventDefault(); });
   board.addEventListener('drop', (e) => {
     e.preventDefault();
-    const f = e.dataTransfer.files[0];
-    if (f && f.type.startsWith('image/')) loadMapFromFile(f);
+    loadSelectedMapFiles(e.dataTransfer.files);
   });
   document.addEventListener('paste', (e) => {
     const tag = (e.target.tagName || '').toLowerCase();
     if (tag === 'input' || tag === 'textarea') return;
     const item = [...(e.clipboardData?.items || [])].find((i) => i.type.startsWith('image/'));
-    if (item) loadMapFromFile(item.getAsFile());
+    if (item) appendDirectMapImages([item.getAsFile()]);
   });
 
   // 网格与吸附
   $('#grid-toggle').addEventListener('change', (e) => {
     state.showGrid = e.target.checked;
+    const map = activeMap();
+    if (map) map.gridVisible = e.target.checked;
     updateWorldBackground();
+    if (!$('#map-browser-modal')?.hidden) renderMapBrowser();
     scheduleAutosave();
   });
   $('#names-toggle').addEventListener('change', (e) => {
@@ -3268,6 +5207,16 @@ function bindEvents() {
     if (e.button !== 0) return;
     // 按钮（如右下角缩放按钮）正常响应点击，不进入拖拽逻辑
     if (e.target.closest('button')) return;
+    if (pendingMapReaction) {
+      e.preventDefault();
+      placeHostReactionAt(e.clientX, e.clientY);
+      return;
+    }
+    if (spellAimTokenId) {
+      e.preventDefault();
+      beginSelectedSpellAim(e);
+      return;
+    }
     // 涂鸦 / 迷雾工具
     if (boardTool) {
       const m = activeMap();
@@ -3279,6 +5228,9 @@ function bindEvents() {
         if (boardTool === 'fog-reveal' || boardTool === 'fog-hide') {
           paintFogAt(e);
           drag = { mode: 'fog' };
+        } else if (boardTool === 'doodle-eraser') {
+          drag = { mode: 'doodle-erase', erased: new Set() };
+          eraseDoodleAt(wx, wy, drag.erased);
         } else if (boardTool === 'doodle-select') {
           const s = doodleHitTest(wx, wy);
           selectedDoodleId = s ? s.id : null;
@@ -3332,6 +5284,10 @@ function bindEvents() {
 
   board.addEventListener('pointermove', (e) => {
     if (!drag) return;
+    if (drag.mode === 'spell-aim') {
+      previewSelectedSpellAimAt(e.clientX, e.clientY);
+      return;
+    }
     if (drag.mode === 'fog') {
       paintFogAt(e);
       return;
@@ -3343,6 +5299,18 @@ function bindEvents() {
         continueDoodle(
           (e.clientX - rect.left - m.cam.x) / m.cam.zoom,
           (e.clientY - rect.top - m.cam.y) / m.cam.zoom
+        );
+      }
+      return;
+    }
+    if (drag.mode === 'doodle-erase') {
+      const m = activeMap();
+      if (m) {
+        const rect = board.getBoundingClientRect();
+        eraseDoodleAt(
+          (e.clientX - rect.left - m.cam.x) / m.cam.zoom,
+          (e.clientY - rect.top - m.cam.y) / m.cam.zoom,
+          drag.erased
         );
       }
       return;
@@ -3392,8 +5360,13 @@ function bindEvents() {
   });
 
   const endDrag = (e) => {
+    if (drag && drag.mode === 'spell-aim') {
+      finishSelectedSpellAim(e, e.type === 'pointercancel');
+      return;
+    }
     if (drag && drag.mode === 'doodle-move') scheduleAutosave();
     if (drag && drag.mode === 'doodle') endDoodle();
+    if (drag && drag.mode === 'doodle-erase' && drag.erased.size) scheduleAutosave();
     if (drag && drag.mode === 'token') {
       const m = activeMap();
       const token = findToken(drag.id);
@@ -3437,16 +5410,27 @@ function bindEvents() {
 
   // 键盘
   document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && (pendingMapReaction || spellAimTokenId)) {
+      cancelMapReaction();
+      cancelSpellAim();
+      toast('已取消地图操作');
+      return;
+    }
+    if (e.key === 'Escape' && !$('#map-image-import-modal').hidden) {
+      closeDirectMapImport();
+      return;
+    }
+    if (e.key === 'Escape' && !$('#map-browser-modal').hidden) {
+      closeMapBrowser();
+      return;
+    }
     const tag = (e.target.tagName || '').toLowerCase();
     if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
     if ((e.key === 'Delete' || e.key === 'Backspace') && boardTool === 'doodle-select' && selectedDoodleId) {
       e.preventDefault();
       const m = activeMap();
       if (m) {
-        m.doodles = m.doodles.filter((d) => d.id !== selectedDoodleId);
-        selectedDoodleId = null;
-        renderDoodles();
-        scheduleAutosave();
+        deleteDoodleById(selectedDoodleId);
       }
       return;
     }
@@ -3540,16 +5524,33 @@ function bindEvents() {
   });
 
   // 详情
+  $('#btn-detail-close').addEventListener('click', closeDetailPanel);
+  document.querySelectorAll('[data-detail-tab]').forEach((button) => {
+    button.addEventListener('click', () => setDetailTab(button.dataset.detailTab));
+    button.addEventListener('keydown', (event) => {
+      if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+      event.preventDefault();
+      const tabs = [...document.querySelectorAll('[data-detail-tab]')];
+      const current = tabs.indexOf(button);
+      let next = current;
+      if (event.key === 'ArrowLeft') next = (current - 1 + tabs.length) % tabs.length;
+      if (event.key === 'ArrowRight') next = (current + 1) % tabs.length;
+      if (event.key === 'Home') next = 0;
+      if (event.key === 'End') next = tabs.length - 1;
+      setDetailTab(tabs[next].dataset.detailTab, { focus: true });
+    });
+  });
   $('#detail-name').addEventListener('input', (e) => {
     const t = state.selectedId && findToken(state.selectedId);
     if (!t) return;
-    t.name = e.target.value;
+    t.name = e.target.value.slice(0, 24);
     // 手动改名后退出自动编号组，不再被自动重排覆盖
     t.groupKey = null;
     renumberTokens(activeMap());
     renderTokens();
-    scheduleAutosave();
+    scheduleDetailTextSave();
   });
+  $('#detail-name').addEventListener('blur', flushDetailTextSave);
   $('#detail-type-select').addEventListener('change', (e) => {
     const t = state.selectedId && findToken(state.selectedId);
     if (!t) return;
@@ -3559,62 +5560,109 @@ function bindEvents() {
     scheduleAutosave();
     toast('类型已改为：' + ((TYPE_META[t.type] || {}).label || t.type));
   });
-  $('#detail-owner').addEventListener('change', (e) => {
-    const t = state.selectedId && findToken(state.selectedId);
+  const commitTokenOwner = (tokenId, rawValue, announce = false) => {
+    const t = tokenId && findToken(tokenId);
     if (!t) return;
-    t.owner = e.target.value.trim();
-    updateDetail();
-    scheduleAutosave();
-    toast(t.owner ? `「${t.name}」现在归「${t.owner}」操作` : `「${t.name}」改回 GM 控制`);
+    const nextOwner = String(rawValue || '').trim().slice(0, 24);
+    const changed = t.owner !== nextOwner;
+    if (changed) {
+      const invalidatesTurn = currentTurnIncludesToken(t.id);
+      t.owner = nextOwner;
+      if (encounterState().playMode === 'turn' && invalidatesTurn) bumpEncounterTurn(encounterState());
+      updateDetail();
+      if (invalidatesTurn) renderEncounter();
+      scheduleAutosave();
+    }
+    if (announce) toast(t.owner ? `「${t.name}」现在归「${t.owner}」操作` : `「${t.name}」改回 GM 控制`);
+  };
+  $('#detail-owner').addEventListener('change', (e) => {
+    commitTokenOwner(state.selectedId, e.target.value, true);
   });
+  $('#btn-detail-condition-open').addEventListener('click', () => openConditionEditor());
+  $('#btn-detail-condition-close').addEventListener('click', closeConditionEditor);
+  $('#btn-detail-condition-cancel').addEventListener('click', closeConditionEditor);
   $('#btn-detail-condition-add').addEventListener('click', addSelectedCondition);
+  $('#detail-condition-select').addEventListener('change', syncConditionCustomFields);
+  document.querySelectorAll('[data-condition-duration]').forEach((button) => {
+    button.addEventListener('click', () => setConditionDurationDraft(button.dataset.conditionDuration));
+  });
+  $('#detail-condition-turns').addEventListener('input', syncConditionDurationButtons);
   $('#detail-condition-turns').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') addSelectedCondition();
+  });
+  document.querySelectorAll('[data-condition-visibility]').forEach((button) => {
+    button.addEventListener('click', () => setConditionVisibilityDraft(button.dataset.conditionVisibility));
+  });
+  document.querySelectorAll('#detail-spell-range [data-spell-shape]').forEach((button) => {
+    button.addEventListener('click', () => updateSelectedSpellRange({ shape: button.dataset.spellShape }));
+  });
+  $('#detail-spell-feet').addEventListener('input', (e) => updateSelectedSpellRange({ feet: Number(e.target.value) }));
+  document.querySelectorAll('#detail-spell-range [data-spell-feet]').forEach((button) => {
+    button.addEventListener('click', () => updateSelectedSpellRange({ feet: Number(button.dataset.spellFeet) }));
+  });
+  $('#detail-spell-direction').addEventListener('input', (e) => updateSelectedSpellRange({ direction: Number(e.target.value) }));
+  $('#btn-detail-spell-aim').addEventListener('click', () => {
+    const token = state.selectedId ? findToken(state.selectedId) : null;
+    if (!token) return;
+    if (normalizeSpellRange(token.spellRange).shape !== 'cone') token.spellRange = normalizeSpellRange({ ...token.spellRange, shape: 'cone' });
+    spellAimTokenId = spellAimTokenId === token.id ? null : token.id;
+    cancelMapReaction();
+    updateSpellRangeEditor(token);
+    renderSpellRanges();
+    if (spellAimTokenId) toast('在地图上按住左键旋转锥形，松开确定；Esc 取消');
+  });
+  $('#btn-map-reaction').addEventListener('click', toggleMapReactionPalette);
+  document.querySelectorAll('#map-reaction-palette [data-map-reaction]').forEach((button) => {
+    button.addEventListener('click', () => selectMapReaction(button.dataset.mapReaction));
   });
   $('#detail-public-note').addEventListener('input', (e) => {
     const t = state.selectedId && findToken(state.selectedId);
     if (!t) return;
     t.publicNote = e.target.value.slice(0, 240);
-    scheduleAutosave();
+    $('#detail-public-note-summary').textContent = t.publicNote ? `已填写 ${t.publicNote.length} 字` : '未填写';
+    scheduleDetailTextSave();
   });
+  $('#detail-public-note').addEventListener('blur', flushDetailTextSave);
   $('#detail-gm-note').addEventListener('input', (e) => {
     const t = state.selectedId && findToken(state.selectedId);
     if (!t) return;
     t.gmNote = e.target.value.slice(0, 500);
-    scheduleAutosave(false);
+    $('#detail-gm-note-summary').textContent = t.gmNote ? `已填写 ${t.gmNote.length} 字` : '未填写';
+    scheduleDetailTextSave(false);
   });
+  $('#detail-gm-note').addEventListener('blur', flushDetailTextSave);
   $('#detail-hidden-players').addEventListener('change', (e) => {
     const t = state.selectedId && findToken(state.selectedId);
     if (!t) return;
     t.hiddenFromPlayers = e.target.checked;
-    if (currentTurnIncludesToken(t.id)) bumpEncounterTurn(encounterState());
+    const encounter = encounterState();
+    const affectsInitiative = currentTurnIncludesToken(t.id) || encounter.entries.some((entry) => entry.tokenId === t.id);
+    if (encounter.playMode === 'turn' && affectsInitiative) bumpEncounterTurn(encounter);
     renderTokens();
     renderEncounter();
-    updateDetail();
+    updateDetailContext(t);
     scheduleAutosave();
     toast(t.hiddenFromPlayers ? `「${t.name}」已对玩家隐藏` : `「${t.name}」已对玩家显示`);
   });
-  $('#detail-hp-current').addEventListener('input', (e) => {
-    const t = state.selectedId && findToken(state.selectedId);
-    if (!t) return;
-    t.hp = clamp(parseInt(e.target.value, 10) || 0, 0, 99999);
-    updateDetail();
-    renderTokens();
-    scheduleAutosave();
-  });
-  $('#detail-hp-max').addEventListener('input', (e) => {
-    const t = state.selectedId && findToken(state.selectedId);
-    if (!t) return;
-    t.hpMax = Math.max(1, parseInt(e.target.value, 10) || 1);
-    updateDetail();
-    renderTokens();
-    scheduleAutosave();
-  });
-  $('#detail-ac-input').addEventListener('input', (e) => {
-    const t = state.selectedId && findToken(state.selectedId);
-    if (!t) return;
-    t.ac = clamp(parseInt(e.target.value, 10) || 0, 0, 99);
-    scheduleAutosave();
+  [
+    ['detail-hp-current', 'hp', 0, 99999],
+    ['detail-hp-max', 'hpMax', 1, 99999],
+    ['detail-ac-input', 'ac', 0, 99],
+  ].forEach(([id, property, min, max]) => {
+    const input = $(`#${id}`);
+    input.addEventListener('input', () => { input.dataset.dirty = 'true'; });
+    input.addEventListener('blur', () => commitDetailNumberInput(input, property, min, max));
+    input.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        commitDetailNumberInput(input, property, min, max);
+        input.blur();
+      } else if (event.key === 'Escape') {
+        event.preventDefault();
+        cancelDetailNumberInput(input, property);
+        input.blur();
+      }
+    });
   });
   $('#detail-icon-input').addEventListener('input', (e) => {
     const t = state.selectedId && findToken(state.selectedId);
@@ -3624,18 +5672,14 @@ function bindEvents() {
     renderTokens();
     scheduleAutosave();
   });
-  document.querySelectorAll('.hp-btns button').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const t = state.selectedId && findToken(state.selectedId);
-      if (!t) return;
-      const v = btn.dataset.hp;
-      if (v === 'full') t.hp = t.hpMax;
-      else t.hp = clamp(t.hp + parseInt(v, 10), 0, t.hpMax);
-      updateDetail();
-      renderTokens();
-      scheduleAutosave();
-    });
+  document.querySelectorAll('[data-hp-amount]').forEach((button) => {
+    button.addEventListener('click', () => setDetailHpAmount(Number(button.dataset.hpAmount)));
   });
+  $('#detail-hp-delta').addEventListener('input', () => setDetailHpAmount($('#detail-hp-delta').value));
+  $('#btn-detail-damage').addEventListener('click', () => applyDetailHpChange('damage'));
+  $('#btn-detail-heal').addEventListener('click', () => applyDetailHpChange('heal'));
+  $('#btn-detail-hp-full').addEventListener('click', () => applyDetailHpChange('full'));
+  $('#btn-detail-hp-undo').addEventListener('click', undoDetailHpChange);
   $('#btn-detail-delete').addEventListener('click', () => {
     const t = state.selectedId && findToken(state.selectedId);
     if (!t) return;
@@ -3643,6 +5687,9 @@ function bindEvents() {
   });
   $('#btn-token-move').addEventListener('click', () => {
     if (!state.selectedId || !$('#detail-map-move').value) return;
+    const t = findToken(state.selectedId);
+    const target = mapById($('#detail-map-move').value);
+    if (!t || !target || !confirm(`把「${t.name}」移动到「${target.name}」？\n当前地图上的原棋子会被移除。`)) return;
     transferToken(state.selectedId, $('#detail-map-move').value, false);
   });
   $('#btn-token-copy').addEventListener('click', () => {
@@ -3692,6 +5739,7 @@ function bindEvents() {
       size: t.size || 1,
       hpMax: t.hpMax || 10,
       ac: typeof t.ac === 'number' ? t.ac : 10,
+      spellRange: normalizeSpellRange(t.spellRange),
     });
     renderLibrary();
     saveLibrary();
@@ -3757,36 +5805,22 @@ function bindEvents() {
   });
   document.querySelectorAll('[data-play-mode]').forEach((button) => {
     button.addEventListener('click', () => {
-      const e = encounterState();
-      const mode = button.dataset.playMode === 'turn' ? 'turn' : 'free';
-      if (e.playMode === mode) return;
-      e.playMode = mode;
-      if (mode === 'turn') {
-        const wasRunning = !!e.worldTime.runningSince;
-        materializeWorldTime(e);
-        e.worldTime.resumeAfterTurn = wasRunning;
-        e.worldTime.runningSince = null;
-        if (!e.currentEntryId) e.currentEntryId = e.entries[0]?.id || null;
-      } else if (e.worldTime.resumeAfterTurn) {
-        e.worldTime.runningSince = Date.now();
-        e.worldTime.resumeAfterTurn = false;
-      }
-      bumpEncounterTurn(e);
-      setEncounterEvent(e, mode === 'turn' ? '已切换为回合制' : '已切换为自由模式');
-      renderEncounter(); scheduleAutosave();
+      if (button.dataset.playMode === 'prepare') enterCombatPreparation();
+      else leaveCombatForFreeMode();
     });
   });
+  $('#btn-combat-start').addEventListener('click', startCombat);
   $('#btn-init-add').addEventListener('click', () => {
     const name = $('#init-name').value.trim();
     if (!name) { toast('请输入单位名称'); return; }
     const e = encounterState();
     const entry = addInitiativeEntry(e, { name, value: parseInt($('#init-value').value, 10) || 0 });
     if (e.playMode === 'turn' && !e.currentEntryId) e.currentEntryId = entry.id;
+    if (e.playMode !== 'free') bumpEncounterTurn(e);
     $('#init-name').value = ''; $('#init-value').value = '';
     setEncounterEvent(e, `加入先攻单位：${entry.name}`);
     renderEncounter(); scheduleAutosave();
   });
-  $('#btn-init-add-token').addEventListener('click', addActiveTokensToEncounter);
   $('#init-name').addEventListener('keydown', (event) => { if (event.key === 'Enter') $('#btn-init-add').click(); });
   $('#init-value').addEventListener('keydown', (event) => { if (event.key === 'Enter') $('#btn-init-add').click(); });
   $('#btn-init-next').addEventListener('click', advanceEncounter);
@@ -3802,22 +5836,34 @@ function bindEvents() {
     renderEncounter(); scheduleAutosave();
   });
   $('#btn-init-timer').addEventListener('click', setWorldClockRunning);
-  $('#btn-time-short-rest').addEventListener('click', () => advanceWorldTime(60 * 60, '完成短休：世界时间 +1 小时'));
-  $('#btn-time-long-rest').addEventListener('click', () => advanceWorldTime(8 * 60 * 60, '完成长休：世界时间 +8 小时'));
+  $('#btn-time-short-rest').addEventListener('click', () => takeRest('short'));
+  $('#btn-time-long-rest').addEventListener('click', () => takeRest('long'));
+  document.querySelectorAll('[data-time-shift]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const seconds = Math.trunc(Number(button.dataset.timeShift) || 0);
+      if (!seconds) return;
+      shiftWorldTime(seconds, button.dataset.timeLabel || button.textContent.trim());
+    });
+  });
   $('#btn-time-apply').addEventListener('click', setWorldTimeFromInputs);
+  $('#btn-weather-apply').addEventListener('click', applyWeatherFromInputs);
+  $('#btn-weather-generate').addEventListener('click', generateWeatherFromClimate);
+  $('#weather-temperature').addEventListener('keydown', (event) => { if (event.key === 'Enter') applyWeatherFromInputs(); });
   ['time-year', 'time-week', 'time-day', 'time-clock'].forEach((id) => {
     $(`#${id}`).addEventListener('keydown', (event) => { if (event.key === 'Enter') setWorldTimeFromInputs(); });
   });
   $('#btn-time-reset').addEventListener('click', () => {
     const e = encounterState();
+    materializeWorldTime(e);
     e.worldTime.totalSeconds = 8 * 60 * 60;
     e.worldTime.runningSince = null;
+    refreshScheduledWeather(e, e.worldTime.totalSeconds);
     setEncounterEvent(e, '世界时间已重置');
     renderEncounter(); scheduleAutosave();
   });
 
   // 左侧卡片折叠/展开
-  document.querySelectorAll('.card').forEach((card) => {
+  document.querySelectorAll('.card:not([data-no-collapse])').forEach((card) => {
     const head = card.querySelector('h2') || card.querySelector('.card-head');
     if (!head) return;
     head.addEventListener('click', (e) => {
@@ -3830,6 +5876,8 @@ function bindEvents() {
   document.querySelectorAll('.die').forEach((btn) => {
     btn.addEventListener('click', () => doRoll(btn.dataset.die, 0));
   });
+  $('#btn-adv').addEventListener('click', () => doRoll('d20', 1));
+  $('#btn-dis').addEventListener('click', () => doRoll('d20', -1));
   $('#btn-roll').addEventListener('click', () => {
     const expr = $('#dice-expr').value.trim();
     if (!expr) return;
@@ -3844,35 +5892,10 @@ function bindEvents() {
   };
   const handleAction = (action) => {
     switch (action) {
-      case 'upload': $('#file-map').click(); break;
-      case 'import-file': $('#file-map-import').click(); break;
-      case 'load-folder': $('#file-map-folder').click(); break;
-      case 'stitch': openStitchModal(); break;
-      case 'new-map': {
-        const m = addMap(`地图 ${state.maps.length + 1}`);
-        toast(`已新建「${m.name}」，可以用上传/导入给它放上地图`);
-        break;
-      }
-      case 'rename-map': {
-        const m = activeMap();
-        if (!m) break;
-        const name = prompt('给这张地图起个名字（如：地下1层）', m.name);
-        if (name === null || !name.trim()) break;
-        m.name = name.trim();
-        syncMapSelect();
-        scheduleAutosave();
-        break;
-      }
-      case 'delete-map': deleteActiveMap(); break;
       case 'save': saveNowWithFeedback(); break;
       case 'load': openCampaignModal(); break;
-      case 'perf-diag': openPerfDiag(); break;
       case 'stream': toggleStream(); break;
       case 'stream-copy': copyStreamUrl(); break;
-      case 'server-check': serverCheck(); break;
-      case 'server-copy': copyServerCmd(); break;
-      case 'server-url-apply': applyServerUrlSetting(); break;
-      case 'stream-push': streamPushData(); break;
     }
   };
   document.querySelectorAll('.dropdown-btn').forEach((btn) => {
@@ -3929,6 +5952,7 @@ function placeToken() {
     hpMax,
     hp: hpMax,
     ac,
+    spellRange: normalizeSpellRange(null),
     conditions: [],
     publicNote: '',
     gmNote: '',
@@ -4295,6 +6319,7 @@ function buildStreamPayload() {
         y: token.y,
         owner: token.owner,
         mountId: token.mountId || null,
+        spellRange: normalizeSpellRange(token.spellRange),
         conditions: (token.conditions || []).filter((condition) => condition.visibility !== 'gm').map((condition) => ({ ...condition })),
         publicNote: token.publicNote || '',
       };
@@ -4318,7 +6343,8 @@ function buildStreamPayload() {
     mapW: m.mapW,
     mapH: m.mapH,
     gridSize: m.gridSize,
-    doodles: Array.isArray(m.doodles) ? m.doodles.map((stroke) => ({ ...stroke })) : [],
+    gridVisible: mapGridVisible(m),
+    doodles: ensureDoodleIds(m).map((stroke) => ({ ...stroke })),
     fog: m.fog && typeof m.fog === 'object' ? { ...m.fog } : {},
     tokens: publicTokenEntries,
   } : null;
@@ -4326,7 +6352,7 @@ function buildStreamPayload() {
     maps: publicMap ? [publicMap] : [],
     activeMapId: state.activeMapId,
     snap: state.snap,
-    showGrid: state.showGrid,
+    showGrid: mapGridVisible(m),
     showNames: state.showNames,
     fogOn: state.fogOn,
     campaignName: state.campaignName,
@@ -4334,7 +6360,7 @@ function buildStreamPayload() {
     sharedNotes: String(state.sharedNotes || '').slice(0, 4000),
     encounter: publicEncounterState(visibleTokenIds),
   };
-  // 兼容尚未更新的观战页面；新页面使用 sharedResources。
+  // 兼容旧版玩家页面；新页面使用 sharedResources。
   p._links = p.sharedResources.map((l) => ({ name: l.name, url: l.url }));
   if (bgmServerUrl && bgmIndex >= 0 && bgmList[bgmIndex]) {
     p._bgm = {
@@ -4354,6 +6380,8 @@ function applyRemoteAction(a) {
   if (a.op === 'endTurn') {
     const e = encounterState();
     if (Number(e.turnSerial) !== Number(a.turnSerial)) return;
+    const endedEntry = currentInitiativeEntry(e);
+    decrementCurrentTokenConditions(e);
     e.currentEntryId = a.nextEntryId || e.currentEntryId;
     e.round = Math.max(1, Number(a.round) || e.round);
     e.turnSerial = Math.max(1, Number(a.nextTurnSerial) || (e.turnSerial + 1));
@@ -4361,10 +6389,20 @@ function applyRemoteAction(a) {
     materializeWorldTime(e);
     if (Number.isFinite(Number(a.worldTimeSeconds))) e.worldTime.totalSeconds = Math.max(0, Math.trunc(Number(a.worldTimeSeconds)));
     e.worldTime.runningSince = null;
-    setEncounterEvent(e, `玩家结束回合：${initiativeEntryLabel(currentInitiativeEntry(e))}`);
+    const automaticWeather = refreshScheduledWeather(e, e.worldTime.totalSeconds);
+    setEncounterEvent(e, `玩家结束回合：${initiativeEntryLabel(endedEntry)}${automaticWeather ? `；天气变为${automaticWeather.conditionLabel} ${automaticWeather.temperature}°C` : ''}`);
     renderEncounter();
     renderTokens();
     renderTurnPath();
+    scheduleAutosave(Boolean(automaticWeather));
+    return;
+  }
+  if (a.op === 'initiativeSwap') {
+    const e = encounterState();
+    if (!applyInitiativeRemoteAction(e, a)) return;
+    setEncounterEvent(e, `${a.name || '玩家'} 调整了同先攻角色的顺序`);
+    renderEncounter();
+    renderTokens();
     scheduleAutosave(false);
     return;
   }
@@ -4375,7 +6413,7 @@ function applyRemoteAction(a) {
     }
     // 玩家掷骰：进主控台骰子记录，并弹提示
     const who = a.name || '玩家';
-    playDiceFx(a.sides || 20, a.expr || '', a.total, { dice: a.dice, pick: a.pick, mode: a.mode });
+    playDiceFx(a.sides || 20, a.expr || '', a.total, { dice: a.dice, pick: a.pick, mode: a.mode, natural: a.natural, critical: a.critical });
     addLogLine(`${who} · ${a.expr || ''}`, a.detail || '', a.total);
     toast(`🎲 ${who} 掷出 ${a.total}（${a.expr || ''}）`);
     return;
@@ -4384,20 +6422,46 @@ function applyRemoteAction(a) {
     toast(`📣 ${a.text || 'GM 发布了一条公告'}`);
     return;
   }
-  if (a.op === 'doodle') {
-    // 玩家涂鸦：直接合并进当前地图，并随下次推送同步给所有人
-    const mm = (state.maps || []).find((x) => x.id === (a.mapId || state.activeMapId));
-    if (mm && Array.isArray(a.doodles)) {
-      mm.doodles = a.doodles.map((s) => ({ ...s }));
-      renderDoodles();
-      scheduleAutosave(false);
+  if (a.op === 'mapReaction') {
+    if (a.reactionId && localReactionIds.has(a.reactionId)) {
+      localReactionIds.delete(a.reactionId);
+      return;
     }
+    showMapReaction(a);
     return;
   }
   const m = (state.maps || []).find((x) => x.id === (a.mapId || state.activeMapId));
+  if (m && a.op === 'doodleAdd' && a.stroke && a.stroke.id) {
+    if (!Array.isArray(m.doodles)) m.doodles = [];
+    if (!m.doodles.some((stroke) => stroke && stroke.id === a.stroke.id)) {
+      m.doodles.push({ ...a.stroke, points: Array.isArray(a.stroke.points) ? a.stroke.points.map((point) => ({ ...point })) : undefined });
+    }
+    if (m.id === state.activeMapId) renderDoodles();
+    scheduleAutosave(false);
+    return;
+  }
+  if (m && a.op === 'doodleDelete' && a.doodleId) {
+    m.doodles = (m.doodles || []).filter((stroke) => stroke && stroke.id !== a.doodleId);
+    if (selectedDoodleId === a.doodleId) selectedDoodleId = null;
+    if (m.id === state.activeMapId) renderDoodles();
+    scheduleAutosave(false);
+    return;
+  }
+  if (m && a.op === 'doodleClear') {
+    m.doodles = [];
+    selectedDoodleId = null;
+    if (m.id === state.activeMapId) renderDoodles();
+    scheduleAutosave(false);
+    return;
+  }
   if (!m || !a || !a.tokenId) return;
   const t = m.tokens.find((x) => x.id === a.tokenId);
   if (!t) return;
+  const encounter = encounterState();
+  const encounterActionMode = encounter.playMode === 'turn' ? 'turn' : 'free';
+  if ((a.op === 'moveToken' || a.op === 'patchToken') && a.playMode && a.playMode !== encounterActionMode) return;
+  if ((a.op === 'moveToken' || a.op === 'patchToken') && a.turnSerial != null
+    && (encounter.playMode !== 'turn' || Number(a.turnSerial) !== encounter.turnSerial)) return;
   if (a.op === 'moveToken') {
     const grid = m.gridSize || 50;
     const margin = t.size >= 2 ? grid : grid / 2;
@@ -4410,15 +6474,15 @@ function applyRemoteAction(a) {
       el.style.top = t.y + 'px';
     }
     syncLabelsFor(t);
-    const e = encounterState();
-    if (e.playMode === 'turn' && Number(a.turnSerial) === e.turnSerial && Array.isArray(a.path)) {
-      appendTurnPath(e, m.id, t.id, a.path);
+    requestSpellRangeRender();
+    if (encounter.playMode === 'turn' && Number(a.turnSerial) === encounter.turnSerial && Array.isArray(a.path)) {
+      appendTurnPath(encounter, m.id, t.id, a.path);
       renderTurnPath();
     }
     if (state.selectedId === t.id) updateDetail();
   } else if (a.op === 'patchToken') {
     const p = a.patch || {};
-    const allowed = ['hp', 'hpMax', 'ac'];
+    const allowed = ['hp', 'hpMax', 'ac', 'spellRange'];
     allowed.forEach((k) => { if (k in p) t[k] = p[k]; });
     normalizeSheet(t);
     renderTokens();
@@ -4433,18 +6497,54 @@ async function mergePlayerStateFromServer() {
     if (!res.ok) return;
     const s = await res.json();
     if (!s || !Array.isArray(s.maps)) return;
-    // 只把「玩家名下的棋子」的服务器最新状态合并回主机，不覆盖 GM 自己改的东西
+    streamAppliedSeq = Math.max(streamAppliedSeq, Number(s._streamSeq) || 0);
+    // 只把「玩家控制组」的服务器最新状态合并回主机，不覆盖 GM 自己改的东西。
     const remote = {};
-    s.maps.forEach((m) => (m.tokens || []).forEach((t) => { remote[t.id] = t; }));
+    const remoteControlledIds = new Set();
+    s.maps.forEach((m) => {
+      const tokens = m.tokens || [];
+      tokens.forEach((t) => { remote[t.id] = t; });
+      tokens.filter((t) => (t.owner || '').trim()).forEach((owned) => {
+        const ids = new Set([owned.id]);
+        if (owned.mountId) ids.add(owned.mountId);
+        let expanded = true;
+        while (expanded) {
+          expanded = false;
+          tokens.forEach((candidate) => {
+            if (candidate.mountId && ids.has(candidate.mountId) && !ids.has(candidate.id)) {
+              ids.add(candidate.id);
+              expanded = true;
+            }
+          });
+        }
+        ids.forEach((id) => remoteControlledIds.add(id));
+      });
+    });
     let changed = false;
+    const remoteMaps = new Map(s.maps.map((map) => [map.id, map]));
+    (state.maps || []).forEach((map) => {
+      const remoteMap = remoteMaps.get(map.id);
+      if (!remoteMap || !Array.isArray(remoteMap.doodles)) return;
+      const remoteDoodles = remoteMap.doodles.map((stroke) => ({
+        ...stroke,
+        points: Array.isArray(stroke.points) ? stroke.points.map((point) => ({ ...point })) : undefined,
+      }));
+      if (JSON.stringify(map.doodles || []) !== JSON.stringify(remoteDoodles)) {
+        map.doodles = remoteDoodles;
+        if (map.id === state.activeMapId) renderDoodles();
+        changed = true;
+      }
+    });
     (state.maps || []).forEach((m) => (m.tokens || []).forEach((t) => {
       const rs = remote[t.id];
-      if (rs && (rs.owner || '').trim()) {
+      // 骑手归属玩家时，未单独分配 owner 的坐骑也属于同一控制组，重连后必须一起回收坐标。
+      if (rs && remoteControlledIds.has(rs.id)) {
         t.x = rs.x;
         t.y = rs.y;
-        ['hp', 'hpMax', 'ac'].forEach((k) => {
+        ['hp', 'hpMax', 'ac', 'spellRange'].forEach((k) => {
           if (k in rs) t[k] = rs[k];
         });
+        t.spellRange = normalizeSpellRange(t.spellRange);
         if (t.size >= 2) syncRiderData(t);
         changed = true;
       }
@@ -4479,7 +6579,7 @@ function startStreamClient() {
     try {
       const ev = JSON.parse(e.data);
       if (ev.type === 'action') {
-        if (ev.action && (ev.action.op === 'roll' || ev.action.op === 'doodle')) {
+        if (ev.action && (ev.action.op === 'roll' || ev.action.op === 'mapReaction')) {
           applyRemoteAction(ev.action);
           return;
         }
@@ -4530,19 +6630,24 @@ function streamTick() {
 
 function updateStreamUi() {
   const toggleBtn = $('#btn-stream-toggle');
-  if (toggleBtn) toggleBtn.textContent = streamOn ? '⛔ 关闭玩家模式' : '📡 开启玩家模式（主机推送）';
-  const dd = $('#btn-stream-dd');
-  if (dd) dd.textContent = streamOn ? '📡 联机已开 ▾' : '📡 联机 ▾';
-  const netInfo = $('#net-info');
-  const netPlayerList = $('#net-player-list');
-  if (netInfo) {
-    if (!streamInfo) {
-      netInfo.textContent = '尚未连接服务器';
-      if (netPlayerList) netPlayerList.textContent = '';
-    }
-    else netInfo.textContent = `房间码：${streamInfo.roomCode || '—'}\n在线玩家：${streamInfo.playerCount || 0}\n服务器：${serverApiBase()}\n玩家入口：${playerViewerUrl()}`;
+  if (toggleBtn) {
+    toggleBtn.textContent = streamOn ? '关闭联机' : '开启联机';
+    toggleBtn.classList.toggle('primary', !streamOn);
+    toggleBtn.classList.toggle('danger', streamOn);
   }
-  updateServerUrlUi();
+  const dd = $('#btn-stream-dd');
+  if (dd) dd.textContent = streamOn
+    ? `📡 联机${streamInfo ? ` · ${streamInfo.playerCount || 0}` : '中'} ▾`
+    : '📡 联机 ▾';
+  const netInfo = $('#net-info');
+  if (netInfo) {
+    netInfo.classList.toggle('online', streamOn && Boolean(streamInfo));
+    if (!streamOn) netInfo.textContent = '● 联机未开启';
+    else if (!streamInfo) netInfo.textContent = '○ 正在连接服务器…';
+    else netInfo.textContent = `● 已联机\n房间 ${streamInfo.roomCode || '—'} · ${streamInfo.playerCount || 0} 人在线 · ${streamInfo.readyCount || 0} 人已准备`;
+  }
+  const copyButton = $('#btn-stream-copy');
+  if (copyButton) copyButton.disabled = !streamOn || !streamInfo;
 }
 
 async function refreshStreamPlayers() {
@@ -4551,21 +6656,12 @@ async function refreshStreamPlayers() {
     const res = await fetch(`${serverApiBase()}/api/players`);
     if (!res.ok) return;
     const data = await res.json();
-    const list = $('#net-player-list');
-    if (list) {
-      streamPlayers = Array.isArray(data.players) ? data.players : [];
-      list.innerHTML = '';
-      streamPlayers.forEach((player) => {
-        const row = document.createElement('div');
-        row.className = `net-player-row${player.online ? ' online' : ''}`;
-        row.textContent = `${player.online ? '●' : '○'} ${player.name || '未命名玩家'} · ${player.online ? (player.status === 'ready' ? '已准备' : '在线') : '离线'}`;
-        list.appendChild(row);
-      });
-      if (!list.children.length) list.textContent = '暂无玩家加入';
-      if (state.selectedId) updateDetail();
-    }
-    const onlineCount = (data.players || []).filter((player) => player.online).length;
-    if (streamInfo) streamInfo = { ...streamInfo, playerCount: onlineCount };
+    streamPlayers = Array.isArray(data.players) ? data.players : [];
+    if (state.selectedId) updateDetail();
+    const onlinePlayers = (data.players || []).filter((player) => player.online);
+    const onlineCount = onlinePlayers.length;
+    const readyCount = onlinePlayers.filter((player) => player.status === 'ready').length;
+    if (streamInfo) streamInfo = { ...streamInfo, playerCount: onlineCount, readyCount };
     updateStreamUi();
   } catch (e) { /* 服务器断开时由主状态推送逻辑提示 */ }
 }
@@ -4582,43 +6678,6 @@ async function copyStreamUrl() {
   } catch (e) {
     toast('玩家观看地址：' + url);
   }
-}
-
-// 检测服务器是否在线
-async function serverCheck() {
-  try {
-    const ctl = new AbortController();
-    const t = setTimeout(() => ctl.abort(), 2500);
-    const res = await fetch(`${serverApiBase()}/api/info`, { signal: ctl.signal });
-    clearTimeout(t);
-    const info = await res.json();
-    const oldInfo = streamInfo;
-    streamInfo = { ...(oldInfo || {}), ip: (info.ips || []).find((x) => x !== '127.0.0.1') || 'localhost', port: info.port || 8090, roomCode: info.roomCode || '', playerCount: info.playerCount || 0 };
-    toast(`✅ 服务器在线：玩家打开 ${playerViewerUrl()}`);
-    if (!oldInfo) streamInfo = null;
-  } catch (e) {
-    toast('❌ 服务器未启动：请双击项目里的「启动桑哆尔」一键启动');
-  }
-}
-
-// 复制启动命令（Windows / macOS 自动识别）
-async function copyServerCmd() {
-  const isWin = /Windows/i.test(navigator.userAgent);
-  const cmd = isWin ? 'py -3 start_server.py' : 'python3 start_server.py';
-  try {
-    await navigator.clipboard.writeText(cmd);
-    toast('已复制启动命令：' + cmd);
-  } catch (e) {
-    toast('启动命令：' + cmd);
-  }
-}
-
-// 手动「更新数据」：先拉取玩家端最新改动，再立即推送
-async function streamPushData() {
-  if (!streamOn) { toast('请先开启玩家模式'); return; }
-  await mergePlayerStateFromServer();
-  streamPush();
-  toast('🔄 已推送最新数据');
 }
 
 async function toggleStream() {
@@ -4688,93 +6747,70 @@ async function restoreStreamFromStorage() {
   }
 }
 
-/* ==================== 性能诊断 ==================== */
-
-let perfFpsTimer = null;
-let perfLast = 0;
-let perfFrames = 0;
-
-function openPerfDiag() {
-  const m = activeMap();
-  const fog = $('#fog-canvas');
-  const doodle = $('#doodle-canvas');
-  let renderer = '未知';
-  try {
-    const gl = document.createElement('canvas').getContext('webgl');
-    if (gl) {
-      const e = gl.getExtension('WEBGL_debug_renderer_info');
-      if (e) renderer = gl.getParameter(e.UNMASKED_RENDERER_WEBGL);
-    }
-  } catch (err) { /* 忽略 */ }
-  $('#perf-stats').textContent =
-    `棋子数：${activeTokens().length} ｜ 名字标签：${document.querySelectorAll('#names-layer .token-name-label').length}\n` +
-    `地图：${m ? m.mapW + '×' + m.mapH : '-'} ｜ 迷雾画布：${fog ? fog.width + '×' + fog.height : '-'} ｜ 涂鸦画布：${doodle ? doodle.width + '×' + doodle.height : '-'} ｜ 缩放：${m ? m.cam.zoom.toFixed(2) : '-'}\n` +
-    `屏幕 DPR：${window.devicePixelRatio || 1} ｜ 渲染器：${renderer}\n` +
-    `版本：${APP_VERSION}`;
-  $('#perf-result').textContent = '';
-  $('#perf-modal').hidden = false;
-  perfLast = performance.now();
-  perfFrames = 0;
-  clearInterval(perfFpsTimer);
-  perfFpsTimer = setInterval(() => {
-    const now = performance.now();
-    const fps = Math.round((perfFrames * 1000) / Math.max(1, now - perfLast));
-    $('#perf-fps-num').textContent = fps;
-    perfFrames = 0;
-    perfLast = now;
-  }, 500);
-}
-
-function closePerfDiag() {
-  clearInterval(perfFpsTimer);
-  const m = $('#perf-modal');
-  if (m) m.hidden = true;
-}
-
-$('#btn-perf-run').addEventListener('click', () => {
-  const m = activeMap();
-  if (!m) return;
-  $('#btn-perf-run').disabled = true;
-  let long = 0;
-  let maxLong = 0;
-  const obs = new PerformanceObserver((list) => {
-    for (const e of list.getEntries()) { long++; maxLong = Math.max(maxLong, e.duration); }
-  });
-  try { obs.observe({ entryTypes: ['longtask'] }); } catch (e) { /* 忽略 */ }
-  const t0 = performance.now();
-  let frames = 0;
-  let dir = 1;
-  const iv = setInterval(() => {
-    m.cam.x += 4 * dir;
-    m.cam.y += 2 * dir;
-    if (Math.abs(m.cam.x) > 250) dir = -dir;
-    applyCamera();
-  }, 0);
-  const tick = () => {
-    frames++;
-    if (performance.now() - t0 < 3000) requestAnimationFrame(tick);
-    else {
-      clearInterval(iv);
-      try { obs.disconnect(); } catch (e) { /* 忽略 */ }
-      const dur = performance.now() - t0;
-      const avg = dur / frames;
-      const target = 16.67;
-      $('#perf-result').textContent =
-        `3 秒自动拖测：\n实际帧数 ${frames}（理想约 ${Math.round(dur / target)}）\n平均帧间隔 ${avg.toFixed(2)}ms（约 ${Math.round((target / avg) * 100)}% 速度）\n长任务 ${long} 次（最长 ${maxLong.toFixed(0)}ms）`;
-      $('#btn-perf-run').disabled = false;
-    }
-  };
-  requestAnimationFrame(tick);
-});
-$('#btn-perf-close').addEventListener('click', closePerfDiag);
-$('#perf-modal').addEventListener('click', (e) => {
-  if (e.target === $('#perf-modal')) closePerfDiag();
-});
-
 /* ==================== 棋子库 ==================== */
 
 function canonicalPortraitPath(value) {
-  return value ? String(value).replace('立绘/NPC/短团-烬鳞讨伐/', '立绘/NPC/短团·烬鳞讨伐/') : null;
+  if (!value) return null;
+  return String(value)
+    .replace(/\\/g, '/')
+    .replace(/^(?:\.\.\/)?(?:(?:asset|assets)\/)?棋子库\//, '')
+    .replace('立绘/NPC/短团-烬鳞讨伐/', '立绘/NPC/短团·烬鳞讨伐/');
+}
+
+// 早期浏览器缓存 ID 曾被复用，因此先按当前棋子库名称匹配；这里只保留
+// 当前历史战役中确实需要的、且可确认来源的 ID 作为自定义名称兜底。
+const LEGACY_PORTRAIT_PATH_BY_ID = Object.freeze({
+  a13: '立绘/妖精/地精/地精喽啰.png',
+  a14: '立绘/妖精/地精/地精老大.png',
+  a15: '立绘/妖精/地精/地精咒术师.png',
+  a16: '立绘/妖精/地精/地精武者.png',
+  a21: '立绘/NPC/短团·烬鳞讨伐/酒馆老板-马库斯.png',
+  a22: '立绘/NPC/短团·烬鳞讨伐/难民-莉娅.png',
+  a24: '立绘/妖精/座狼/座狼.png',
+  a26: '立绘/龙类/红龙/青年红龙.png',
+  a27: '立绘/妖精/大地精/大地精长官.png',
+  a30: '立绘/巨人/巨魔/巨魔.png',
+  a31: '立绘/巨人/巨魔/巨魔断肢.png',
+  a32: '立绘/元素/魔蝠/熔岩魔蝠.png',
+  a33: '立绘/元素/火蜥蜴/火蜥蜴火蛇.png',
+  a34: '立绘/NPC/短团·烬鳞讨伐/地精幼崽.png',
+  a233: '立绘/异怪/吉斯洋基龙巫.png',
+});
+
+function portraitNameKey(value) {
+  return String(value || '')
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/[\s·•・_—–-]+/g, '');
+}
+
+function libraryPortraitPathForToken(token, library) {
+  const tokenKey = portraitNameKey(token?.name);
+  let best = null;
+  (library || []).forEach((preset) => {
+    const path = canonicalPortraitPath(preset?.iconImgPath);
+    const presetKey = portraitNameKey(preset?.name);
+    if (!path || !presetKey) return;
+    let score = 0;
+    if (tokenKey === presetKey) score = 10000 + presetKey.length;
+    else if (presetKey.length >= 2 && tokenKey.startsWith(presetKey)) score = 1000 + presetKey.length;
+    else if (presetKey.length >= 3 && tokenKey.includes(presetKey)) score = 500 + presetKey.length;
+    if (score && (!best || score > best.score)) best = { path, score };
+  });
+  return best?.path || null;
+}
+
+function migrateLegacyTokenPortrait(token, library) {
+  if (!token || canonicalPortraitPath(token.iconImgPath) || !token.iconImgId) return false;
+  const matchedPath = libraryPortraitPathForToken(token, library)
+    || LEGACY_PORTRAIT_PATH_BY_ID[token.iconImgId]
+    || null;
+  if (!matchedPath) return false;
+  token.iconImgPath = canonicalPortraitPath(matchedPath);
+  token.iconImg = null;
+  token.iconImgHd = null;
+  token.iconImgId = null;
+  return true;
 }
 
 function normalizeLibPreset(p) {
@@ -4795,6 +6831,7 @@ function normalizeLibPreset(p) {
     size: p.size === 2 ? 2 : 1,
     hpMax: Math.max(1, parseInt(p.hpMax, 10) || 10),
     ac: Math.max(0, Math.min(99, Number.isFinite(parseInt(p.ac, 10)) ? parseInt(p.ac, 10) : 10)),
+    spellRange: normalizeSpellRange(p.spellRange),
   };
 }
 
@@ -5423,6 +7460,7 @@ function placePresetOnMap(id) {
     hpMax: p.hpMax,
     hp: p.hpMax,
     ac: typeof p.ac === 'number' ? p.ac : 10,
+    spellRange: normalizeSpellRange(p.spellRange),
     x: clamp(finalX, margin, m.mapW - margin),
     y: clamp(finalY, margin, m.mapH - margin),
     owner: '',
@@ -5534,7 +7572,8 @@ function closeLibEditor() {
 
 function syncLibIconPreview() {
   if (libAvatar && (libAvatar.iconImg || libAvatar.iconImgHd || libAvatar.iconImgPath)) {
-    $('#lib-icon-preview').src = libAvatar.iconImgPath ? portraitAssetUrl(libAvatar.iconImgPath) : (libAvatar.iconImgHd || libAvatar.iconImg);
+    if (libAvatar.iconImgPath) applyPortraitImage($('#lib-icon-preview'), libAvatar.iconImgPath);
+    else $('#lib-icon-preview').src = libAvatar.iconImgHd || libAvatar.iconImg;
     $('#lib-icon-preview-row').hidden = false;
     if (libAvatar.iconImgPath) return;
     if (libAvatar.iconImgId) {
@@ -5555,6 +7594,7 @@ function syncLibIconPreview() {
 
 function saveLibEditor() {
   const name = $('#lib-name').value.trim() || '未命名';
+  const existingPreset = libEditorId === 'new' ? null : state.library.find((item) => item.id === libEditorId);
   const preset = {
     id: libEditorId === 'new' ? 'l' + (uid++) : libEditorId,
     name,
@@ -5568,6 +7608,7 @@ function saveLibEditor() {
     size: parseInt($('#lib-size').value, 10) === 2 ? 2 : 1,
     hpMax: Math.max(1, parseInt($('#lib-hp').value, 10) || 10),
     ac: Math.max(0, parseInt($('#lib-ac').value, 10) || 10),
+    spellRange: normalizeSpellRange(existingPreset?.spellRange),
   };
   if (libEditorId === 'new') {
     state.library.push(preset);
@@ -5799,6 +7840,20 @@ function doodleCtx() {
   return $('#doodle-canvas').getContext('2d');
 }
 
+function makeDoodleId(prefix = 'd') {
+  if (window.crypto && typeof window.crypto.randomUUID === 'function') return `${prefix}-${window.crypto.randomUUID()}`;
+  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function ensureDoodleIds(m) {
+  if (!m) return [];
+  if (!Array.isArray(m.doodles)) m.doodles = [];
+  m.doodles.forEach((stroke) => {
+    if (stroke && !stroke.id) stroke.id = makeDoodleId('d-legacy');
+  });
+  return m.doodles;
+}
+
 function drawDoodleStroke(g, s) {
   g.strokeStyle = s.color;
   g.fillStyle = s.color;
@@ -5865,7 +7920,7 @@ function renderDoodles() {
   g.clearRect(0, 0, $('#doodle-canvas').width, $('#doodle-canvas').height);
   const m = activeMap();
   if (!m) return;
-  m.doodles.forEach((s) => drawDoodleStroke(g, s));
+  ensureDoodleIds(m).forEach((s) => drawDoodleStroke(g, s));
   if (doodleDraft) drawDoodleStroke(g, doodleDraft);
 }
 
@@ -5881,11 +7936,12 @@ function startDoodle(wx, wy) {
 function continueDoodle(wx, wy) {
   if (!doodleDraft) return;
   if (doodleDraft.tool === 'pen') {
+    if (doodleDraft.points.length >= MAX_DOODLE_POINTS) return;
     const last = doodleDraft.points[doodleDraft.points.length - 1];
     const dx = wx - last.x, dy = wy - last.y;
     const dist = Math.hypot(dx, dy);
     const step = 6;
-    const n = Math.max(1, Math.ceil(dist / step));
+    const n = Math.min(MAX_DOODLE_POINTS - doodleDraft.points.length, Math.max(1, Math.ceil(dist / step)));
     for (let i = 1; i <= n; i++) {
       doodleDraft.points.push({ x: last.x + dx * i / n, y: last.y + dy * i / n });
     }
@@ -5903,7 +7959,8 @@ function endDoodle() {
     const isPen = doodleDraft.tool === 'pen';
     const tooShort = !isPen && Math.hypot(doodleDraft.x1 - doodleDraft.x0, doodleDraft.y1 - doodleDraft.y0) <= 4;
     if ((isPen && doodleDraft.points.length >= 2) || (!isPen && !tooShort)) {
-      doodleDraft.id = 'd' + (uid++);
+      doodleDraft.id = makeDoodleId('d');
+      doodleDraft.author = 'GM';
       m.doodles.push(doodleDraft);
     }
     scheduleAutosave();
@@ -5915,18 +7972,36 @@ function endDoodle() {
 function undoDoodle() {
   const m = activeMap();
   if (!m || !m.doodles.length) return;
-  m.doodles.pop();
-  renderDoodles();
-  scheduleAutosave();
+  deleteDoodleById(m.doodles[m.doodles.length - 1].id);
 }
 
 function clearDoodles() {
   const m = activeMap();
   if (!m || !m.doodles.length) return;
   m.doodles = [];
+  selectedDoodleId = null;
   renderDoodles();
   scheduleAutosave();
-  toast('已清除涂鸦');
+  toast('已一键清空共享标注');
+}
+
+function deleteDoodleById(doodleId, persist = true) {
+  const m = activeMap();
+  if (!m || !doodleId) return false;
+  const before = m.doodles.length;
+  m.doodles = m.doodles.filter((stroke) => stroke && stroke.id !== doodleId);
+  if (m.doodles.length === before) return false;
+  if (selectedDoodleId === doodleId) selectedDoodleId = null;
+  renderDoodles();
+  if (persist) scheduleAutosave();
+  return true;
+}
+
+function eraseDoodleAt(wx, wy, erased = null) {
+  const stroke = doodleHitTest(wx, wy);
+  if (!stroke || (erased && erased.has(stroke.id))) return false;
+  if (erased) erased.add(stroke.id);
+  return deleteDoodleById(stroke.id, false);
 }
 
 function distToSegment(px, py, a, b) {
@@ -6031,126 +8106,9 @@ function syncBoardTools() {
   syncPalettes();
 }
 
-/* ==================== 拼接地图 ==================== */
-
-let stitchFiles = [];
-
-function renderStitchSlots() {
-  const layout = $('#stitch-layout').value;
-  const n = layout === 'grid' ? 4 : 2;
-  const box = $('#stitch-slots');
-  box.innerHTML = '';
-  stitchFiles = Array.from({ length: n }, () => null);
-  for (let i = 0; i < n; i++) {
-    const row = document.createElement('div');
-    row.className = 'stitch-slot';
-    const btn = document.createElement('button');
-    btn.className = 'small';
-    btn.textContent = `选择文件 ${i + 1}`;
-    const label = document.createElement('span');
-    label.className = 'stitch-file';
-    label.textContent = '未选择';
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = 'image/*,.json,application/json';
-    input.hidden = true;
-    input.addEventListener('change', () => {
-      const f = input.files[0];
-      if (f) {
-        stitchFiles[i] = f;
-        label.textContent = f.name;
-      }
-    });
-    btn.addEventListener('click', () => input.click());
-    row.appendChild(btn);
-    row.appendChild(label);
-    row.appendChild(input);
-    box.appendChild(row);
-  }
-}
-
-function loadImageFromFile(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const img = new Image();
-      img.onload = () => resolve(img);
-      img.onerror = reject;
-      img.src = reader.result;
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-}
-
-async function stitchGo() {
-  const layout = $('#stitch-layout').value;
-  const need = layout === 'grid' ? 4 : 2;
-  const chosen = stitchFiles.filter(Boolean);
-  if (chosen.length !== need) {
-    toast(`还需要选择 ${need - chosen.length} 张地图`);
-    return;
-  }
-  try {
-    const imgs = [];
-    for (const f of stitchFiles) {
-      if (/\.json$/i.test(f.name)) {
-        const j = JSON.parse(await f.text());
-        if (!j.mapData) throw new Error('bad json');
-        const img = new Image();
-        await new Promise((resolve, reject) => {
-          img.onload = resolve;
-          img.onerror = reject;
-          img.src = j.mapData;
-        });
-        imgs.push(img);
-      } else {
-        imgs.push(await loadImageFromFile(f));
-      }
-    }
-    const gridSize = clamp(parseInt($('#stitch-grid').value, 10) || 50, 20, 120);
-    const W = (i) => imgs[i].naturalWidth;
-    const H = (i) => imgs[i].naturalHeight;
-    let tw, th, slots;
-    if (layout === 'lr') {
-      tw = W(0) + W(1);
-      th = Math.max(H(0), H(1));
-      slots = [[0, 0], [W(0), 0]];
-    } else if (layout === 'tb') {
-      tw = Math.max(W(0), W(1));
-      th = H(0) + H(1);
-      slots = [[0, 0], [0, H(0)]];
-    } else {
-      tw = Math.max(W(0) + W(1), W(2) + W(3));
-      th = Math.max(H(0) + H(2), H(1) + H(3));
-      slots = [[0, 0], [W(0), 0], [0, H(0)], [W(2), H(0)]];
-    }
-    const c = document.createElement('canvas');
-    c.width = tw;
-    c.height = th;
-    const g = c.getContext('2d');
-    g.fillStyle = '#181b21';
-    g.fillRect(0, 0, tw, th);
-    imgs.forEach((img, i) => g.drawImage(img, slots[i][0], slots[i][1]));
-    addMap('拼接地图', c.toDataURL('image/png'), tw, th, gridSize);
-    closeStitchModal();
-    toast('拼接完成，已加入为「拼接地图」');
-  } catch (err) {
-    toast('拼接失败：文件无法读取或格式不对');
-  }
-}
-
-function openStitchModal() {
-  renderStitchSlots();
-  $('#stitch-modal').hidden = false;
-}
-
-function closeStitchModal() {
-  $('#stitch-modal').hidden = true;
-}
-
 /* ==================== 启动 ==================== */
 
+preloadConditionPixels();
 bindEvents();
 loadBgmDirHandle();
 try {
@@ -6164,12 +8122,12 @@ try {
     hdEnabled = localStorage.getItem('sangduoer-hd-toggle') !== '0';
   }
 } catch (e) { hdEnabled = true; }
-const hdToggleCheck = $('#hd-toggle-check');
-if (hdToggleCheck) hdToggleCheck.checked = hdEnabled;
+syncHdUi();
 const appVersionEl = $('#app-version');
 if (appVersionEl) appVersionEl.textContent = APP_VERSION;
 updateStreamUi();
 function flushPendingAutosave() {
+  flushDetailTextSave();
   if (!autosaveTimer) return;
   clearTimeout(autosaveTimer);
   autosaveTimer = null;
@@ -6185,6 +8143,11 @@ document.addEventListener('visibilitychange', () => {
 const loaded = loadSaved();
 if (loaded) {
   applyAllState();
+  if (pendingLegacyPortraitMigrations > 0) {
+    // 只刷新浏览器恢复数据，不伪造新的保存时间；下一次正常保存会同步到正式文件夹。
+    try { localStorage.setItem(STORAGE_KEY, stateStorageJson()); } catch (e) { /* 浏览器缓存不可写时仍保留本次会话 */ }
+    console.info(`已恢复 ${pendingLegacyPortraitMigrations} 个旧棋子的正式立绘路径`);
+  }
 }
 // 独立棋子库：与「棋子库」程序共用同一份数据
 const sharedLib = loadLibrary();
@@ -6291,7 +8254,15 @@ initMapQuickTools();
 renderEncounter();
 clearInterval(encounterClockTimer);
 encounterClockTimer = setInterval(() => {
-  if (encounterState().worldTime.runningSince) renderEncounter();
+  const e = encounterState();
+  if (!e.worldTime.runningSince) return;
+  const totalSeconds = worldTimeNow(e);
+  const automaticWeather = refreshScheduledWeather(e, totalSeconds);
+  if (automaticWeather) {
+    setEncounterEvent(e, `每日 08:00：天气变为${automaticWeather.conditionLabel} ${automaticWeather.temperature}°C`);
+    scheduleAutosave();
+  }
+  renderEncounter();
 }, 500);
 updateCoverContinue();
 setTimeout(() => { prewarmAvatarCache(); }, 1000);
