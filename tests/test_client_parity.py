@@ -43,6 +43,8 @@ class ClientParityTests(unittest.TestCase):
         self.assertIn('physics-v7', host_version.group(1))
         self.assertIn('continuous-settle-r6', host_version.group(1))
         self.assertIn('uv-handedness-r7', host_version.group(1))
+        self.assertIn('result-focus-r8', host_version.group(1))
+        self.assertIn('adaptive20', host_version.group(1))
 
     def test_condition_badges_start_at_top_right_above_tokens(self):
         for source in (HOST_CSS, PLAYER_HTML):
@@ -118,6 +120,31 @@ class ClientParityTests(unittest.TestCase):
         self.assertIn('startNextQueuedRoll', DICE_JS)
         self.assertIn('sundoll-dice-complete', DICE_JS)
         self.assertIn('window.__DICE_HISTORY__', DICE_JS)
+
+    def test_dice_result_waits_for_confirmation_or_three_second_timeout(self):
+        self.assertIn('const RESULT_HOLD_MS = 3000', DICE_JS)
+        self.assertIn("confirm.className = 'dice-result-confirm'", DICE_JS)
+        self.assertIn("finish('manual')", DICE_JS)
+        self.assertIn("finish('auto')", DICE_JS)
+        self.assertIn("animationPhase = 'closing'", DICE_JS)
+        self.assertNotIn("if (animationPhase === 'result') scheduleAdvance(520)", DICE_JS)
+
+    def test_advantage_focus_starts_only_after_settle(self):
+        self.assertIn('const inResultFocus = !!mode && elapsed >= settleEnd', DICE_JS)
+        self.assertIn('if (inResultFocus) prepareResultFocus()', DICE_JS)
+        self.assertIn('applyResultFocus(d, focusT)', DICE_JS)
+        self.assertIn("root.dataset.focusStartedAfterSettle = 'true'", DICE_JS)
+        self.assertIn('const finalScale = perScale', DICE_JS)
+        self.assertIn('preFocusOpacities: diceData.map(() => 1)', DICE_JS)
+        self.assertIn('focusApplied:', DICE_JS)
+
+    def test_up_to_twenty_dice_use_adaptive_scale_and_five_column_layout(self):
+        self.assertIn('const MAX_ANIMATED_DICE = 20', DICE_JS)
+        self.assertIn('Math.min(MAX_ANIMATED_DICE, requestedDisplayCount)', DICE_JS)
+        self.assertIn('function adaptiveScaleFactor(N)', DICE_JS)
+        self.assertIn('function adaptiveColumns(N)', DICE_JS)
+        self.assertIn('return 5;', DICE_JS)
+        self.assertIn('maxAnimatedDice: MAX_ANIMATED_DICE', DICE_JS)
 
     def test_map_grid_and_visual_layer_order_match(self):
         for source in (HOST_JS, PLAYER_HTML):

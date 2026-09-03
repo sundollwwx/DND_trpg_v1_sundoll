@@ -11,9 +11,15 @@
     st.textContent = `
 .dice-fx-root { position:fixed; z-index:200; overflow:hidden; pointer-events:none; contain:layout paint; }
 .dice-fx-root canvas { position:absolute; inset:0; width:100%; height:100%; filter:drop-shadow(0 8px 12px rgba(0,0,0,.28)); }
-.dice-result-card { position:absolute; left:50%; bottom:18px; transform:translateX(-50%) translateY(8px); z-index:3; min-width:190px; max-width:min(680px,calc(100% - 28px)); padding:9px 16px 10px; border:1px solid var(--dice-accent-soft,rgba(255,218,130,.5)); border-radius:13px; background:linear-gradient(180deg,rgba(18,23,34,.93),rgba(7,9,15,.92)); color:var(--dice-accent,#ffe08a); font:italic 700 19px Didot,Georgia,serif; line-height:1.3; text-align:center; text-shadow:0 2px 8px rgba(0,0,0,.85); box-shadow:0 12px 36px rgba(0,0,0,.45),inset 0 1px rgba(255,255,255,.09); opacity:0; transition:opacity .24s,transform .28s cubic-bezier(.2,.8,.2,1); backdrop-filter:blur(7px); }
-.dice-result-card.show { opacity:1; transform:translateX(-50%) translateY(0); }
+.dice-result-card { position:absolute; left:50%; bottom:18px; transform:translateX(-50%) translateY(8px); z-index:3; min-width:210px; max-width:min(680px,calc(100% - 28px)); padding:9px 12px 10px; border:1px solid var(--dice-accent-soft,rgba(255,218,130,.5)); border-radius:13px; background:linear-gradient(180deg,rgba(18,23,34,.93),rgba(7,9,15,.92)); color:var(--dice-accent,#ffe08a); font:italic 700 19px Didot,Georgia,serif; line-height:1.3; text-align:center; text-shadow:0 2px 8px rgba(0,0,0,.85); box-shadow:0 12px 36px rgba(0,0,0,.45),inset 0 1px rgba(255,255,255,.09); opacity:0; pointer-events:none; user-select:none; -webkit-user-select:none; transition:opacity .24s,transform .28s cubic-bezier(.2,.8,.2,1); backdrop-filter:blur(7px); }
+.dice-result-card.show { opacity:1; pointer-events:auto; transform:translateX(-50%) translateY(0); }
 .dice-result-card small { display:block; margin-top:2px; color:#b7c4dc; font:600 11px system-ui,sans-serif; font-style:normal; }
+.dice-result-actions { display:flex; align-items:center; justify-content:center; gap:9px; margin-top:7px; text-shadow:none; }
+.dice-result-countdown { min-width:76px; color:#929eb4; font:600 10px system-ui,sans-serif; font-style:normal; text-align:right; }
+.dice-result-confirm { min-width:76px; height:29px; padding:0 14px; border:1px solid var(--dice-accent-soft,rgba(255,218,130,.5)); border-radius:8px; outline:none; background:#202737; background:linear-gradient(180deg,color-mix(in srgb,var(--dice-accent,#ffe08a) 23%,#202737),rgba(17,21,30,.96)); color:var(--dice-accent,#ffe08a); cursor:pointer; font:700 12px system-ui,sans-serif; box-shadow:0 4px 12px rgba(0,0,0,.28),inset 0 1px rgba(255,255,255,.1); }
+.dice-result-confirm:hover { filter:brightness(1.14); }
+.dice-result-confirm:focus-visible { box-shadow:0 0 0 2px color-mix(in srgb,var(--dice-accent,#ffe08a) 35%,transparent),0 4px 12px rgba(0,0,0,.28); }
+.dice-result-confirm:disabled { opacity:.56; cursor:default; filter:none; }
 .dice-crit { position:absolute; left:50%; top:35%; transform:translate(-50%,-50%); z-index:4; pointer-events:none; text-align:center; }
 .dice-crit .crit-icon { display:block; font-size:76px; animation:critPop .5s ease-out; }
 .dice-crit .crit-text { font:italic 800 34px Didot,Georgia,serif; text-shadow:0 4px 18px rgba(0,0,0,.9); }
@@ -509,10 +515,13 @@
 
   let rafId = null;
   let cleanupTimer = null;
+  let resultCountdownTimer = null;
   let rootEl = null;
   let renderer = null;
   let disposeQueue = [];
   const MAX_QUEUED_ROLLS = 8;
+  const MAX_ANIMATED_DICE = 20;
+  const RESULT_HOLD_MS = 3000;
   const rollQueue = [];
   let animationActive = false;
   let animationPhase = 'idle';
@@ -522,6 +531,7 @@
   function cleanup() {
     if (rafId) cancelAnimationFrame(rafId);
     if (cleanupTimer) clearTimeout(cleanupTimer);
+    if (resultCountdownTimer) clearInterval(resultCountdownTimer);
     if (renderer) {
       try { renderer.dispose(); } catch (e) { /* 忽略 */ }
       renderer = null;
@@ -534,7 +544,7 @@
     });
     disposeQueue = [];
     if (rootEl && rootEl.parentNode) rootEl.parentNode.removeChild(rootEl);
-    rafId = null; cleanupTimer = null; rootEl = null;
+    rafId = null; cleanupTimer = null; resultCountdownTimer = null; rootEl = null;
   }
 
   function updateQueueDiagnostics() {
@@ -579,6 +589,62 @@
     updateQueueDiagnostics();
   }
 
+  function buildResultCard(resultEl, text, detailText) {
+    resultEl.replaceChildren();
+    const title = document.createElement('div');
+    title.className = 'dice-result-title';
+    title.textContent = text;
+    resultEl.appendChild(title);
+    if (detailText) {
+      const detail = document.createElement('small');
+      detail.textContent = detailText;
+      resultEl.appendChild(detail);
+    }
+    const actions = document.createElement('div');
+    actions.className = 'dice-result-actions';
+    const countdown = document.createElement('span');
+    countdown.className = 'dice-result-countdown';
+    const confirm = document.createElement('button');
+    confirm.type = 'button';
+    confirm.className = 'dice-result-confirm';
+    confirm.textContent = '确定';
+    actions.append(countdown, confirm);
+    resultEl.appendChild(actions);
+    return { countdown, confirm };
+  }
+
+  function armResultDismiss(root, resultEl, controls) {
+    const deadline = performance.now() + RESULT_HOLD_MS;
+    let finished = false;
+    const updateCountdown = () => {
+      const remaining = Math.max(0, deadline - performance.now());
+      controls.countdown.textContent = remaining > 0 ? `${Math.ceil(remaining / 1000)} 秒后结束` : '正在结束';
+    };
+    const finish = (reason) => {
+      if (finished || rootEl !== root || animationPhase !== 'result') return;
+      finished = true;
+      root.dataset.dismissedBy = reason;
+      controls.confirm.disabled = true;
+      controls.countdown.textContent = reason === 'manual' ? '已确认' : '正在结束';
+      if (resultCountdownTimer) clearInterval(resultCountdownTimer);
+      resultCountdownTimer = null;
+      animationPhase = 'closing';
+      resultEl.classList.remove('show');
+      updateQueueDiagnostics();
+      scheduleAdvance(140);
+    };
+    controls.confirm.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      finish('manual');
+    });
+    root.dataset.resultHoldMs = String(RESULT_HOLD_MS);
+    updateCountdown();
+    resultCountdownTimer = setInterval(updateCountdown, 100);
+    if (cleanupTimer) clearTimeout(cleanupTimer);
+    cleanupTimer = setTimeout(() => finish('auto'), RESULT_HOLD_MS);
+  }
+
   function enqueueDieAnimation(sides, label, total, opts) {
     const request = { sides, label, total, opts: opts || {}, rollId: ++rollSequence };
     if (animationActive) {
@@ -587,9 +653,8 @@
         droppedQueuedRolls++;
       }
       rollQueue.push(request);
-      // 若当前结果已经展示，无需继续等待完整停留时间，尽快衔接下一次投掷。
-      if (animationPhase === 'result') scheduleAdvance(520);
-      else updateQueueDiagnostics();
+      // 每次结果都完整保留三秒；玩家也可以用“确定”立即衔接下一次投掷。
+      updateQueueDiagnostics();
       return request.rollId;
     }
     animationActive = true;
@@ -620,7 +685,7 @@
     totalEl.textContent = total;
     const resultEl = document.createElement('div');
     resultEl.className = 'dice-result-card show';
-    resultEl.textContent = `${label || '掷骰'} → ${total}`;
+    const controls = buildResultCard(resultEl, `${label || '掷骰'} → ${total}`, '');
     root.append(totalEl, resultEl);
     document.body.appendChild(root);
     rootEl = root;
@@ -643,7 +708,7 @@
     };
     updateQueueDiagnostics();
     publishDiceCompletion(diagnostic);
-    scheduleAdvance(rollQueue.length ? 520 : 1600);
+    armResultDismiss(root, resultEl, controls);
   }
 
   function showCrit(root, type, text) {
@@ -651,6 +716,19 @@
     el.className = 'dice-crit ' + type;
     el.innerHTML = `<span class="crit-icon">${type === 'success' ? '⚡' : '💥'}</span><span class="crit-text">${text}</span>`;
     root.appendChild(el);
+  }
+
+  function adaptiveColumns(N) {
+    if (N <= 1) return 1;
+    if (N <= 4) return 2;
+    if (N <= 7) return 3;
+    if (N <= 12) return 4;
+    return 5;
+  }
+
+  function adaptiveScaleFactor(N) {
+    // 数量每翻倍，单颗骰子平滑缩小；20 颗仍保留足够大的可读面。
+    return Math.max(.46, .98 - .13 * Math.log2(Math.max(1, N)));
   }
 
   // 多骰子团簇布局（x = 左右，z = 前后纵深）
@@ -662,7 +740,7 @@
       const a = ((i - 1) / 6) * Math.PI * 2 + Math.PI / 6;
       return [Math.cos(a) * 1.75, Math.sin(a) * 1.35];
     }
-    const columns = 4;
+    const columns = adaptiveColumns(N);
     const rows = Math.ceil(N / columns);
     const row = Math.floor(i / columns);
     const rowStart = row * columns;
@@ -701,7 +779,7 @@
       display = rawDice.map((v, rollIndex) => ({ faceIdx: resultLabel(poly, v), text: String(v), rollIndex }));
     }
     const requestedDisplayCount = display.length;
-    const N = Math.min(10, requestedDisplayCount);
+    const N = Math.min(MAX_ANIMATED_DICE, requestedDisplayCount);
     const omittedDisplayCount = Math.max(0, requestedDisplayCount - N);
     display = display.slice(0, N);
 
@@ -786,7 +864,8 @@
     geo.computeBoundingSphere();
     disposeQueue.push(geo);
     const screenScale = Math.max(.72, Math.min(1.12, Math.min(canvasW, canvasH) / 580));
-    const perScale = (N === 1 ? .95 : N <= 2 ? .88 : N <= 4 ? .78 : N <= 6 ? .69 : .6) * screenScale * DICE_SIZE_MULTIPLIER;
+    const countScale = adaptiveScaleFactor(N);
+    const perScale = countScale * screenScale * DICE_SIZE_MULTIPLIER;
     const worldUp = new THREE.Vector3(0, 1, 0);
     const supportVertex = new THREE.Vector3();
     function supportHeight(quaternion, scaleValue) {
@@ -842,7 +921,7 @@
     const sharedThrowEdge = Math.floor(Math.random() * 4);
     const throwEdgeName = ['left', 'right', 'far', 'near'][sharedThrowEdge];
     root.dataset.throwEdge = throwEdgeName;
-    const spawnColumns = N <= 1 ? 1 : N <= 4 ? 2 : N <= 8 ? 3 : 4;
+    const spawnColumns = adaptiveColumns(N);
     const spawnRows = Math.ceil(N / spawnColumns);
     const tangentBound = sharedThrowEdge <= 1 ? zBound : xBound;
     const depthBound = sharedThrowEdge <= 1 ? xBound : zBound;
@@ -870,7 +949,7 @@
     const diceData = display.map((d, i) => {
       const res = d.faceIdx;
       const selected = !mode || d.rollIndex === pick;
-      const dimmed = !!mode && !selected;
+      const discarded = !!mode && !selected;
       // 每颗骰子每个面的文字：普通骰 1..N；d100 十位骰 00/10/…90、个位骰 0-9
       const faceTexts = sides === 100
         ? (i % 2 === 0
@@ -891,8 +970,8 @@
         targetVec = worldUp;
       }
       const mats = isD4
-        ? poly.faces.map((face) => d4Material(face, res - 1, dimmed))
-        : poly.faces.map((face, faceIndex) => bodyMaterial(face.length, faceTexts[faceIndex], faceIndex === res - 1, dimmed));
+        ? poly.faces.map((face) => d4Material(face, res - 1, false))
+        : poly.faces.map((face, faceIndex) => bodyMaterial(face.length, faceTexts[faceIndex], faceIndex === res - 1, false));
       const mesh = new THREE.Mesh(geo, mats);
       const finalPos = layout[i];
       const startPos = sharedEdgeStart(i);
@@ -947,7 +1026,9 @@
       if (sharedThrowEdge <= 1) velocity.z += (Math.random() * 2 - 1) * 1.0;
       else velocity.x += (Math.random() * 2 - 1) * 1.2;
       const angularVelocity = new THREE.Vector3(Math.random() * 2 - 1, Math.random() * 2 - 1, Math.random() * 2 - 1).normalize().multiplyScalar(10 + Math.random() * 8);
-      const finalScale = perScale * (mode ? (selected ? 1.09 : .77) : 1);
+      // 滚动与落稳阶段所有骰子保持同样大小；只有结果完全稳定后才突出取用骰。
+      const finalScale = perScale;
+      const resultScale = perScale * (mode ? (selected ? 1.18 : .76) : 1);
       const finalSupportY = supportHeight(qFinal, finalScale);
       return {
         mesh,
@@ -957,10 +1038,13 @@
         text: d.text,
         faceTexts,
         labelTextures: mats.length,
-        opacity: dimmed ? .38 : 1,
+        opacity: 1,
         selected,
-        dimmed,
+        discarded,
         finalScale,
+        resultScale,
+        focusMaterials: [],
+        focusShadowMaterial: null,
         plannedPosition: new THREE.Vector3(finalPos[0], finalSupportY, finalPos[1]),
         finalPosition: new THREE.Vector3(finalPos[0], finalSupportY, finalPos[1]),
         startPosition: mesh.position.clone(),
@@ -1040,12 +1124,16 @@
       finalMinDistance = minimumPlanarDistance(targets);
     }
     root.dataset.diceScale = perScale.toFixed(3);
+    root.dataset.countScale = countScale.toFixed(3);
+    root.dataset.displayCount = String(N);
+    root.dataset.maxAnimatedDice = String(MAX_ANIMATED_DICE);
+    root.dataset.layoutGrid = `${adaptiveColumns(N)}x${Math.ceil(N / adaptiveColumns(N))}`;
     root.dataset.spawnGrid = `${spawnColumns}x${spawnRows}`;
     root.dataset.collisionDistance = collisionDiameter.toFixed(3);
     root.dataset.startMinDistance = startMinDistance == null ? '' : startMinDistance.toFixed(3);
     root.dataset.finalMinDistance = finalMinDistance == null ? '' : finalMinDistance.toFixed(3);
     function resolveDiceCollisions() {
-      // 最大只显示 10 颗；两轮 O(N²) 分离足以防穿模，成本远低于完整刚体引擎。
+      // 最大只显示 20 颗；两轮 O(N²) 分离足以防穿模，成本远低于完整刚体引擎。
       for (let pass = 0; pass < 2; pass++) {
         for (let i = 0; i < diceData.length; i++) {
           const a = diceData[i];
@@ -1080,9 +1168,78 @@
         }
       }
     }
+    const discardedTint = new THREE.Color(0x747b88);
+    let resultFocusPrepared = false;
+    function prepareResultFocus() {
+      if (!mode || resultFocusPrepared) return;
+      resultFocusPrepared = true;
+      root.dataset.resultFocus = 'active';
+      root.dataset.focusStartedAfterSettle = 'true';
+      root.dataset.preFocusScales = diceData.map((d) => d.mesh.scale.x.toFixed(3)).join(',');
+      root.dataset.preFocusOpacities = diceData.map((d) => {
+        const materials = Array.isArray(d.mesh.material) ? d.mesh.material : [d.mesh.material];
+        return materials.length ? Number(materials[0].opacity).toFixed(2) : '1.00';
+      }).join(',');
+      diceData.forEach((d) => {
+        if (!d.discarded) {
+          d.mesh.renderOrder = 2;
+          return;
+        }
+        const sourceMaterials = Array.isArray(d.mesh.material) ? d.mesh.material : [d.mesh.material];
+        const clonedMaterials = sourceMaterials.map((source) => {
+          const material = source.clone();
+          material.transparent = true;
+          material.depthWrite = false;
+          material.opacity = 1;
+          material.needsUpdate = true;
+          // Material.dispose 不会释放共享贴图；这里只释放克隆材质，原贴图仍由缓存材质统一回收。
+          disposeQueue.push({ dispose: () => material.dispose() });
+          return material;
+        });
+        d.mesh.material = Array.isArray(d.mesh.material) ? clonedMaterials : clonedMaterials[0];
+        d.focusMaterials = clonedMaterials.map((material) => ({
+          material,
+          color: material.color ? material.color.clone() : null,
+          roughness: Number.isFinite(material.roughness) ? material.roughness : null,
+          metalness: Number.isFinite(material.metalness) ? material.metalness : null,
+          clearcoat: Number.isFinite(material.clearcoat) ? material.clearcoat : null,
+        }));
+        const shadowMaterial = d.shadowBlob.material.clone();
+        d.shadowBlob.material = shadowMaterial;
+        d.focusShadowMaterial = shadowMaterial;
+        disposeQueue.push({ dispose: () => shadowMaterial.dispose() });
+      });
+    }
+
+    function applyResultFocus(d, progress) {
+      const eased = easeInOut(progress);
+      const scale = d.finalScale + (d.resultScale - d.finalScale) * eased;
+      d.mesh.scale.setScalar(scale);
+      d.mesh.position.y = supportHeight(d.mesh.quaternion, scale);
+      if (d.selectionRing) {
+        d.selectionRing.material.opacity = .78 * eased;
+        d.selectionRing.scale.setScalar(scale * 1.1);
+      }
+      if (!d.discarded) return;
+      d.opacity = 1 - .72 * eased;
+      d.focusMaterials.forEach((state) => {
+        state.material.opacity = d.opacity;
+        if (state.color) state.material.color.lerpColors(state.color, discardedTint, .38 * eased);
+        if (state.roughness != null) state.material.roughness = state.roughness + (.92 - state.roughness) * eased;
+        if (state.metalness != null) state.material.metalness = state.metalness * (1 - .82 * eased);
+        if (state.clearcoat != null) state.material.clearcoat = state.clearcoat * (1 - .86 * eased);
+      });
+      if (d.focusShadowMaterial) d.focusShadowMaterial.opacity = .42 - .31 * eased;
+    }
+
     const reducedMotion = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
     const physicsDuration = reducedMotion ? 120 : 1820;
     const settleDuration = reducedMotion ? 260 : 520;
+    const focusDuration = mode ? (reducedMotion ? 120 : 420) : 0;
+    const settleEnd = physicsDuration + settleDuration;
+    const animationDuration = settleEnd + focusDuration;
+    root.dataset.resultFocus = mode ? 'pending' : 'none';
+    root.dataset.focusDuration = String(focusDuration);
     // 结果面不应在物理阶段结束后才突然校正。滚动到中段便开始极弱引导，
     // 随减速逐渐增强；进入 settle 时只允许留下肉眼不可见的角度残差。
     const orientationGuideStart = reducedMotion ? 0 : 620;
@@ -1096,9 +1253,17 @@
     function frame(now) {
       const elapsed = now - t0;
       const inPhysics = elapsed < physicsDuration;
+      const inSettle = !inPhysics && elapsed < settleEnd;
+      const inResultFocus = !!mode && elapsed >= settleEnd;
       const dt = Math.min(.034, Math.max(.001, (now - lastFrame) / 1000));
       lastFrame = now;
+      const nextPhase = inPhysics ? 'rolling' : inSettle ? 'settling' : inResultFocus ? 'focus' : 'settling';
+      if (animationPhase !== nextPhase) {
+        animationPhase = nextPhase;
+        updateQueueDiagnostics();
+      }
       if (!inPhysics) prepareSettleTargets();
+      if (inResultFocus) prepareResultFocus();
       diceData.forEach((d) => {
         if (inPhysics) {
           d.velocity.y -= 14.2 * dt;
@@ -1182,13 +1347,16 @@
           d.mesh.position.y = currentSupportY
             + d.settleClearance * (1 - eased)
             + Math.sin(settleT * Math.PI) * .18 * (1 - settleT);
-          if (d.selectionRing) d.selectionRing.material.opacity = .74 * easeOut(settleT);
+          if (inResultFocus) {
+            const focusT = clampNumber((elapsed - settleEnd) / Math.max(1, focusDuration), 0, 1);
+            applyResultFocus(d, focusT);
+          }
         }
         const frameAngularStep = quaternionAngleDegrees(d.previousFrameQuaternion, d.mesh.quaternion);
         if (elapsed >= physicsDuration - 420) {
           d.maxLateFrameAngularStep = Math.max(d.maxLateFrameAngularStep, frameAngularStep);
         }
-        if (!inPhysics) {
+        if (!inPhysics && elapsed <= settleEnd) {
           d.maxSettleFrameAngularStep = Math.max(d.maxSettleFrameAngularStep, frameAngularStep);
         }
         d.previousFrameQuaternion.copy(d.mesh.quaternion);
@@ -1202,7 +1370,7 @@
       });
       if (inPhysics) physicsSteps++;
       renderer.render(scene, camera);
-      if (elapsed < physicsDuration + settleDuration) {
+      if (elapsed < animationDuration) {
         rafId = requestAnimationFrame(frame);
       } else {
         const topObservations = diceData.map((d) => {
@@ -1226,6 +1394,9 @@
         root.dataset.continuousSettlePassed = String(diceData.every((d) =>
           (d.settleAngularDistance || 0) <= 1.5 && d.maxSettleFrameAngularStep <= .35
         ));
+        root.dataset.resultFocus = mode ? 'complete' : 'none';
+        root.dataset.resultScales = diceData.map((d) => d.mesh.scale.x.toFixed(3)).join(',');
+        root.dataset.resultOpacities = diceData.map((d) => d.opacity.toFixed(2)).join(',');
         root.dataset.finalMinDistance = finalMinDistance == null ? '' : finalMinDistance.toFixed(3);
         const diagnostic = {
           rollId,
@@ -1237,6 +1408,14 @@
           faceTexts: diceData[0] ? diceData[0].faceTexts : [],
           opacities: diceData.map((d) => d.opacity),
           diceScale: perScale,
+          countScale,
+          resultScales: diceData.map((d) => Math.round(d.mesh.scale.x * 1000) / 1000),
+          preFocusOpacities: diceData.map(() => 1),
+          focusApplied: !!mode && resultFocusPrepared,
+          focusStartedAfterSettle: !!mode && resultFocusPrepared,
+          focusDuration,
+          resultHoldMs: RESULT_HOLD_MS,
+          maxAnimatedDice: MAX_ANIMATED_DICE,
           labelMode: 'face-texture',
           labelTextures: diceData.reduce((sum, d) => sum + d.labelTextures, 0),
           groundClearances: diceData.map((d) => Math.round((d.mesh.position.y - supportHeight(d.mesh.quaternion, d.mesh.scale.x)) * 10000) / 10000),
@@ -1252,10 +1431,11 @@
           crit: critical,
           physics: true,
           physicsSteps,
-          duration: physicsDuration + settleDuration,
+          duration: animationDuration,
           throwEdge: throwEdgeName,
           skin: skin.key,
           sizeMultiplier: DICE_SIZE_MULTIPLIER,
+          layoutGrid: [adaptiveColumns(N), Math.ceil(N / adaptiveColumns(N))],
           spawnGrid: [spawnColumns, spawnRows],
           collisionDistance: Math.round(collisionDiameter * 100) / 100,
           collisionCount: diceCollisionCount,
@@ -1307,15 +1487,15 @@
           showCrit(root, 'fail', '大失败！');
           text = '💥 大失败！' + text;
         }
-        resultDiv.textContent = text;
-        if (mode !== 0 && rawDice.length >= 2) {
-          const detail = document.createElement('small');detail.textContent = `${mode === 1 ? '优势' : '劣势'}：取 ${rawDice[pick]} · 舍 ${rawDice[pick === 0 ? 1 : 0]}`;resultDiv.appendChild(detail);
-        }
+        const detailText = mode !== 0 && rawDice.length >= 2
+          ? `${mode === 1 ? '优势' : '劣势'}：取 ${rawDice[pick]} · 舍 ${rawDice[pick === 0 ? 1 : 0]}`
+          : '';
+        const controls = buildResultCard(resultDiv, text, detailText);
         resultDiv.classList.add('show');
         animationPhase = 'result';
         updateQueueDiagnostics();
         publishDiceCompletion(diagnostic);
-        scheduleAdvance(rollQueue.length ? 520 : (reducedMotion ? 1250 : 2200));
+        armResultDismiss(root, resultDiv, controls);
       }
     }
     rafId = requestAnimationFrame(frame);
