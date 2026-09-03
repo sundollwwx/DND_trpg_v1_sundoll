@@ -66,6 +66,7 @@
     .token-condition-badge[data-condition-icon='invisible']::before { background-position:0 100%; }
     .token-condition-badge[data-condition-icon='concentrating']::before { background-position:33.333% 100%; }
     .token-condition-badge[data-condition-icon='burning']::before { background-position:66.667% 100%; }
+    .mount-chain-badge { position:absolute; left:-3px; top:-3px; z-index:7; display:grid; place-items:center; min-width:18px; height:18px; padding:0 3px; border:1px solid #b9d2ff9c; border-radius:999px; background:#111722df; color:#dceaff; font-size:10px; font-weight:800; line-height:1; box-shadow:0 2px 7px #000a,0 0 9px #6fa4ed52; pointer-events:none; }
     .token.dragging { cursor:grabbing; }
     .circle { position:relative; overflow:hidden; width:76%; height:76%; border:2px solid var(--ring); border-radius:50%; display:grid; place-items:center; background:#fff; color:#1c2430; font-size:20px; font-weight:700; background-size:cover; background-position:center; background-repeat:no-repeat; box-shadow:0 0 0 2px #0006,0 3px 10px #0009,0 0 14px var(--glow,#5b8cff73); }
     .token .rider { position:absolute; z-index:3; overflow:visible; display:grid; place-items:center; border:1.5px solid var(--ring,#5b8cff); border-radius:50%; background:#fff center/cover no-repeat; color:#1c2430; font-weight:700; line-height:1; box-shadow:0 0 0 1px #0009,0 2px 7px #000a; cursor:inherit; }
@@ -98,6 +99,19 @@
     #detail-icon { width:42px; height:42px; border:3px solid #5b8cff; border-radius:50%; display:grid; place-items:center; background:#fff; color:#19222f; background-size:cover; background-position:center; font-size:20px; }
     #detail-name { font-weight:700; flex:1; }
     #detail-type { color:var(--muted); font-size:12px; }
+    #detail-mounted-chain[hidden] { display:none; }
+    .mounted-detail-chain { margin-bottom:10px; padding:8px; border:1px solid #5879a469; border-radius:10px; background:linear-gradient(145deg,#1a2638,#121821); }
+    .mounted-detail-label { display:flex; align-items:center; gap:5px; margin-bottom:6px; color:#a9c9f5; font-size:10px; font-weight:700; letter-spacing:.06em; }
+    .mounted-detail-units { display:grid; grid-template-columns:minmax(0,1fr); align-items:center; gap:2px; }
+    .mounted-detail-link { height:11px; color:#8fa8ca; font-size:11px; line-height:11px; text-align:center; }
+    .mounted-detail-unit { min-width:0; display:grid; grid-template-columns:28px minmax(0,1fr); gap:6px; align-items:center; padding:6px; border-color:#3a4659; border-radius:8px; background:#151c27; text-align:left; }
+    .mounted-detail-unit:hover { border-color:#6f91bd; background:#1c2736; }
+    .mounted-detail-unit.active { border-color:#d0aa50; background:#30291d; box-shadow:0 0 0 1px #d0aa5033; }
+    .mounted-detail-avatar { width:28px; height:28px; display:grid; place-items:center; border:2px solid var(--unit-ring,#5b8cff); border-radius:50%; background:#fff center/cover no-repeat; color:#19222f; font-size:13px; }
+    .mounted-detail-copy { min-width:0; display:grid; }
+    .mounted-detail-role { color:#7f91aa; font-size:9px; }
+    .mounted-detail-name { overflow:hidden; color:#edf1f7; font-size:11px; font-weight:700; text-overflow:ellipsis; white-space:nowrap; }
+    .mounted-detail-stats { overflow:hidden; color:#9fb0c6; font-size:9px; font-variant-numeric:tabular-nums; text-overflow:ellipsis; white-space:nowrap; }
     .field { margin-top:10px; }
     .field label { display:block; color:var(--muted); font-size:12px; margin-bottom:4px; }
     .three { display:grid; grid-template-columns:1fr auto 1fr; gap:5px; align-items:center; }
@@ -239,6 +253,27 @@
     .join-box form { display:grid; gap:9px; }
     .join-box input { width:100%; padding:10px; }
     #join-error { min-height:18px; color:#ff9aa5; font-size:12px; }
+    .rest-transition { --rest-duration:2200ms; position:fixed; inset:0; z-index:350; isolation:isolate; display:grid; place-items:center; overflow:hidden; color:#fff8df; cursor:wait; pointer-events:auto; animation:rest-transition-veil var(--rest-duration) ease-in-out both; }
+    .rest-transition[hidden] { display:none; }
+    .rest-transition.is-short { background:radial-gradient(circle at 50% 58%,rgba(244,157,61,.34),transparent 33%),rgba(18,14,13,.78); }
+    .rest-transition.is-long { background:linear-gradient(180deg,rgba(5,10,30,.94),rgba(20,26,48,.91)); }
+    .rest-transition-sky { position:absolute; inset:-15%; z-index:-1; pointer-events:none; }
+    .rest-transition.is-short .rest-transition-sky { background:radial-gradient(circle at 45% 58%,rgba(255,184,81,.30) 0 2%,transparent 19%),radial-gradient(circle at 57% 61%,rgba(226,84,33,.24),transparent 22%); animation:rest-short-glow var(--rest-duration) ease-in-out both; }
+    .rest-transition.is-long .rest-transition-sky { background:radial-gradient(circle at 22% 24%,rgba(219,229,255,.75) 0 1.4%,transparent 1.7%),radial-gradient(circle at 73% 18%,rgba(255,255,255,.55) 0 .6%,transparent .9%),radial-gradient(circle at 62% 35%,rgba(255,255,255,.48) 0 .45%,transparent .75%),radial-gradient(circle at 35% 42%,rgba(255,255,255,.42) 0 .5%,transparent .8%),linear-gradient(180deg,#07102c 0%,#182345 56%,#d98564 100%); animation:rest-long-dawn var(--rest-duration) ease-in-out both; }
+    .rest-transition-card { display:grid; justify-items:center; min-width:min(320px,calc(100vw - 48px)); padding:25px 30px 22px; border:1px solid rgba(255,255,255,.18); border-radius:18px; background:rgba(14,18,28,.56); box-shadow:0 24px 70px rgba(0,0,0,.42),inset 0 1px rgba(255,255,255,.08); backdrop-filter:blur(12px); animation:rest-transition-card var(--rest-duration) cubic-bezier(.2,.8,.2,1) both; }
+    .rest-transition-icon { font-size:45px; line-height:1; filter:drop-shadow(0 7px 14px rgba(0,0,0,.38)); animation:rest-transition-icon var(--rest-duration) ease-in-out both; }
+    .rest-transition-card strong { margin-top:12px; color:#fff2c6; font-size:26px; letter-spacing:.12em; }
+    .rest-transition-card > span:nth-of-type(2) { margin-top:5px; color:rgba(231,235,246,.76); font-size:12px; letter-spacing:.08em; }
+    .rest-transition-progress { position:relative; width:210px; height:3px; margin-top:18px; overflow:hidden; border-radius:999px; background:rgba(255,255,255,.13); }
+    .rest-transition-progress i { position:absolute; inset:0 auto 0 0; width:100%; border-radius:inherit; background:linear-gradient(90deg,#db8e45,#ffe4a0); transform-origin:left; animation:rest-transition-progress var(--rest-duration) linear both; }
+    .rest-transition.is-long .rest-transition-progress i { background:linear-gradient(90deg,#798fd0,#f4c895); }
+    @keyframes rest-transition-veil { 0%{opacity:0} 12%,78%{opacity:1} 100%{opacity:0} }
+    @keyframes rest-transition-card { 0%{opacity:0;transform:translateY(10px) scale(.96)} 16%,78%{opacity:1;transform:translateY(0) scale(1)} 100%{opacity:0;transform:translateY(-7px) scale(.98)} }
+    @keyframes rest-transition-icon { 0%{opacity:0;transform:translateY(7px) scale(.78)} 18%{opacity:1;transform:translateY(0) scale(1)} 55%{transform:translateY(-4px) scale(1.08)} 100%{opacity:0;transform:translateY(-10px) scale(.9)} }
+    @keyframes rest-transition-progress { from{transform:scaleX(0)} to{transform:scaleX(1)} }
+    @keyframes rest-short-glow { 0%,100%{opacity:.25;transform:scale(.86)} 45%{opacity:1;transform:scale(1.08)} }
+    @keyframes rest-long-dawn { 0%{opacity:.9;transform:translateY(0) scale(1);filter:hue-rotate(-8deg) brightness(.72)} 58%{opacity:1;transform:translateY(-2%) scale(1.02);filter:hue-rotate(0) brightness(.9)} 100%{opacity:.96;transform:translateY(-5%) scale(1.05);filter:hue-rotate(12deg) brightness(1.28)} }
+    @media (prefers-reduced-motion:reduce) { .rest-transition,.rest-transition-card,.rest-transition-icon,.rest-transition-progress i,.rest-transition-sky { animation-timing-function:linear; } }
     .player-tool-actions { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px; margin-top:7px; }
     .doodle-tool-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px; }
     [data-doodle-tool].active { border-color:#e0b34c; background:#3a3325; color:#ffe9a0; }
@@ -281,7 +316,7 @@
   <main id="layout">
     <aside class="panel" id="left-panel">
       <section class="card"><h2>👥 在线玩家</h2><div id="player-list"><span class="hint">正在连接房间…</span></div></section>
-      <section class="card"><h2>🧭 玩家工具</h2><div class="player-tool-actions"><button id="btn-measure">📏 测距</button><button id="btn-reaction">😊 地图表情</button><button id="btn-ready">✓ 准备</button></div><p class="hint">测距只在本地显示；靠近方格交点时会自动吸附，1 格＝5 尺。表情不占用角色行动。</p></section>
+      <section class="card"><h2>🧭 玩家工具</h2><div class="player-tool-actions"><button id="btn-measure">📏 测距</button><button id="btn-reaction">😊 地图表情</button><button id="btn-ready">✓ 准备</button></div><p class="hint">测距只在本地显示；靠近方格交点或格心时会自动吸附，1 格＝5 尺。表情不占用角色行动。</p></section>
       <section class="card" id="player-doodle-card">
         <h2>🖍️ 共享标注 <span id="player-doodle-count">0 条</span></h2>
         <div class="doodle-tool-grid">
@@ -347,6 +382,7 @@
     <aside class="panel" id="right-panel">
       <section class="card"><h2>🧙 我的棋子</h2>
         <div id="detail" hidden>
+          <div id="detail-mounted-chain" class="mounted-detail-chain" aria-label="骑乘联动棋子" hidden></div>
           <div class="token-head"><div id="detail-icon">🧙</div><div><div id="detail-name"></div><div id="detail-type"></div></div><button id="detail-close">✕</button></div>
           <div class="field"><label>生命值</label><div class="three"><input id="hp" type="number" min="0"><span>/</span><input id="hp-max" type="number" min="1"></div><div class="hp-bar"><i id="hp-bar"></i></div><div class="quick"><button data-hp="-5">−5</button><button data-hp="-1">−1</button><button data-hp="1">＋1</button><button data-hp="5">＋5</button><button data-hp="full">回满</button></div></div>
           <div class="field"><label>AC</label><div class="ac-row"><input id="ac" type="number" min="0" max="99"><span id="ac-hint" class="hint">由你自己维护</span></div></div>
@@ -359,6 +395,15 @@
       <section class="card"><h2>📝 我的笔记</h2><textarea id="personal-notes" rows="5" placeholder="只保存在这台设备上的线索、想法……"></textarea><p class="hint">这是本地笔记，不会发送给主控台。</p></section>
     </aside>
   </main>
+  <div id="rest-transition" class="rest-transition" role="status" aria-live="polite" hidden>
+    <div class="rest-transition-sky" aria-hidden="true"></div>
+    <div class="rest-transition-card">
+      <span id="rest-transition-icon" class="rest-transition-icon" aria-hidden="true">🔥</span>
+      <strong id="rest-transition-title">短休</strong>
+      <span id="rest-transition-subtitle">围火喘息，片刻整备</span>
+      <span class="rest-transition-progress" aria-hidden="true"><i></i></span>
+    </div>
+  </div>
   <div id="token-peek" role="status" aria-live="polite" hidden></div>
   <div id="join-mask" class="join-mask" hidden><div class="join-box"><h1>加入桑哆尔跑团</h1><p id="join-room-hint">输入你的名字后即可进入玩家地图。玩家不需要安装软件。</p><form id="join-form"><input id="join-name" maxlength="24" autocomplete="nickname" placeholder="你的名字" required><input id="join-room" maxlength="12" placeholder="房间码（可留空）"><div id="join-error"></div><button class="primary" type="submit">进入房间</button></form></div></div>
   <div id="toast"></div>
@@ -377,14 +422,25 @@
   const MAP_REACTION_EMOJIS = new Set(['👍','❤️','😂','😮','🔥','✨','❓','⚔️','🎯','👏']);
   const CONDITION_PIXEL_KEYS = new Set(['prone','unconscious','incapacitated','blinded','deafened','frightened','charmed','poisoned','grappled','restrained','stunned','petrified','invisible','concentrating','burning']);
   const CONDITION_SPRITE_URL = '../asset/界面/状态图标-v1.png';
-  let state = null, currentMap = null, view = {scale:1,ox:0,oy:0}, myName = '', sessionToken = '', roomCode = '', players = [], presenceStatus = 'online', selectedId = null, drag = null, toastTimer = null, peekTimer = null, localRolls = new Set(), lastMapViewKey = '', flowPanel = 'initiative', flowClockAnchor = { localNow: performance.now(), serverNow: Date.now() }, flowTimer = null, measureMode = false, measureDraft = null, doodleTool = null, doodleColor = '#ff4d4f', doodleWidth = 6, doodleDraft = null, presenceTimer = null, streamES = null, streamAppliedSeq = 0, lastStateRevision = 0, spellAimTokenId = null, pendingMapReaction = null, spellRangeRaf = null, initiativePending = false, lastFlowScrollEntryId = null;
+  let state = null, currentMap = null, view = {scale:1,ox:0,oy:0}, myName = '', sessionToken = '', roomCode = '', players = [], presenceStatus = 'online', selectedId = null, drag = null, toastTimer = null, peekTimer = null, restAnimationTimer = null, localRolls = new Set(), lastMapViewKey = '', flowPanel = 'initiative', flowClockAnchor = { localNow: performance.now(), serverNow: Date.now() }, flowTimer = null, measureMode = false, measureDraft = null, doodleTool = null, doodleColor = '#ff4d4f', doodleWidth = 6, doodleDraft = null, presenceTimer = null, streamES = null, streamAppliedSeq = 0, lastStateRevision = 0, spellAimTokenId = null, pendingMapReaction = null, spellRangeRaf = null, initiativePending = false, lastFlowScrollEntryId = null;
   const localReactionIds = new Set();
+  const playedRestTransitions = new Set();
   function preloadConditionPixels(){const image=new Image();image.onload=()=>document.documentElement.classList.add('condition-pixels-ready');image.onerror=()=>document.documentElement.classList.remove('condition-pixels-ready');image.src=CONDITION_SPRITE_URL;}
   preloadConditionPixels();
   try { myName = localStorage.getItem('sangduoer-watch-name') || ''; sessionToken = localStorage.getItem('sangduoer-watch-session') || ''; } catch (e) {}
   $('#player-name').value = myName;
 
   function toast(msg) { const el=$('#toast'); el.textContent=msg; el.classList.add('show'); clearTimeout(toastTimer); toastTimer=setTimeout(()=>el.classList.remove('show'),2400); }
+  function playRestTransition(action) {
+    const kind=action&&action.kind==='long'?'long':action&&action.kind==='short'?'short':null;if(!kind)return;
+    const restId=String(action.restId||'');if(restId&&playedRestTransitions.has(restId))return;
+    if(restId){playedRestTransitions.add(restId);while(playedRestTransitions.size>24)playedRestTransitions.delete(playedRestTransitions.values().next().value);}
+    const isLong=kind==='long',fallback=isLong?4400:2200,reducedMotion=window.matchMedia?.('(prefers-reduced-motion: reduce)').matches,duration=reducedMotion?(isLong?900:600):clamp(Math.trunc(Number(action.duration)||fallback),1000,8000),layer=$('#rest-transition');
+    clearTimeout(restAnimationTimer);
+    layer.hidden=false;layer.className='rest-transition '+(isLong?'is-long':'is-short');layer.style.setProperty('--rest-duration',duration+'ms');layer.setAttribute('aria-label',isLong?'长休进行中':'短休进行中');
+    $('#rest-transition-icon').textContent=isLong?'🌙':'🔥';$('#rest-transition-title').textContent=isLong?'长休':'短休';$('#rest-transition-subtitle').textContent=isLong?'夜色流转，晨光将至':'围火喘息，片刻整备';void layer.offsetWidth;
+    restAnimationTimer=setTimeout(()=>{restAnimationTimer=null;layer.hidden=true;layer.className='rest-transition';layer.removeAttribute('aria-label');},duration);
+  }
   function actionId() { return (crypto&&crypto.randomUUID) ? crypto.randomUUID() : 'a'+Date.now()+Math.random().toString(36).slice(2); }
   function requestAction(action) {
     const body={player:myName||'玩家',sessionToken,actionId:actionId(),action};
@@ -455,7 +511,9 @@
   function snapMeasurePoint(p) {
     if(!currentMap||!p)return p;
     const grid=Number(currentMap.gridSize)||50, scale=Math.max(.2,Number(view.scale)||1);
-    const snapped={x:Math.round(p.x/grid)*grid,y:Math.round(p.y/grid)*grid};
+    const intersections={x:Math.round(p.x/grid)*grid,y:Math.round(p.y/grid)*grid};
+    const centers={x:Math.round(p.x/grid-.5)*grid+grid/2,y:Math.round(p.y/grid-.5)*grid+grid/2};
+    const snapped=Math.hypot(p.x-intersections.x,p.y-intersections.y)<=Math.hypot(p.x-centers.x,p.y-centers.y)?intersections:centers;
     const radius=Math.min(grid*.35,14/scale);
     return Math.hypot(p.x-snapped.x,p.y-snapped.y)<=radius?snapped:p;
   }
@@ -850,8 +908,9 @@
       if (!applyPlayerPortrait(circle,t)) circle.textContent=t.icon||'?';
       el.append(circle);
       appendConditionBadges(el,t.conditions);
+      const riders=(t.size||1)>=2?ridersOfToken(t,m):[];
+      if(riders.length){const chain=document.createElement('span');chain.className='mount-chain-badge';chain.textContent=riders.length>1?'🔗'+riders.length:'🔗';chain.title='骑乘联动：'+t.name+' + '+riders.map(r=>r.name).join('、');chain.setAttribute('aria-label',chain.title);el.appendChild(chain);}
       if((t.size||1)>=2){
-        const riders=ridersOfToken(t,m);
         riders.forEach((r,i)=>{
           const rMeta=TYPE[r.type]||TYPE.npc, rs=size*.4, rd=document.createElement('div');
           rd.className='rider'+(mine(r)?' owned':'')+(current&&current.id===r.id?' current-rider':'');
@@ -1031,7 +1090,26 @@
     Object.keys(patch).forEach(key=>{if(!(key in pendingPatch.before))pendingPatch.before[key]=clonePatchValue(before[key]);pendingPatch.patch[key]=clonePatchValue(patch[key]);});
     clearTimeout(patchTimer);patchTimer=setTimeout(dispatchPendingPatch,180);
   }
-  function closeDetail() { selectedId=null;cancelSpellAim(); $('#detail').hidden=true; $('#detail-empty').hidden=false;requestSpellRangeRender(); }
+  function closeDetail() { selectedId=null;cancelSpellAim(); $('#detail').hidden=true; $('#detail-empty').hidden=false;const chain=$('#detail-mounted-chain');chain.hidden=true;chain.innerHTML='';requestSpellRangeRender(); }
+  function mountedDetailPair(token) {
+    if(!currentMap||!token)return null;
+    const mount=movementAnchor(token,currentMap);
+    if(!mount||Number(mount.size||1)<2)return null;
+    const riders=ridersOfToken(mount,currentMap),rider=token.mountId===mount.id&&mine(token)?token:riders.find(mine);
+    return rider&&rider.id!==mount.id?{rider,mount}:null;
+  }
+  function mountedDetailUnitButton(unit,role) {
+    const meta=TYPE[unit.type]||TYPE.npc,button=document.createElement('button'),avatar=document.createElement('span'),copy=document.createElement('span'),roleEl=document.createElement('span'),name=document.createElement('span'),stats=document.createElement('span');
+    button.type='button';button.className='mounted-detail-unit'+(unit.id===selectedId?' active':'');button.dataset.tokenId=unit.id;button.setAttribute('aria-pressed',unit.id===selectedId?'true':'false');button.title='切换到'+(unit.name||role)+'的完整信息';
+    avatar.className='mounted-detail-avatar';avatar.style.setProperty('--unit-ring',meta.ring);if(!applyPlayerPortrait(avatar,unit))avatar.textContent=unit.icon||'?';
+    copy.className='mounted-detail-copy';roleEl.className='mounted-detail-role';roleEl.textContent=role;name.className='mounted-detail-name';name.textContent=unit.name||'未命名';stats.className='mounted-detail-stats';stats.textContent=Number.isFinite(Number(unit.hp))?'HP '+unit.hp+'/'+unit.hpMax+' · AC '+unit.ac:'HP / AC 未公开';
+    copy.append(roleEl,name,stats);button.append(avatar,copy);button.addEventListener('click',()=>openDetail(unit.id));return button;
+  }
+  function renderMountedDetail(token) {
+    const container=$('#detail-mounted-chain'),pair=mountedDetailPair(token);container.innerHTML='';container.hidden=!pair;if(!pair)return;
+    const label=document.createElement('div'),units=document.createElement('div'),link=document.createElement('span');label.className='mounted-detail-label';label.textContent='🔗 骑乘联动 · 点击切换编辑对象';units.className='mounted-detail-units';link.className='mounted-detail-link';link.textContent='↕';link.setAttribute('aria-hidden','true');
+    units.append(mountedDetailUnitButton(pair.rider,'玩家'),link,mountedDetailUnitButton(pair.mount,'坐骑'));container.append(label,units);
+  }
   function hideTokenPeek() { clearTimeout(peekTimer); peekTimer=null; const peek=$('#token-peek'); peek.hidden=true; peek.dataset.tokenId=''; }
   function populateTokenPeek(t) {
     const peek=$('#token-peek'), meta=TYPE[t.type]||TYPE.npc, pct=clamp(Number(t.hp)/Math.max(1,Number(t.hpMax))*100,0,100);
@@ -1057,6 +1135,7 @@
     if (!t || !ownedToken(t) || !Number.isFinite(Number(t.hp))) { closeDetail(); return; }
     hideTokenPeek();
     selectedId=id; $('#detail').hidden=false; $('#detail-empty').hidden=true;
+    renderMountedDetail(t);
     $('#detail-name').textContent=t.name; $('#detail-type').textContent=(TYPE[t.type]||TYPE.npc).label;
     const icon=$('#detail-icon'), hasPortrait=applyPlayerPortrait(icon,t); icon.textContent=hasPortrait?'':(t.icon||'?'); if(!hasPortrait)icon.style.backgroundImage='none';
     $('#hp').value=t.hp; $('#hp-max').value=t.hpMax; $('#ac').value=t.ac;
@@ -1114,6 +1193,7 @@
   function addRoll(who,expr,detail,total) { const row=document.createElement('div'); row.className='roll-line'; row.innerHTML='<span class="roll-who">'+esc(who)+'</span><span>'+esc(expr)+'</span><span>'+esc(detail)+'</span><span class="roll-total">'+total+'</span>'; $('#dice-log').prepend(row); while($('#dice-log').children.length>30) $('#dice-log').lastChild.remove(); $('#dice-result').textContent=expr+' → '+total; }
   function applyAction(a) {
     if (!a) return;
+    if(a.op==='restTransition'){playRestTransition(a);return;}
     if(a.op==='mapReaction'){
       if(a.reactionId&&localReactionIds.has(a.reactionId)){localReactionIds.delete(a.reactionId);return;}
       showMapReaction(a);return;
@@ -1148,7 +1228,7 @@
       if(e.playMode==='turn'&&Number(a.turnSerial)===Number(e.turnSerial)&&Array.isArray(a.path)) appendTurnPath(m.id,t.id,a.path);
       renderTurnPath();
     }
-    if (a.op==='patchToken') { ['hp','hpMax','ac'].forEach(k=>{if(a.patch && k in a.patch)t[k]=a.patch[k];});if(a.patch&&'spellRange' in a.patch)t.spellRange=normalizeSpellRange(a.patch.spellRange); if(m===currentMap){renderNamesLayer(currentMap);requestSpellRangeRender();} if(selectedId===t.id)openDetail(t.id); refreshTokenPeek(t); }
+    if (a.op==='patchToken') { ['hp','hpMax','ac'].forEach(k=>{if(a.patch && k in a.patch)t[k]=a.patch[k];});if(a.patch&&'spellRange' in a.patch)t.spellRange=normalizeSpellRange(a.patch.spellRange); if(m===currentMap){renderNamesLayer(currentMap);requestSpellRangeRender();} const selected=currentMap&&selectedId&&(currentMap.tokens||[]).find(token=>token.id===selectedId);if(selected&&tokenControlGroup(selected).has(t.id))openDetail(selected.id); refreshTokenPeek(t); }
   }
 
   board.addEventListener('pointerdown',e=>{
@@ -1263,7 +1343,7 @@
   const playerAudio=new Audio(); let bgmUrl='';
   function applyBgm(a){if(!a)return;if(a.action==='play'){if(a.url&&a.url!==bgmUrl){bgmUrl=a.url;playerAudio.src=a.url;playerAudio.currentTime=a.time||0;}playerAudio.play().catch(()=>toast('🔇 点击页面后可播放 BGM'));}else playerAudio.pause();}
   async function syncRoomState(){try{const res=await fetch('/api/state',{cache:'no-store'});if(!res.ok)return;render(await res.json());}catch(e){/* SSE 会继续自动重试 */}}
-  function connectStream(){ if(streamES){try{streamES.close();}catch(e){}} streamES=new EventSource('/api/events'); streamES.onopen=()=>{setConnection('已连接',true);sendPresence(presenceStatus);syncRoomState();}; streamES.onerror=()=>setConnection('重连中…',false); streamES.onmessage=e=>{try{const ev=JSON.parse(e.data), seq=Number(e.lastEventId)||Number(ev.seq)||0, instant=ev.type==='action'&&ev.action&&['roll','bgm','announce','mapReaction'].includes(ev.action.op);if(!instant&&seq&&seq<=streamAppliedSeq&&ev.type==='action')return;if(seq&&!instant)streamAppliedSeq=Math.max(streamAppliedSeq,seq);if(ev.type==='state'){render(ev.state);}else if(ev.type==='presence'){renderPlayers(ev.players);}else if(ev.type==='action'){if(ev.action&&ev.action.op==='bgm')applyBgm(ev.action);else applyAction(ev.action);}}catch(err){}}; }
+  function connectStream(){ if(streamES){try{streamES.close();}catch(e){}} streamES=new EventSource('/api/events'); streamES.onopen=()=>{setConnection('已连接',true);sendPresence(presenceStatus);syncRoomState();}; streamES.onerror=()=>setConnection('重连中…',false); streamES.onmessage=e=>{try{const ev=JSON.parse(e.data), seq=Number(e.lastEventId)||Number(ev.seq)||0, instant=ev.type==='action'&&ev.action&&['roll','bgm','announce','mapReaction','restTransition'].includes(ev.action.op);if(!instant&&seq&&seq<=streamAppliedSeq&&ev.type==='action')return;if(seq&&!instant)streamAppliedSeq=Math.max(streamAppliedSeq,seq);if(ev.type==='state'){render(ev.state);}else if(ev.type==='presence'){renderPlayers(ev.players);}else if(ev.type==='action'){if(ev.action&&ev.action.op==='bgm')applyBgm(ev.action);else applyAction(ev.action);}}catch(err){}}; }
   bootstrapSession().then(()=>{if(sessionToken)connectStream();});
   presenceTimer=setInterval(()=>sendPresence(presenceStatus),15000);
   flowTimer=setInterval(()=>{if(state&&state.encounter&&state.encounter.worldTime&&state.encounter.worldTime.runningSince)renderFlow(state);},500);

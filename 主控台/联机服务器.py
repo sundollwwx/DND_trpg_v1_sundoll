@@ -70,11 +70,12 @@ SESSIONS = {}         # {sessionToken: {playerId, name, status, lastSeen}}
 ACTION_IDS = {}       # {actionId: seq}，防止网络重试重复执行
 MAX_ACTION_IDS = 2000
 ACTION_RATE = {}      # {sessionToken: [最近请求时间戳]}
-HOST_ACTIONS = {'roll', 'announce', 'bgm', 'mapReaction'}
+HOST_ACTIONS = {'roll', 'announce', 'bgm', 'mapReaction', 'restTransition'}
 MAP_REACTION_EMOJIS = {'👍', '❤️', '😂', '😮', '🔥', '✨', '❓', '⚔️', '🎯', '👏'}
 REACTION_ID_RE = re.compile(r'^[A-Za-z0-9_.:-]{1,96}$')
 REACTION_RATE = {}
 REACTION_COOLDOWN_MS = 450
+REST_TRANSITION_DURATIONS = {'short': 2200, 'long': 4400}
 
 
 def is_local_request(handler):
@@ -163,6 +164,30 @@ def normalize_roll_action(action, name):
         'mode': mode,
         'natural': natural,
         'critical': critical,
+    }
+
+
+def normalize_rest_transition_action(action):
+    """校验主控台发出的瞬时休息表现；它不进入持久状态或动作历史。"""
+    if not isinstance(action, dict):
+        return None
+    kind = str(action.get('kind') or '').strip().lower()
+    rest_id = str(action.get('restId') or '').strip()
+    if kind not in REST_TRANSITION_DURATIONS or not REACTION_ID_RE.fullmatch(rest_id):
+        return None
+    duration = finite_int(
+        action.get('duration'),
+        1000,
+        8000,
+        REST_TRANSITION_DURATIONS[kind],
+    )
+    return {
+        'op': 'restTransition',
+        'restId': rest_id,
+        'kind': kind,
+        'duration': duration,
+        'startedAt': int(time.time() * 1000),
+        'name': 'GM',
     }
 
 
@@ -1229,7 +1254,7 @@ class Handler(SimpleHTTPRequestHandler):
             clean_music_cache(d)
             self._send_json({'ok': True, 'url': '/音乐缓存/' + name})
         elif self.path == '/api/host-action':
-            # GM 的公开骰子/公告只能从主机本机发出；私密骰子不进入网络。
+            # GM 的公开骰子、公告、BGM 与休息表现只能从主机本机发出。
             if not is_local_request(self):
                 self._send_json({'ok': False, 'error': 'host action is local-only'}, 403)
                 return
@@ -1272,6 +1297,11 @@ class Handler(SimpleHTTPRequestHandler):
                     'url': bgm_url,
                     'time': finite_int(action.get('time'), 0, 86400, 0),
                 })
+            elif action.get('op') == 'restTransition':
+                public_action = normalize_rest_transition_action(action)
+                if not public_action:
+                    self._send_json({'ok': False, 'error': '休息动画数据无效'}, 400)
+                    return
             else:
                 public_action['text'] = str(action.get('text') or '').strip()[:1000]
                 if not public_action['text']:

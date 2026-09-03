@@ -270,5 +270,30 @@ class ReactionTests(unittest.TestCase):
         }, 'Alice'))
 
 
+class RestTransitionTests(unittest.TestCase):
+    def test_rest_transition_is_a_validated_transient_host_action(self):
+        self.assertIn('restTransition', SERVER.HOST_ACTIONS)
+        action = SERVER.normalize_rest_transition_action({
+            'op': 'restTransition', 'restId': 'rest-123-abc', 'kind': 'short', 'duration': 2200,
+        })
+        self.assertEqual(action['op'], 'restTransition')
+        self.assertEqual(action['kind'], 'short')
+        self.assertEqual(action['duration'], 2200)
+        self.assertEqual(action['name'], 'GM')
+        self.assertIsInstance(action['startedAt'], int)
+
+    def test_rest_transition_rejects_bad_identity_and_clamps_duration(self):
+        self.assertIsNone(SERVER.normalize_rest_transition_action({
+            'restId': '../bad', 'kind': 'short', 'duration': 2200,
+        }))
+        self.assertIsNone(SERVER.normalize_rest_transition_action({
+            'restId': 'rest-1', 'kind': 'nap', 'duration': 2200,
+        }))
+        long_rest = SERVER.normalize_rest_transition_action({
+            'restId': 'rest-2', 'kind': 'long', 'duration': 99999,
+        })
+        self.assertEqual(long_rest['duration'], 8000)
+
+
 if __name__ == '__main__':
     unittest.main()

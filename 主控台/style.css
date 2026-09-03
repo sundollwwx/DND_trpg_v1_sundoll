@@ -1050,6 +1050,27 @@ html.condition-pixels-ready .token-condition-badge[data-condition-icon]::before 
 .token-condition-badge[data-condition-icon='concentrating']::before { background-position: 33.333% 100%; }
 .token-condition-badge[data-condition-icon='burning']::before { background-position: 66.667% 100%; }
 
+.mount-chain-badge {
+  position: absolute;
+  left: -3px;
+  top: -3px;
+  z-index: 7;
+  display: grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 3px;
+  border: 1px solid rgba(185, 210, 255, .61);
+  border-radius: 999px;
+  background: rgba(17, 23, 34, .87);
+  color: #dceaff;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+  box-shadow: 0 2px 7px rgba(0, 0, 0, .67), 0 0 9px rgba(111, 164, 237, .32);
+  pointer-events: none;
+}
+
 #names-layer {
   position: absolute;
   left: 0;
@@ -3153,7 +3174,7 @@ html.condition-pixels-ready .token-condition-badge[data-condition-icon]::before 
 /* ============ Toast ============ */
 
 .rest-transition {
-  --rest-duration: 1400ms;
+  --rest-duration: 2200ms;
   position: fixed;
   inset: 0;
   z-index: 350;

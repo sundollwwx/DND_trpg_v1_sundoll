@@ -158,6 +158,43 @@ class ClientParityTests(unittest.TestCase):
             self.assertIn('z-index:3;', compact)
         self.assertIn("${streamInfo.readyCount || 0} 人已准备", HOST_JS)
 
+    def test_rest_transition_is_broadcast_and_rendered_on_both_clients(self):
+        self.assertIn("Object.freeze({ short: 2200, long: 4400 })", HOST_JS)
+        self.assertIn("op: 'restTransition'", HOST_JS)
+        for element_id in (
+            'rest-transition',
+            'rest-transition-icon',
+            'rest-transition-title',
+            'rest-transition-subtitle',
+        ):
+            self.assertIn(f'id="{element_id}"', PLAYER_HTML)
+        self.assertIn("if(a.op==='restTransition'){playRestTransition(a);return;}", PLAYER_HTML)
+        self.assertIn("'mapReaction','restTransition'", PLAYER_HTML)
+        self.assertIn('fallback=isLong?4400:2200', PLAYER_HTML)
+
+    def test_mounted_tokens_have_link_badges_and_player_pair_details(self):
+        for source in (HOST_CSS, PLAYER_HTML):
+            block = re.search(r'\.mount-chain-badge\s*\{([^}]+)\}', source)
+            self.assertIsNotNone(block)
+            css = re.sub(r'\s+', '', block.group(1))
+            self.assertIn('left:-3px', css)
+            self.assertIn('top:-3px', css)
+            self.assertIn('z-index:7', css)
+        self.assertIn("chainBadge.className = 'mount-chain-badge'", HOST_JS)
+        self.assertIn("chain.className='mount-chain-badge'", PLAYER_HTML)
+        self.assertIn('id="detail-mounted-chain"', PLAYER_HTML)
+        self.assertIn('function mountedDetailPair(', PLAYER_HTML)
+        self.assertIn("mountedDetailUnitButton(pair.rider,'玩家')", PLAYER_HTML)
+        self.assertIn("mountedDetailUnitButton(pair.mount,'坐骑')", PLAYER_HTML)
+
+    def test_player_measurement_snaps_to_intersections_or_centers(self):
+        body = function_body(PLAYER_HTML, 'snapMeasurePoint', 'snap')
+        self.assertIn('const intersections=', body)
+        self.assertIn('const centers=', body)
+        self.assertIn("Math.round(p.x/grid-.5)*grid+grid/2", body)
+        self.assertIn('Math.hypot(p.x-intersections.x,p.y-intersections.y)', body)
+        self.assertIn('方格交点或格心', PLAYER_HTML)
+
 
 if __name__ == '__main__':
     unittest.main()

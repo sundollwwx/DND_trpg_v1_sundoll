@@ -11,6 +11,7 @@ const SERVER_URL_KEY = 'sangduoer-server-url-v1';
 const APP_VERSION = 'v1.10';
 const MAX_DOODLE_POINTS = 800;
 const CONDITION_SPRITE_URL = '../asset/界面/状态图标-v1.png';
+const REST_TRANSITION_DURATIONS = Object.freeze({ short: 2200, long: 4400 });
 
 const TYPE_META = {
   pc:    { label: '玩家角色', ring: '#5b8cff', glow: 'rgba(91,140,255,.45)', defaultIcon: '🧙' },
@@ -1026,11 +1027,13 @@ function advanceWorldTime(seconds, label) {
   shiftWorldTime(Math.max(0, Math.trunc(Number(seconds) || 0)), label);
 }
 
-function playRestTransition(kind) {
+function playRestTransition(kind, requestedDuration = null) {
   const isLong = kind === 'long';
   const layer = $('#rest-transition');
   const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-  const duration = reducedMotion ? (isLong ? 500 : 300) : (isLong ? 3200 : 1400);
+  const fallbackDuration = REST_TRANSITION_DURATIONS[isLong ? 'long' : 'short'];
+  const networkDuration = clamp(Math.trunc(Number(requestedDuration) || fallbackDuration), 1000, 8000);
+  const duration = reducedMotion ? (isLong ? 900 : 600) : networkDuration;
   restAnimationActive = true;
   clearTimeout(restAnimationTimer);
   if (layer) {
@@ -1059,7 +1062,17 @@ function playRestTransition(kind) {
 function takeRest(kind) {
   if (restAnimationActive) return;
   const isLong = kind === 'long';
-  playRestTransition(isLong ? 'long' : 'short');
+  const normalizedKind = isLong ? 'long' : 'short';
+  const duration = REST_TRANSITION_DURATIONS[normalizedKind];
+  const restId = `rest-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  playRestTransition(normalizedKind, duration);
+  if (streamOn) {
+    sendHostAction({ op: 'restTransition', restId, kind: normalizedKind, duration })
+      .then((result) => {
+        if (!result.ok || result.data?.ok === false) toast('⚠ 玩家端休息动画未广播');
+      })
+      .catch(() => toast('⚠ 玩家端休息动画未广播'));
+  }
   advanceWorldTime(isLong ? 8 * 60 * 60 : 60 * 60, isLong
     ? '完成长休：世界时间 +8 小时'
     : '完成短休：世界时间 +1 小时');
@@ -3304,6 +3317,12 @@ function createTokenEl(t) {
   if (m && t.size >= 2) {
     const riders = m.tokens.filter((r) => r.mountId === t.id);
     if (riders.length) {
+      const chainBadge = document.createElement('span');
+      chainBadge.className = 'mount-chain-badge';
+      chainBadge.textContent = riders.length > 1 ? `🔗${riders.length}` : '🔗';
+      chainBadge.title = `骑乘联动：${t.name} + ${riders.map((r) => r.name).join('、')}`;
+      chainBadge.setAttribute('aria-label', chainBadge.title);
+      el.appendChild(chainBadge);
       riders.forEach((r, i) => {
         const rMeta = TYPE_META[r.type] || TYPE_META.npc;
         const rs = size * 0.4;
