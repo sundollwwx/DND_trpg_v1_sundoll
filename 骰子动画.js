@@ -44,7 +44,7 @@
 
   const PHI = (1 + Math.sqrt(5)) / 2;
   const DICE_SKIN_STORAGE_KEY = 'sundoll-dice-skin-v1';
-  const DICE_SIZE_MULTIPLIER = 1.45;
+  const DICE_SIZE_MULTIPLIER = 1.30;
   const DICE_SKINS = Object.freeze({
     obsidian: {
       key: 'obsidian', label: '黑曜金', swatch: '#11151d', accent: '#ffe08a', accentSoft: 'rgba(255,224,138,.55)',
@@ -441,7 +441,7 @@
     }
   }
 
-  function faceTexture(isResult, n, label, skin) {
+  function faceTexture(isResult, n, label, skin, dieKind) {
     skin = skin || resolveDiceSkin(activeSkinKey);
     const c = document.createElement('canvas');
     c.width = c.height = 256;
@@ -456,7 +456,9 @@
     const maxTextWidth = n <= 3 ? 112 : n === 4 ? 166 : 148;
     const measuredWidth = g.measureText(text).width || 1;
     if (measuredWidth > maxTextWidth) size = Math.max(30, Math.floor(size * maxTextWidth / measuredWidth));
-    drawMarkedNum(g, text, 128, 132, size, isResult, skin);
+    // d20 的三角面在透视下视觉中心略低于纹理中心，单独下移一点避免数字显得偏上。
+    const numberY = dieKind === 'd20' ? 138 : 132;
+    drawMarkedNum(g, text, 128, numberY, size, isResult, skin);
     const tex = new THREE.CanvasTexture(c);
     tex.flipY = false;
     tex.anisotropy = 4;
@@ -527,6 +529,7 @@
   let animationPhase = 'idle';
   let rollSequence = 0;
   let droppedQueuedRolls = 0;
+  let interruptedRolls = 0;
 
   function cleanup() {
     if (rafId) cancelAnimationFrame(rafId);
@@ -557,6 +560,7 @@
       phase: animationPhase,
       pending: rollQueue.length,
       dropped: droppedQueuedRolls,
+      interrupted: interruptedRolls,
     };
   }
 
@@ -647,6 +651,13 @@
 
   function enqueueDieAnimation(sides, label, total, opts) {
     const request = { sides, label, total, opts: opts || {}, rollId: ++rollSequence };
+    if (request.opts.interrupt === true && animationActive) {
+      interruptedRolls++;
+      rollQueue.splice(0, rollQueue.length);
+      cleanup();
+      animationActive = false;
+      animationPhase = 'idle';
+    }
     if (animationActive) {
       if (rollQueue.length >= MAX_QUEUED_ROLLS) {
         rollQueue.shift();
@@ -679,6 +690,7 @@
     const root = document.createElement('div');
     root.className = 'dice-fx-root';
     root.style.cssText = `left:${Math.max(0,rect.left)}px;top:${Math.max(0,rect.top)}px;width:${Math.max(220,rect.width)}px;height:${Math.max(180,rect.height)}px;`;
+    root.dataset.rollVisibility = opts.visibility === 'private' ? 'private' : 'public';
     applySkinTheme(root, skin);
     const totalEl = document.createElement('div');
     totalEl.style.cssText = `position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font:italic 800 96px Didot,Georgia,serif;color:${skin.accent};text-shadow:0 4px 14px rgba(0,0,0,.8);`;
@@ -705,6 +717,7 @@
       skin: skin.key,
       queueRemaining: rollQueue.length,
       droppedQueuedRolls,
+      interruptedRolls,
     };
     updateQueueDiagnostics();
     publishDiceCompletion(diagnostic);
@@ -797,6 +810,7 @@
     const root = document.createElement('div');
     root.className = 'dice-fx-root';
     root.style.cssText = `left:${left}px;top:${top}px;width:${canvasW}px;height:${canvasH}px;`;
+    root.dataset.rollVisibility = opts.visibility === 'private' ? 'private' : 'public';
     applySkinTheme(root, skin);
     const holder = document.createElement('div');
     holder.style.cssText = 'position:absolute;inset:0;overflow:hidden;';
@@ -906,7 +920,7 @@
     function bodyMaterial(faceLength, faceLabel, highlighted, dimmed) {
       const cacheKey = `${skin.key}|regular|${faceLength}|${faceLabel}|${highlighted ? 1 : 0}|${dimmed ? 1 : 0}`;
       if (bodyMaterialCache.has(cacheKey)) return bodyMaterialCache.get(cacheKey);
-      const material = finishBodyMaterial(faceTexture(highlighted, faceLength, faceLabel, skin), dimmed);
+      const material = finishBodyMaterial(faceTexture(highlighted, faceLength, faceLabel, skin, key), dimmed);
       bodyMaterialCache.set(cacheKey, material);
       return material;
     }
@@ -1461,6 +1475,7 @@
           chosenIndex: pick,
           queueRemaining: rollQueue.length,
           droppedQueuedRolls,
+          interruptedRolls,
         };
         if (isD4) {
           const r0 = diceData[0].res;

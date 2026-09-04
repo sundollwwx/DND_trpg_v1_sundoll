@@ -107,6 +107,10 @@
     .dice-advrow { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:5px; margin-top:6px; }
     .custom-roll,.row { display:flex; gap:6px; margin-top:7px; }
     .custom-roll input,.row input { flex:1; }
+    .dice-visibility-switch { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:5px; margin-top:7px; padding:3px; border:1px solid var(--line); border-radius:8px; background:#10141d; }
+    .dice-visibility-switch button { border-color:transparent; background:transparent; color:var(--muted); }
+    .dice-visibility-switch button.active { border-color:#5b8cff80; background:#24324a; color:#dce9ff; box-shadow:inset 0 1px rgba(255,255,255,.06); }
+    .dice-visibility-switch button[data-dice-visibility="private"].active { border-color:#9b7bd580; background:#302642; color:#e6d7ff; }
     #dice-result { min-height:25px; margin-top:7px; color:var(--gold); font-weight:700; }
     #dice-log { max-height:170px; overflow:auto; margin-top:6px; }
     .roll-line { display:grid; grid-template-columns:48px 50px 1fr 28px; gap:4px; padding:3px 0; border-bottom:1px solid #303747; font-size:12px; }
@@ -399,6 +403,7 @@
         </div>
         <div class="dice-advrow"><button id="dice-adv" title="掷两颗 d20，取较大值">⚖️ 优势 d20</button><button id="dice-dis" title="掷两颗 d20，取较小值">⬇ 劣势 d20</button></div>
         <div class="custom-roll"><input id="dice-expr" placeholder="如 2d6+3"><button id="dice-roll">掷</button></div>
+        <div class="dice-visibility-switch" role="group" aria-label="骰子公开范围"><button type="button" class="active" data-dice-visibility="public" aria-pressed="true" title="所有人看到动画并写入骰点记录">📣 公开骰</button><button type="button" data-dice-visibility="private" aria-pressed="false" title="只在自己的屏幕显示动画，不发送也不记录">🔒 私密骰</button></div>
         <div id="dice-result"></div><div id="dice-log"></div>
       </section>
       <section class="card" data-player-workspace="resources"><h2>📚 常用网站</h2><div id="player-links"></div></section>
@@ -481,7 +486,7 @@
   <div id="join-mask" class="join-mask" hidden><div class="join-box"><h1>加入桑哆尔跑团</h1><p id="join-room-hint">输入你的名字后即可进入玩家地图。玩家不需要安装软件。</p><form id="join-form"><input id="join-name" maxlength="24" autocomplete="nickname" placeholder="你的名字" required><input id="join-room" maxlength="12" placeholder="房间码（可留空）"><div id="join-error"></div><button class="primary" type="submit">进入房间</button></form></div></div>
   <div id="toast"></div>
   <script src="../three.min.js"></script>
-  <script src="../骰子动画.js?v=20260904-physics-v7-face-lock-continuous-settle-r6-uv-handedness-r7-result-focus-r8-adaptive20"></script>
+  <script src="../骰子动画.js?v=20260904-physics-v7-face-lock-continuous-settle-r6-uv-handedness-r7-result-focus-r8-public-skin-r9"></script>
   <script>
   'use strict';
   const $ = (s) => document.querySelector(s);
@@ -499,7 +504,7 @@
   };
   const MAX_TOKEN_CONDITIONS = 20;
   const CONDITION_SPRITE_URL = '../asset/界面/状态图标-v1.png';
-  let state = null, currentMap = null, view = {scale:1,ox:0,oy:0}, myName = '', sessionToken = '', roomCode = '', players = [], presenceStatus = 'online', selectedId = null, drag = null, toastTimer = null, peekTimer = null, restAnimationTimer = null, localRolls = new Set(), lastMapViewKey = '', flowPanel = 'initiative', flowClockAnchor = { localNow: performance.now(), serverNow: Date.now() }, flowTimer = null, measureMode = false, measureDraft = null, doodleTool = null, doodleColor = '#ff4d4f', doodleWidth = 6, doodleDraft = null, presenceTimer = null, streamES = null, streamAppliedSeq = 0, lastStateRevision = 0, spellAimTokenId = null, pendingMapReaction = null, spellRangeRaf = null, initiativePending = false, lastFlowScrollEntryId = null, editingPlayerConditionId = null, activePlayerDetailTab = 'status';
+  let state = null, currentMap = null, view = {scale:1,ox:0,oy:0}, myName = '', sessionToken = '', roomCode = '', players = [], presenceStatus = 'online', selectedId = null, drag = null, toastTimer = null, peekTimer = null, restAnimationTimer = null, localRolls = new Set(), lastMapViewKey = '', flowPanel = 'initiative', flowClockAnchor = { localNow: performance.now(), serverNow: Date.now() }, flowTimer = null, measureMode = false, measureDraft = null, doodleTool = null, doodleColor = '#ff4d4f', doodleWidth = 6, doodleDraft = null, presenceTimer = null, streamES = null, streamAppliedSeq = 0, lastStateRevision = 0, spellAimTokenId = null, pendingMapReaction = null, spellRangeRaf = null, initiativePending = false, lastFlowScrollEntryId = null, editingPlayerConditionId = null, activePlayerDetailTab = 'status', diceVisibility = 'public';
   const localReactionIds = new Set();
   const playedRestTransitions = new Set();
   function preloadConditionPixels(){const image=new Image();image.onload=()=>document.documentElement.classList.add('condition-pixels-ready');image.onerror=()=>document.documentElement.classList.remove('condition-pixels-ready');image.src=CONDITION_SPRITE_URL;}
@@ -1320,13 +1325,17 @@
   function parseDice(expr) { const m=String(expr||'').trim().toLowerCase().match(/^(\d*)d(\d+)([+-]\d+)?$/); if (!m) return null; const n=+(m[1]||1), sides=+m[2], mod=+(m[3]||0); return n>0&&n<=100&&sides>=2&&sides<=1000?{n,sides,mod,label:m[0]}:null; }
   function rollSet(count,sides) { return Array.from({length:count},()=>1+Math.floor(Math.random()*sides)); }
   function d20CriticalOutcome(parsed,chosen,rollMode,pick,dicePayload){if(!parsed||parsed.n!==1||parsed.sides!==20)return{natural:null,critical:null};const natural=rollMode?Number(dicePayload[pick]):Number(chosen[0]);return{natural,critical:natural===20?'success':natural===1?'fail':null};}
+  function currentDiceSkin(){return window.SundollDiceSkins&&window.SundollDiceSkins.get?window.SundollDiceSkins.get():'obsidian';}
+  function setDiceVisibility(value,persist=true){diceVisibility=value==='private'?'private':'public';document.querySelectorAll('[data-dice-visibility]').forEach(button=>{const active=button.dataset.diceVisibility===diceVisibility;button.classList.toggle('active',active);button.setAttribute('aria-pressed',String(active));});if(persist){try{localStorage.setItem('sundoll-dice-visibility-v1',diceVisibility);}catch(e){}}}
   function roll(expr,mode=0) {
-    const d=parseDice(expr); if(!d){toast('骰子格式如 2d6+3');return;} if(!sessionToken){toast('请先加入房间');return;}
+    const d=parseDice(expr); if(!d){toast('骰子格式如 2d6+3');return;} const isPublic=diceVisibility==='public'; if(isPublic&&!sessionToken){toast('请先加入房间');return;}
     const rollMode=(mode===1||mode===-1)&&d.n===1&&d.sides===20?mode:0, first=rollSet(d.n,d.sides); let second=null, chosen=first, pick;
     if(rollMode){second=rollSet(d.n,d.sides);const sumA=first.reduce((a,b)=>a+b,0),sumB=second.reduce((a,b)=>a+b,0);pick=rollMode===1?(sumA>=sumB?0:1):(sumA<=sumB?0:1);chosen=pick===0?first:second;}
-    const total=chosen.reduce((a,b)=>a+b,0)+d.mod, label=d.label+(rollMode===1?' ⚖️优势':rollMode===-1?' ⬇️劣势':''), note=second?'（两次 '+first.reduce((a,b)=>a+b,0)+' / '+second.reduce((a,b)=>a+b,0)+'，取'+(rollMode===1?'大':'小')+'）':'', dice=second?[first[0],second[0]]:chosen.slice(), outcome=d20CriticalOutcome(d,chosen,rollMode,pick,dice), criticalText=outcome.critical==='success'?' · 天然 20，大成功！':outcome.critical==='fail'?' · 天然 1，大失败！':'', detail=chosen.join(' + ')+(d.mod?(d.mod>0?' + ':' ')+d.mod:'')+note+criticalText, rid='r'+Date.now()+Math.random().toString(36).slice(2,8);
-    localRolls.add(rid); if(localRolls.size>30)localRolls.delete(localRolls.values().next().value); addRoll(myName||'我',label,detail,total); if(window.playDieAnimation)window.playDieAnimation(d.sides,label,total,{dice,pick,mode:rollMode,natural:outcome.natural,critical:outcome.critical});
-    requestAction({op:'roll',rid,name:myName||'玩家',expr:label,detail,total,sides:d.sides,dice,pick,mode:rollMode,natural:outcome.natural,critical:outcome.critical}).then(r=>{if(!r.ok||r.data?.ok===false)toast('⚠ '+(r.data?.error||'掷骰未送达'));}).catch(()=>toast('⚠ 掷骰未送达'));
+    const total=chosen.reduce((a,b)=>a+b,0)+d.mod, label=d.label+(rollMode===1?' ⚖️优势':rollMode===-1?' ⬇️劣势':''), note=second?'（两次 '+first.reduce((a,b)=>a+b,0)+' / '+second.reduce((a,b)=>a+b,0)+'，取'+(rollMode===1?'大':'小')+'）':'', dice=second?[first[0],second[0]]:chosen.slice(), outcome=d20CriticalOutcome(d,chosen,rollMode,pick,dice), criticalText=outcome.critical==='success'?' · 天然 20，大成功！':outcome.critical==='fail'?' · 天然 1，大失败！':'', detail=chosen.join(' + ')+(d.mod?(d.mod>0?' + ':' ')+d.mod:'')+note+criticalText, rid='r'+Date.now()+Math.random().toString(36).slice(2,8), skin=currentDiceSkin();
+    if(window.playDieAnimation)window.playDieAnimation(d.sides,label,total,{dice,pick,mode:rollMode,natural:outcome.natural,critical:outcome.critical,skin,interrupt:true,visibility:isPublic?'public':'private'});
+    if(!isPublic)return;
+    localRolls.add(rid); if(localRolls.size>30)localRolls.delete(localRolls.values().next().value); addRoll(myName||'我',label,detail,total);
+    requestAction({op:'roll',rid,name:myName||'玩家',expr:label,detail,total,sides:d.sides,dice,pick,mode:rollMode,natural:outcome.natural,critical:outcome.critical,skin,visibility:'public'}).then(r=>{if(!r.ok||r.data?.ok===false){localRolls.delete(rid);toast('⚠ '+(r.data?.error||'掷骰未送达'));}}).catch(()=>{localRolls.delete(rid);toast('⚠ 掷骰未送达');});
   }
   function addRoll(who,expr,detail,total) { const row=document.createElement('div'); row.className='roll-line'; row.innerHTML='<span class="roll-who">'+esc(who)+'</span><span>'+esc(expr)+'</span><span>'+esc(detail)+'</span><span class="roll-total">'+total+'</span>'; $('#dice-log').prepend(row); while($('#dice-log').children.length>30) $('#dice-log').lastChild.remove(); $('#dice-result').textContent=expr+' → '+total; }
   function applyAction(a) {
@@ -1352,7 +1361,7 @@
     if (a.op==='endTurn') {
       const e=encounter(); if(Number(e.turnSerial)!==Number(a.turnSerial))return; decrementCurrentTokenConditions(); e.currentEntryId=a.nextEntryId; e.round=Number(a.round)||e.round; e.turnSerial=Number(a.nextTurnSerial)||e.turnSerial+1; e.turnPath={mapId:null,tokenId:null,points:[]}; if(e.worldTime){if(Number.isFinite(Number(a.worldTimeSeconds)))e.worldTime.totalSeconds=Math.max(0,Math.trunc(Number(a.worldTimeSeconds)));e.worldTime.runningSince=null;} renderFlow(state); renderTokens(currentMap); renderTurnPath(); if(selectedId)openDetail(selectedId); toast((a.name||'玩家')+' 已结束回合'); return;
     }
-    if (a.op==='roll') { if(a.rid && localRolls.has(a.rid)){localRolls.delete(a.rid);return;} addRoll(a.name||'玩家',a.expr||'',a.detail||'',a.total); if(window.playDieAnimation) window.playDieAnimation(a.sides||20,a.expr||'',a.total,{dice:a.dice,pick:a.pick,mode:a.mode,natural:a.natural,critical:a.critical}); return; }
+    if (a.op==='roll') { if(a.rid && localRolls.has(a.rid)){localRolls.delete(a.rid);return;} addRoll(a.name||'玩家',a.expr||'',a.detail||'',a.total); if(window.playDieAnimation) window.playDieAnimation(a.sides||20,a.expr||'',a.total,{dice:a.dice,pick:a.pick,mode:a.mode,natural:a.natural,critical:a.critical,skin:a.skin,interrupt:true,visibility:'public'}); return; }
     if (a.op==='announce') { toast('📣 '+(a.text||'GM 发布了一条公告')); return; }
     if(a.op==='moveToken'||a.op==='patchToken'){
       const e=encounter(),currentMode=e.playMode==='turn'?'turn':'free',actionMode=a.playMode==='turn'?'turn':a.playMode==='free'?'free':null;
@@ -1446,6 +1455,8 @@
   $('#hp-max').addEventListener('input',()=>updateOwned('hpMax',clamp(parseInt($('#hp-max').value,10)||1,1,99999)));
   $('#ac').addEventListener('input',()=>updateOwned('ac',clamp(parseInt($('#ac').value,10)||0,0,99)));
   document.querySelectorAll('[data-hp]').forEach(b=>b.onclick=()=>{const t=currentMap&&currentMap.tokens.find(x=>x.id===selectedId);if(!t)return;const v=b.dataset.hp,next=v==='full'?t.hpMax:clamp(t.hp+parseInt(v,10),0,t.hpMax);updateOwned('hp',next);});
+  try{setDiceVisibility(localStorage.getItem('sundoll-dice-visibility-v1')||'public',false);}catch(e){setDiceVisibility('public',false);}
+  document.querySelectorAll('[data-dice-visibility]').forEach(button=>button.onclick=()=>setDiceVisibility(button.dataset.diceVisibility));
   document.querySelectorAll('[data-die]').forEach(b=>b.onclick=()=>roll(b.dataset.die)); $('#dice-adv').onclick=()=>roll('d20',1); $('#dice-dis').onclick=()=>roll('d20',-1); $('#dice-roll').onclick=()=>roll($('#dice-expr').value); $('#dice-expr').addEventListener('keydown',e=>{if(e.key==='Enter')roll($('#dice-expr').value);});
   $('#flow-toggle').onclick=()=>{const bar=$('#flowbar');bar.dataset.collapsed=bar.dataset.collapsed==='false'?'true':'false';renderFlow(state);};
   document.querySelectorAll('[data-flow-panel]').forEach(tab=>tab.onclick=()=>{flowPanel=tab.dataset.flowPanel==='time'?'time':'initiative';renderFlow(state);});

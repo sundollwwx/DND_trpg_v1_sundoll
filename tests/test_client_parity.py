@@ -44,7 +44,25 @@ class ClientParityTests(unittest.TestCase):
         self.assertIn('continuous-settle-r6', host_version.group(1))
         self.assertIn('uv-handedness-r7', host_version.group(1))
         self.assertIn('result-focus-r8', host_version.group(1))
-        self.assertIn('adaptive20', host_version.group(1))
+        self.assertIn('public-skin-r9', host_version.group(1))
+
+    def test_player_private_rolls_stay_local_and_public_rolls_share_skin(self):
+        self.assertEqual(attribute_values(PLAYER_HTML, 'data-dice-visibility'), {'public', 'private'})
+        player_roll = function_body(PLAYER_HTML, 'roll', 'addRoll')
+        self.assertIn("const isPublic=diceVisibility==='public'", player_roll)
+        self.assertIn('if(!isPublic)return', player_roll)
+        self.assertIn("skin,visibility:'public'", player_roll)
+        self.assertIn('skin,interrupt:true,visibility:isPublic', player_roll)
+        self.assertLess(player_roll.index('if(!isPublic)return'), player_roll.index('requestAction('))
+        self.assertIn("skin:a.skin,interrupt:true,visibility:'public'", PLAYER_HTML)
+        self.assertIn("skin: a.skin, interrupt: true, visibility: 'public'", HOST_JS)
+
+    def test_public_roll_interrupts_previous_animation_and_d20_is_centered(self):
+        self.assertIn('request.opts.interrupt === true && animationActive', DICE_JS)
+        self.assertIn('rollQueue.splice(0, rollQueue.length)', DICE_JS)
+        self.assertIn("const DICE_SIZE_MULTIPLIER = 1.30", DICE_JS)
+        self.assertIn("const numberY = dieKind === 'd20' ? 138 : 132", DICE_JS)
+        self.assertIn('faceTexture(highlighted, faceLength, faceLabel, skin, key)', DICE_JS)
 
     def test_condition_badges_start_at_top_right_above_tokens(self):
         for source in (HOST_CSS, PLAYER_HTML):
@@ -148,7 +166,7 @@ class ClientParityTests(unittest.TestCase):
 
     def test_dice_labels_are_baked_into_faces_and_custom_results_stay_exact(self):
         self.assertIn("labelMode: 'face-texture'", DICE_JS)
-        self.assertIn('faceTexture(highlighted, faceLength, faceLabel, skin)', DICE_JS)
+        self.assertIn('faceTexture(highlighted, faceLength, faceLabel, skin, key)', DICE_JS)
         self.assertIn('faceTexts[res - 1] = String(d.text)', DICE_JS)
         self.assertIn('const a = -(i / n) * Math.PI * 2 - Math.PI / 2', DICE_JS)
         self.assertEqual(DICE_JS.count('const triUv = [[0.12, 0.12], [0.5, 0.92], [0.88, 0.12]]'), 2)

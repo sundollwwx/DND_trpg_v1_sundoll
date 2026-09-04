@@ -4680,6 +4680,10 @@ function d20CriticalOutcome(parsed, chosen, rollMode, pick, dicePayload) {
   };
 }
 
+function currentDiceSkin() {
+  return window.SundollDiceSkins?.get?.() || 'obsidian';
+}
+
 function doRoll(expr, mode = 0) {
   const parsed = parseExpr(expr);
   if (!parsed) {
@@ -4708,16 +4712,21 @@ function doRoll(expr, mode = 0) {
   const outcome = d20CriticalOutcome(parsed, chosen, rollMode, pick, dicePayload);
   const criticalText = outcome.critical === 'success' ? ' · 天然 20，大成功！' : outcome.critical === 'fail' ? ' · 天然 1，大失败！' : '';
   const detail = chosen.join(' + ') + (parsed.mod ? (parsed.mod > 0 ? ` + ${parsed.mod}` : ` ${parsed.mod}`) : '') + note + criticalText;
-  // GM 默认只在本机显示；勾选“广播结果”后才发送给玩家。
-  playDiceFx(parsed.sides, label, sum, { dice: dicePayload, pick, mode: rollMode, natural: outcome.natural, critical: outcome.critical });
-  addLogLine(label, detail, sum);
   const broadcastBox = $('#dice-broadcast');
-  if (broadcastBox && broadcastBox.checked) {
+  const isPublic = !!(broadcastBox && broadcastBox.checked);
+  const skin = currentDiceSkin();
+  playDiceFx(parsed.sides, label, sum, {
+    dice: dicePayload, pick, mode: rollMode, natural: outcome.natural, critical: outcome.critical,
+    skin, interrupt: true, visibility: isPublic ? 'public' : 'private',
+  });
+  addLogLine(label, detail, sum);
+  if (isPublic) {
     const rid = `gm-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     hostLocalRolls.add(rid);
     sendHostAction({
       op: 'roll', rid, expr: label, detail, total: sum, sides: parsed.sides,
       dice: dicePayload, pick, mode: rollMode, natural: outcome.natural, critical: outcome.critical,
+      skin, visibility: 'public',
     }).then((result) => {
       if (!result.ok || result.data?.ok === false) {
         hostLocalRolls.delete(rid);
@@ -6682,7 +6691,10 @@ function applyRemoteAction(a) {
     }
     // 玩家掷骰：进主控台骰子记录，并弹提示
     const who = a.name || '玩家';
-    playDiceFx(a.sides || 20, a.expr || '', a.total, { dice: a.dice, pick: a.pick, mode: a.mode, natural: a.natural, critical: a.critical });
+    playDiceFx(a.sides || 20, a.expr || '', a.total, {
+      dice: a.dice, pick: a.pick, mode: a.mode, natural: a.natural, critical: a.critical,
+      skin: a.skin, interrupt: true, visibility: 'public',
+    });
     addLogLine(`${who} · ${a.expr || ''}`, a.detail || '', a.total);
     toast(`🎲 ${who} 掷出 ${a.total}（${a.expr || ''}）`);
     return;

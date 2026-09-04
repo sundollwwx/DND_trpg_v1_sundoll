@@ -365,6 +365,13 @@ class SpellRangeAndRollTests(unittest.TestCase):
         self.assertIsNone(self.normalized_roll([20, 20])['critical'])
         self.assertIsNone(self.normalized_roll([1], sides=12)['critical'])
 
+    def test_public_roll_skin_is_validated(self):
+        valid = SERVER.normalize_roll_action({'sides': 20, 'dice': [12], 'skin': 'jade'}, 'Alice')
+        invalid = SERVER.normalize_roll_action({'sides': 20, 'dice': [12], 'skin': 'unknown'}, 'Alice')
+        self.assertEqual(valid['skin'], 'jade')
+        self.assertEqual(invalid['skin'], 'obsidian')
+        self.assertEqual(valid['visibility'], 'public')
+
 
 class ReactionTests(unittest.TestCase):
     def test_reaction_validation(self):

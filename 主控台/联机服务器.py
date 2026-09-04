@@ -92,6 +92,7 @@ ACTION_IDS = {}       # {actionId: seq}，防止网络重试重复执行
 MAX_ACTION_IDS = 2000
 ACTION_RATE = {}      # {sessionToken: [最近请求时间戳]}
 HOST_ACTIONS = {'roll', 'announce', 'bgm', 'mapReaction', 'restTransition'}
+DICE_SKIN_KEYS = {'obsidian', 'dragon', 'arcane', 'jade', 'royal', 'ivory'}
 MAP_REACTION_EMOJIS = {'👍', '❤️', '😂', '😮', '🔥', '✨', '❓', '⚔️', '🎯', '👏'}
 REACTION_ID_RE = re.compile(r'^[A-Za-z0-9_.:-]{1,96}$')
 REACTION_RATE = {}
@@ -225,6 +226,9 @@ def normalize_roll_action(action, name):
     if sides == 20 and ((mode and len(dice) == 2) or (not mode and len(dice) == 1)):
         natural = dice[pick] if mode else dice[0]
         critical = 'success' if natural == 20 else ('fail' if natural == 1 else None)
+    skin = str(action.get('skin') or '').strip().lower()
+    if skin not in DICE_SKIN_KEYS:
+        skin = 'obsidian'
     return {
         'op': 'roll',
         'name': str(name or '玩家')[:24],
@@ -238,6 +242,8 @@ def normalize_roll_action(action, name):
         'mode': mode,
         'natural': natural,
         'critical': critical,
+        'skin': skin,
+        'visibility': 'public',
     }
 
 
@@ -1518,7 +1524,8 @@ class Handler(SimpleHTTPRequestHandler):
                 broadcast(ev, seq)
                 self._send_json({'ok': True, 'seq': seq, 'stateRevision': STATE_REVISION})
                 return
-            # 掷骰：不修改状态、不写入动作历史，只广播一次让所有人看到
+            # 玩家只会把公开骰送到服务器；私密骰完全留在当前浏览器。
+            # 公开骰不修改地图状态，但会广播给所有在线客户端写入各自骰点记录。
             if action.get('op') == 'roll':
                 public_roll = normalize_roll_action(action, player)
                 if not public_roll:
