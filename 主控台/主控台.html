@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>桑哆尔 · 跑团台</title>
   <link rel="preload" as="image" href="../asset/界面/状态图标-v1.png">
-  <link rel="stylesheet" href="style.css?v=20260904-m35-initiative-binding">
+  <link rel="stylesheet" href="style.css?v=20260905-m44-campaign-covers">
 </head>
 <body>
 
@@ -24,12 +24,14 @@
         <button data-action="stream-copy" id="btn-stream-copy">复制玩家链接</button>
       </div>
     </div>
+    <span id="host-connection" class="host-connection" data-state="off" role="status">未联机</span>
     <button id="btn-map-browser-top" type="button">🗺️ 地图</button>
     <div class="dropdown">
       <button class="dropdown-btn" data-dropdown="save">💾 存档 ▾</button>
       <div class="dropdown-menu" data-menu="save" hidden>
         <button data-action="save">💾 存档</button>
         <button data-action="load">📂 读取存档</button>
+        <button data-action="home">⌂ 返回主页</button>
       </div>
     </div>
     <span class="map-switch" title="切换地图">
@@ -82,32 +84,106 @@
       <div id="roll-log"></div>
     </section>
 
-    <section class="card" data-workspace="units">
-      <h2>🧙 放置单位</h2>
-      <input id="token-name" placeholder="名称，如：凯尔 · 游侠" maxlength="24">
-      <select id="token-type">
-        <option value="pc">玩家角色</option>
-        <option value="enemy">敌人</option>
-        <option value="npc">中立NPC</option>
-        <option value="ally">友好NPC</option>
-      </select>
-      <div class="row">
-        <input id="token-hp" type="number" placeholder="生命值" min="1" value="10">
-        <input id="token-ac" type="number" placeholder="AC" min="0" value="10">
-        <input id="token-icon" placeholder="图标 🗡️" maxlength="4">
-        <button id="btn-icon-upload" class="small icon-btn" title="上传图片作为头像">🖼️</button>
-        <input type="file" id="file-icon" accept="image/*" hidden>
+    <section class="card unit-browser-card" data-workspace="units">
+      <div class="card-head">
+        <h2>🎖️ 单位</h2>
+        <button id="btn-lib-sync" class="small" title="从“存档”中的全局棋子库读取最新数据">⟳ 同步</button>
       </div>
-      <div class="icon-preview-row" id="token-icon-preview-row" hidden>
-        <img id="token-icon-preview" alt="图标预览">
-        <button id="btn-icon-clear" class="small">移除图片</button>
+      <div class="unit-source-switch" role="tablist" aria-label="单位来源">
+        <button class="active" type="button" role="tab" data-unit-source="library" aria-selected="true">棋子库</button>
+        <button type="button" role="tab" data-unit-source="custom" aria-selected="false">临时创建</button>
       </div>
-      <div class="row">
-        <select id="token-size" title="占几格">
-          <option value="1">1×1</option>
-          <option value="2">2×2（大型）</option>
+
+      <div id="unit-library-panel" class="unit-source-panel" role="tabpanel">
+        <div class="lib-search-row">
+          <input id="lib-search" type="search" placeholder="搜索名称或分类…" maxlength="30" autocomplete="off">
+          <button id="btn-lib-search-clear" class="small" type="button" title="清空搜索" aria-label="清空棋子库搜索" hidden>×</button>
+        </div>
+        <div class="lib-filter-row">
+          <select id="lib-filter" aria-label="按阵营筛选">
+            <option value="all">全部阵营</option>
+            <option value="pc">玩家</option>
+            <option value="enemy">敌人</option>
+            <option value="npc">中立NPC</option>
+            <option value="ally">友好NPC</option>
+          </select>
+          <select id="lib-cat" title="按分类筛选（分类来自棋子库程序）" aria-label="按棋子分类筛选">
+            <option value="all">全部分类</option>
+          </select>
+        </div>
+        <section id="lib-recent-wrap" class="lib-recent-wrap" aria-labelledby="lib-recent-title" hidden>
+          <div class="lib-section-title"><span id="lib-recent-title">最近使用</span><small>快速再次放置</small></div>
+          <div id="lib-recent" class="lib-recent"></div>
+        </section>
+        <div class="lib-section-title lib-results-title"><span id="lib-results-meta">全部棋子</span><small>点击条目放到视野中央</small></div>
+        <div id="lib-list"></div>
+        <div class="unit-library-footer">
+          <button id="btn-lib-add" class="small">＋ 新建预设</button>
+          <span id="lib-persist-status" class="lib-persist-status">随“存档”文件夹保存</span>
+        </div>
+        <div id="lib-editor" hidden>
+          <input id="lib-name" placeholder="名称，如：地精" maxlength="24">
+          <select id="lib-type">
+            <option value="pc">玩家角色</option>
+            <option value="enemy">敌人</option>
+            <option value="npc">中立NPC</option>
+            <option value="ally">友好NPC</option>
+          </select>
+          <div class="row">
+            <select id="lib-cat1" title="一级分类（如：妖精、龙类、巨人）"></select>
+            <select id="lib-cat2" title="二级分类（可留空，如：地精、红龙、巨魔）"></select>
+          </div>
+          <div class="row">
+            <input id="lib-hp" type="number" placeholder="生命值" min="1" value="10">
+            <input id="lib-ac" type="number" placeholder="AC" min="0" value="10">
+            <select id="lib-size" title="占几格">
+              <option value="1">1×1</option>
+              <option value="2">2×2</option>
+            </select>
+          </div>
+          <div class="row">
+            <input id="lib-icon" placeholder="图标 🐺" maxlength="4">
+            <button id="btn-lib-icon" class="small icon-btn" title="上传图片头像">🖼️</button>
+            <input type="file" id="file-lib-icon" accept="image/*" hidden>
+          </div>
+          <div class="icon-preview-row" id="lib-icon-preview-row" hidden>
+            <img id="lib-icon-preview" alt="图标预览">
+            <button id="btn-lib-icon-clear" class="small">移除图片</button>
+          </div>
+          <div class="btn-row">
+            <button id="btn-lib-save" class="primary">💾 保存</button>
+            <button id="btn-lib-cancel">取消</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="unit-custom-panel" class="unit-source-panel" role="tabpanel" hidden>
+        <p class="unit-source-hint">临时单位只加入当前地图，不会存入棋子库。</p>
+        <input id="token-name" placeholder="名称，如：凯尔 · 游侠" maxlength="24">
+        <select id="token-type">
+          <option value="pc">玩家角色</option>
+          <option value="enemy">敌人</option>
+          <option value="npc">中立NPC</option>
+          <option value="ally">友好NPC</option>
         </select>
-        <button id="btn-place" class="primary">📌 放置</button>
+        <div class="row">
+          <input id="token-hp" type="number" placeholder="生命值" min="1" value="10">
+          <input id="token-ac" type="number" placeholder="AC" min="0" value="10">
+          <input id="token-icon" placeholder="图标 🗡️" maxlength="4">
+          <button id="btn-icon-upload" class="small icon-btn" title="上传图片作为头像">🖼️</button>
+          <input type="file" id="file-icon" accept="image/*" hidden>
+        </div>
+        <div class="icon-preview-row" id="token-icon-preview-row" hidden>
+          <img id="token-icon-preview" alt="图标预览">
+          <button id="btn-icon-clear" class="small">移除图片</button>
+        </div>
+        <div class="row">
+          <select id="token-size" title="占几格">
+            <option value="1">1×1</option>
+            <option value="2">2×2（大型）</option>
+          </select>
+          <button id="btn-place" class="primary">📌 放到视野中央</button>
+        </div>
       </div>
     </section>
 
@@ -158,65 +234,6 @@
       <div class="btn-row">
         <button id="btn-fog-hide-all">全部隐藏</button>
         <button id="btn-fog-show-all">全部显示</button>
-      </div>
-    </section>
-
-    <section class="card" data-workspace="units">
-      <div class="card-head">
-        <h2>🎖️ 棋子库</h2>
-        <button id="btn-lib-sync" class="small" title="从“存档”中的全局棋子库读取最新数据">⟳ 同步</button>
-      </div>
-      <div class="row">
-        <input id="lib-search" placeholder="搜索棋子…" maxlength="20">
-        <select id="lib-filter">
-          <option value="all">全部</option>
-          <option value="pc">玩家</option>
-          <option value="enemy">敌人</option>
-          <option value="npc">中立NPC</option>
-          <option value="ally">友好NPC</option>
-        </select>
-      </div>
-      <select id="lib-cat" title="按分类筛选（分类来自棋子库程序）">
-        <option value="all">全部分类</option>
-      </select>
-      <div id="lib-list"></div>
-      <button id="btn-lib-add" class="primary small">＋ 新建预设</button>
-      <div class="row lib-persist">
-        <span id="lib-persist-status" class="lib-persist-status">随“存档”文件夹保存</span>
-      </div>
-      <div id="lib-editor" hidden>
-        <input id="lib-name" placeholder="名称，如：地精" maxlength="24">
-        <select id="lib-type">
-          <option value="pc">玩家角色</option>
-          <option value="enemy">敌人</option>
-          <option value="npc">中立NPC</option>
-          <option value="ally">友好NPC</option>
-        </select>
-        <div class="row">
-          <select id="lib-cat1" title="一级分类（如：妖精、龙类、巨人）"></select>
-          <select id="lib-cat2" title="二级分类（可留空，如：地精、红龙、巨魔）"></select>
-        </div>
-        <div class="row">
-          <input id="lib-hp" type="number" placeholder="生命值" min="1" value="10">
-          <input id="lib-ac" type="number" placeholder="AC" min="0" value="10">
-          <select id="lib-size" title="占几格">
-            <option value="1">1×1</option>
-            <option value="2">2×2</option>
-          </select>
-        </div>
-        <div class="row">
-          <input id="lib-icon" placeholder="图标 🐺" maxlength="4">
-          <button id="btn-lib-icon" class="small icon-btn" title="上传图片头像">🖼️</button>
-          <input type="file" id="file-lib-icon" accept="image/*" hidden>
-        </div>
-        <div class="icon-preview-row" id="lib-icon-preview-row" hidden>
-          <img id="lib-icon-preview" alt="图标预览">
-          <button id="btn-lib-icon-clear" class="small">移除图片</button>
-        </div>
-        <div class="btn-row">
-          <button id="btn-lib-save" class="primary">💾 保存</button>
-          <button id="btn-lib-cancel">取消</button>
-        </div>
       </div>
     </section>
 
@@ -322,6 +339,10 @@
             <strong id="init-focus-current">所有单位自由行动</strong>
             <div class="initiative-focus-meta"><span id="init-focus-round">自由模式</span><span id="init-focus-next">切换到回合制后锁定行动顺序</span></div>
             <button id="btn-combat-start" class="primary combat-start-button" type="button" hidden>⚔ 开始战斗</button>
+            <div id="host-turn-path-actions" class="host-turn-path-actions" role="group" aria-label="当前回合路径操作" hidden>
+              <button id="btn-turn-path-undo" type="button" disabled>↶ 回退一步</button>
+              <button id="btn-turn-path-reset" type="button" disabled>⟲ 重置路径</button>
+            </div>
             <button id="btn-init-next" class="primary" type="button" hidden>结束当前回合</button>
           </div>
           <div class="initiative-setup-card">
@@ -376,7 +397,7 @@
               <label>温度 °C<input id="weather-temperature" type="number" min="-100" max="100" value="18"></label>
               <label>风力<select id="weather-wind"><option value="calm">无风</option><option value="breeze">微风</option><option value="strong">强风</option><option value="gale">烈风</option></select></label>
             </div>
-            <div class="weather-actions"><button id="btn-weather-generate" type="button">🎲 按气候生成</button><button id="btn-weather-apply" type="button">应用气候</button></div>
+            <div class="weather-actions"><button id="btn-weather-generate" type="button">🎲 推演天气</button><button id="btn-weather-apply" type="button">应用气候</button></div>
           </div>
         </section>
       </div>
@@ -643,22 +664,60 @@
   </div>
 </div>
 
-<div id="cover" class="cover">
-  <div class="cover-box">
-    <div class="cover-brand">🐉 桑哆尔跑团台</div>
-    <div class="cover-actions">
-      <button id="cover-continue" class="cover-btn primary" hidden>⏯ 继续战役</button>
-      <button id="cover-new" class="cover-btn">🆕 新建战役</button>
-      <button id="cover-load" class="cover-btn">📂 载入战役</button>
-      <button id="cover-temp" class="cover-btn">⚡ 临时战役</button>
+<div id="cover" class="cover" role="dialog" aria-modal="true" aria-labelledby="cover-title">
+  <div class="cover-shell">
+    <header class="cover-global-bar">
+      <div class="cover-brand"><span class="cover-brand-mark" aria-hidden="true">🐉</span><strong>桑哆尔跑团</strong><span>主控台</span></div>
+      <div class="cover-global-actions">
+        <div id="cover-theme-picker" class="home-theme-picker" role="group" aria-label="切换主页背景">
+          <span class="home-theme-caption">背景</span>
+          <button type="button" data-cover-theme="a" aria-pressed="false" title="A · 冒险桌">A</button>
+          <button type="button" data-cover-theme="b" aria-pressed="false" title="B · 塔楼指挥室">B</button>
+          <button type="button" data-cover-theme="c" aria-pressed="false" title="C · 魔法档案馆">C</button>
+          <button type="button" data-cover-theme="d" aria-pressed="false" title="D · 羊皮世界地图">D</button>
+        </div>
+        <span id="cover-storage-status" class="cover-storage-status" data-state="checking">检查存档中</span>
+      </div>
+    </header>
+
+    <section class="cover-project-head" aria-label="当前战役">
+      <div class="cover-project-title"><span class="cover-project-icon" aria-hidden="true">◈</span><h1 id="cover-title">桑哆尔 <span>/</span> <strong id="cover-project-name">战役总览</strong></h1><span class="cover-project-badge">本机</span></div>
+    </section>
+
+    <div class="cover-dashboard">
+      <main class="cover-main">
+        <article id="cover-current" class="cover-current" hidden>
+          <div class="cover-current-icon" aria-hidden="true">◈</div>
+          <div class="cover-current-copy"><span>上次打开</span><strong id="cover-current-name">未命名战役</strong><small id="cover-current-meta">等待读取摘要</small></div>
+          <button id="cover-continue" class="cover-btn primary" type="button" hidden><span>继续进入</span><b aria-hidden="true">→</b></button>
+        </article>
+
+        <section class="cover-recent-block" aria-labelledby="cover-recent-title">
+          <header class="cover-recent-head"><div><strong id="cover-recent-title">正式战役</strong><span>按最近保存时间排列</span></div><button id="cover-folder" type="button">连接存档文件夹</button></header>
+          <div id="cover-recent" class="cover-recent"><span class="cover-recent-empty">正在检查存档文件夹…</span></div>
+        </section>
+      </main>
+
+      <aside class="cover-box" aria-label="战役操作">
+        <section class="cover-side-section">
+          <div class="cover-box-head"><span class="cover-section-label">开始</span><h2>进入跑团</h2></div>
+          <div class="cover-actions">
+            <button id="cover-load" class="cover-action-card" type="button"><span class="cover-action-icon" aria-hidden="true">📂</span><span><strong>读取存档</strong><small>选择完整战役</small></span><b aria-hidden="true">→</b></button>
+            <button id="cover-new" class="cover-action-card" type="button"><span class="cover-action-icon" aria-hidden="true">✦</span><span><strong>新建战役</strong><small>建立正式存档</small></span><b aria-hidden="true">＋</b></button>
+            <button id="cover-temp" class="cover-action-card subtle" type="button"><span class="cover-action-icon" aria-hidden="true">⚡</span><span><strong>临时进入</strong><small>仅浏览器恢复点</small></span><b aria-hidden="true">→</b></button>
+          </div>
+          <form id="cover-new-form" class="cover-new-form" hidden><label for="cover-new-name">战役名称</label><div><input id="cover-new-name" maxlength="80" autocomplete="off" placeholder="例如：烬鳞讨伐"><button class="primary" type="submit">创建</button><button id="cover-new-cancel" type="button">取消</button></div></form>
+        </section>
+        <p id="cover-feedback" class="cover-feedback" role="status" aria-live="polite">浏览器恢复点只用于防止意外关闭。</p>
+      </aside>
     </div>
   </div>
 </div>
 
 <script src="../asset/棋子库/默认预设.js?v=20260902-library-cleanup-v3"></script>
 <script src="../three.min.js"></script>
-<script src="../骰子动画.js?v=20260904-physics-v7-face-lock-continuous-settle-r6-uv-handedness-r7-result-focus-r8-public-skin-r9"></script>
+<script src="../骰子动画.js?v=20260904-physics-v7-face-lock-continuous-settle-r6-uv-handedness-r7-result-focus-r8-public-skin-r9-d20-tilt-r10"></script>
 <script src="../asset/地图/tile-renderer.js?v=20260902-explicit-variants"></script>
-  <script src="app.js?v=20260904-m36-player-conditions"></script>
+  <script src="app.js?v=20260905-m44-campaign-covers"></script>
 </body>
 </html>

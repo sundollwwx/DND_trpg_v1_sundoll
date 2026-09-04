@@ -45,6 +45,7 @@
   const PHI = (1 + Math.sqrt(5)) / 2;
   const DICE_SKIN_STORAGE_KEY = 'sundoll-dice-skin-v1';
   const DICE_SIZE_MULTIPLIER = 1.30;
+  const D20_RESULT_TILT_DEGREES = 16;
   const DICE_SKINS = Object.freeze({
     obsidian: {
       key: 'obsidian', label: '黑曜金', swatch: '#11151d', accent: '#ffe08a', accentSoft: 'rgba(255,224,138,.55)',
@@ -881,6 +882,12 @@
     const countScale = adaptiveScaleFactor(N);
     const perScale = countScale * screenScale * DICE_SIZE_MULTIPLIER;
     const worldUp = new THREE.Vector3(0, 1, 0);
+    // D20 若完全平放，结果三角面会落在画面的骰顶。轻微朝镜头倾斜后，
+    // 结果仍是最高面，但数字会处在更接近骰体视觉中心的位置。
+    const d20ResultTilt = new THREE.Quaternion().setFromAxisAngle(
+      new THREE.Vector3(1, 0, 0),
+      D20_RESULT_TILT_DEGREES * Math.PI / 180
+    );
     const supportVertex = new THREE.Vector3();
     function supportHeight(quaternion, scaleValue) {
       let minimumY = Infinity;
@@ -1034,6 +1041,7 @@
       }
       const qYaw = new THREE.Quaternion().setFromAxisAngle(worldUp, finalYaw);
       const qFinal = qYaw.multiply(qAlign).normalize();
+      if (key === 'd20') qFinal.premultiply(d20ResultTilt).normalize();
       const travelSeconds = 1.55 + Math.random() * .18;
       const velocity = new THREE.Vector3((finalPos[0] - startPos[0]) / travelSeconds, 5.4 + Math.random() * 2.1, (finalPos[1] - startPos[1]) / travelSeconds);
       // 只在入场边缘的平行方向加入散射，避免某颗骰子突然逆着整组飞行。
@@ -1449,6 +1457,7 @@
           throwEdge: throwEdgeName,
           skin: skin.key,
           sizeMultiplier: DICE_SIZE_MULTIPLIER,
+          d20ResultTiltDegrees: key === 'd20' ? D20_RESULT_TILT_DEGREES : 0,
           layoutGrid: [adaptiveColumns(N), Math.ceil(N / adaptiveColumns(N))],
           spawnGrid: [spawnColumns, spawnRows],
           collisionDistance: Math.round(collisionDiameter * 100) / 100,

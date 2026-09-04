@@ -24,6 +24,7 @@ from urllib.parse import quote, urlencode
 ROOT = Path(__file__).resolve().parent
 SERVER_ENTRY = ROOT / "start_server.py"
 DEFAULT_PORT = 8090
+SERVER_PROTOCOL_VERSION = 4
 HOST_ROUTE = "/主控台/主控台.html"
 PLAYER_ROUTE = "/主控台/玩家.html"
 TUNNEL_URL_RE = re.compile(r"https://[a-z0-9-]+\.trycloudflare\.com", re.I)
@@ -44,8 +45,8 @@ def page_url(host, port, route, room_code=""):
     return url
 
 
-def server_info(port, timeout=0.45):
-    """只把真正的桑哆尔服务认作可复用服务。"""
+def raw_server_info(port, timeout=0.45):
+    """读取端口上的桑哆尔服务信息，不在这里判断版本是否兼容。"""
     try:
         with urllib.request.urlopen(
             "http://127.0.0.1:%d/api/info" % port, timeout=timeout
@@ -60,6 +61,21 @@ def server_info(port, timeout=0.45):
         return None
 
 
+def compatible_server_info(payload):
+    if not isinstance(payload, dict):
+        return False
+    try:
+        return int(payload.get("protocolVersion", 0)) == SERVER_PROTOCOL_VERSION
+    except (TypeError, ValueError):
+        return False
+
+
+def server_info(port, timeout=0.45):
+    """只把协议一致的桑哆尔服务认作可复用服务。"""
+    payload = raw_server_info(port, timeout)
+    return payload if compatible_server_info(payload) else None
+
+
 def port_is_open(port):
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.settimeout(0.25)
@@ -70,9 +86,11 @@ def port_is_open(port):
 
 
 def select_port(requested):
-    info = server_info(requested)
-    if info:
-        return requested, info
+    probed = raw_server_info(requested)
+    if compatible_server_info(probed):
+        return requested, probed
+    if probed:
+        print("端口 %d 运行的是旧版桑哆尔服务器，不再复用。" % requested)
     if not port_is_open(requested):
         return requested, None
 
@@ -310,9 +328,11 @@ def diagnostics(port):
     print("  Python：%s" % sys.executable)
     print("  版本：%s" % sys.version.split()[0])
     print("  服务器入口：%s" % ("正常" if SERVER_ENTRY.is_file() else "缺失"))
-    info = server_info(port)
-    if info:
+    probed = raw_server_info(port)
+    if compatible_server_info(probed):
         port_status = "桑哆尔服务器已运行"
+    elif probed:
+        port_status = "旧版桑哆尔服务器正在运行（将自动避开）"
     elif port_is_open(port):
         port_status = "被其他程序占用"
     else:

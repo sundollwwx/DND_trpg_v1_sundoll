@@ -9,7 +9,7 @@
               在「📡 联机 → 开启玩家模式」开启推送。
   玩家：同一 WiFi 下用浏览器打开 http://<本机IP>:端口/主控台/玩家.html
 """
-import os, sys, json, time, socket, threading, re, base64, hashlib, math, secrets
+import os, sys, json, time, socket, threading, re, base64, hashlib, math, random, secrets, shutil
 from urllib.parse import urlparse, parse_qs, unquote_to_bytes
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
@@ -68,8 +68,15 @@ CONDITION_META = {
 MAX_MOVE_POINTS = 60
 MAX_TURN_PATH_POINTS = 200
 MAX_ACTION_BODY = 512 * 1024
+MAX_PLAYER_PORTRAIT_BYTES = 320 * 1024
+PLAYER_PORTRAIT_MIMES = {'image/png', 'image/jpeg', 'image/webp'}
 DOODLE_ACTIONS = {'doodleAdd', 'doodleDelete', 'doodleClear'}
 INITIATIVE_ACTIONS = {'initiativeSwap'}
+TURN_PATH_ACTIONS = {'turnPathUndo', 'turnPathReset'}
+PLAYER_SPAWN_ACTION = 'spawnToken'
+PLAYER_DELETE_ACTION = 'deletePlayerToken'
+PLAYER_DISMOUNT_ACTION = 'dismountToken'
+MAX_PLAYER_TEMP_TOKENS_PER_MAP = 12
 DOODLE_TOOLS = {'pen', 'line', 'arrow', 'circle'}
 DOODLE_ID_RE = re.compile(r'^[A-Za-z0-9_.:-]{1,96}$')
 DOODLE_COLOR_RE = re.compile(r'^#[0-9A-Fa-f]{6}$')
@@ -78,6 +85,11 @@ MAX_DOODLES = 1000
 ACTION_WINDOW_MS = 1000
 MAX_ACTIONS_PER_WINDOW = 40
 ASSET_ROOT = os.path.join(ROOT, '.sundoll-cache', '联机资源')
+LOCAL_SAVE_ROOT = os.path.join(ROOT, '存档')
+LOCAL_SAVE_HEADER = 'X-Sundoll-Local-Save'
+MAX_LOCAL_SAVE_BODY = 128 * 1024 * 1024
+MAX_CAMPAIGN_COVER_BYTES = 8 * 1024 * 1024
+CAMPAIGN_COVER_EXTENSIONS = ('.png', '.jpg', '.jpeg', '.webp')
 MUSIC_EXTS = ('.mp3', '.m4a', '.wav', '.ogg', '.flac', '.aac', '.opus', '.webm')
 # 地图和头像转换为内容哈希 URL，浏览器可长期缓存；资源同时写入磁盘，
 # 不再把 Base64 地图和头像塞进每一条 SSE 消息。
@@ -86,6 +98,7 @@ DATA_URL_RE = re.compile(r'^data:([^;,]+)?(;base64)?,(.*)$', re.S)
 
 SESSION_ID = secrets.token_hex(8)
 ROOM_CODE = secrets.token_hex(3).upper()
+SERVER_PROTOCOL_VERSION = 4
 STATE_REVISION = 0
 SESSIONS = {}         # {sessionToken: {playerId, name, status, lastSeen}}
 ACTION_IDS = {}       # {actionId: seq}，防止网络重试重复执行
@@ -93,11 +106,105 @@ MAX_ACTION_IDS = 2000
 ACTION_RATE = {}      # {sessionToken: [最近请求时间戳]}
 HOST_ACTIONS = {'roll', 'announce', 'bgm', 'mapReaction', 'restTransition'}
 DICE_SKIN_KEYS = {'obsidian', 'dragon', 'arcane', 'jade', 'royal', 'ivory'}
+TOKEN_RING_COLORS = {'pc': '#5b8cff', 'enemy': '#ef476f', 'npc': '#f4a261', 'ally': '#2ecc71'}
 MAP_REACTION_EMOJIS = {'👍', '❤️', '😂', '😮', '🔥', '✨', '❓', '⚔️', '🎯', '👏'}
 REACTION_ID_RE = re.compile(r'^[A-Za-z0-9_.:-]{1,96}$')
 REACTION_RATE = {}
 REACTION_COOLDOWN_MS = 450
 REST_TRANSITION_DURATIONS = {'short': 2200, 'long': 4400}
+WORLD_SECONDS_PER_DAY = 24 * 60 * 60
+WORLD_DAYS_PER_WEEK = 7
+WORLD_WEEKS_PER_YEAR = 52
+WEATHER_ROLLOVER_SECONDS = 8 * 60 * 60
+MAX_WEATHER_CATCHUP_DAYS = 3660
+WEATHER_KEYS = ('clear', 'cloudy', 'rain', 'storm', 'fog', 'snow', 'wind', 'heat')
+WIND_KEYS = ('calm', 'breeze', 'strong', 'gale')
+WEATHER_TEMPERATURE_DELTAS = {
+    'clear': 2, 'cloudy': 0, 'rain': -3, 'storm': -5,
+    'fog': -2, 'snow': -7, 'wind': -2, 'heat': 7,
+}
+WEATHER_MARKOV_TRANSITIONS = {
+    'clear':  {'clear': 7, 'cloudy': 3, 'rain': .6, 'storm': .15, 'fog': .8, 'snow': .4, 'wind': 1.2, 'heat': 2},
+    'cloudy': {'clear': 2.5, 'cloudy': 6, 'rain': 4, 'storm': 1.5, 'fog': 2.5, 'snow': 3, 'wind': 1.5, 'heat': .3},
+    'rain':   {'clear': 1.2, 'cloudy': 4, 'rain': 6, 'storm': 2.5, 'fog': 2, 'snow': .8, 'wind': 1.4, 'heat': .1},
+    'storm':  {'clear': .8, 'cloudy': 4, 'rain': 5, 'storm': 2, 'fog': .6, 'snow': .5, 'wind': 3, 'heat': .1},
+    'fog':    {'clear': 2, 'cloudy': 4, 'rain': 2, 'storm': .4, 'fog': 5, 'snow': 1.5, 'wind': .8, 'heat': .2},
+    'snow':   {'clear': 1.5, 'cloudy': 4, 'rain': .8, 'storm': .4, 'fog': 1.8, 'snow': 7, 'wind': 2, 'heat': .05},
+    'wind':   {'clear': 2.5, 'cloudy': 3, 'rain': 1.5, 'storm': 2, 'fog': .5, 'snow': 1.5, 'wind': 5, 'heat': 1},
+    'heat':   {'clear': 4, 'cloudy': 1, 'rain': .4, 'storm': .8, 'fog': .1, 'snow': .01, 'wind': 2, 'heat': 7},
+}
+WIND_MARKOV_TRANSITIONS = {
+    'calm': {'calm': 6, 'breeze': 4, 'strong': .5, 'gale': .1},
+    'breeze': {'calm': 2, 'breeze': 6, 'strong': 2, 'gale': .3},
+    'strong': {'calm': .4, 'breeze': 3, 'strong': 5, 'gale': 2},
+    'gale': {'calm': .2, 'breeze': 2, 'strong': 5, 'gale': 3},
+}
+WEATHER_WIND_WEIGHTS = {
+    'clear': {'calm': 4, 'breeze': 6, 'strong': 1, 'gale': .05},
+    'cloudy': {'calm': 2, 'breeze': 6, 'strong': 2, 'gale': .2},
+    'rain': {'calm': .8, 'breeze': 4, 'strong': 3, 'gale': .8},
+    'storm': {'calm': .05, 'breeze': .3, 'strong': 4, 'gale': 8},
+    'fog': {'calm': 5, 'breeze': 3, 'strong': .4, 'gale': .05},
+    'snow': {'calm': 1.5, 'breeze': 4, 'strong': 3, 'gale': .8},
+    'wind': {'calm': .1, 'breeze': 1, 'strong': 7, 'gale': 3},
+    'heat': {'calm': 3, 'breeze': 5, 'strong': 1.5, 'gale': .1},
+}
+CLIMATE_PROFILES = {
+    'temperate': {
+        'temperatures': {'spring': 14, 'summer': 25, 'autumn': 15, 'winter': 3},
+        'weather': {
+            'spring': ['clear', 'cloudy', 'rain', 'rain', 'fog', 'wind'],
+            'summer': ['clear', 'clear', 'cloudy', 'rain', 'storm', 'heat'],
+            'autumn': ['clear', 'cloudy', 'rain', 'fog', 'wind', 'wind'],
+            'winter': ['clear', 'cloudy', 'snow', 'snow', 'fog', 'wind'],
+        },
+    },
+    'cold': {
+        'temperatures': {'spring': 0, 'summer': 12, 'autumn': 2, 'winter': -15},
+        'weather': {
+            'spring': ['cloudy', 'snow', 'rain', 'wind', 'fog'],
+            'summer': ['clear', 'cloudy', 'rain', 'fog', 'wind'],
+            'autumn': ['cloudy', 'rain', 'snow', 'wind', 'fog'],
+            'winter': ['snow', 'snow', 'clear', 'wind', 'fog'],
+        },
+    },
+    'tropical': {
+        'temperatures': {'spring': 27, 'summer': 29, 'autumn': 28, 'winter': 26},
+        'weather': {
+            'spring': ['clear', 'rain', 'rain', 'storm', 'fog'],
+            'summer': ['clear', 'heat', 'rain', 'storm', 'storm'],
+            'autumn': ['clear', 'rain', 'rain', 'storm', 'cloudy'],
+            'winter': ['clear', 'clear', 'cloudy', 'rain', 'fog'],
+        },
+    },
+    'arid': {
+        'temperatures': {'spring': 22, 'summer': 36, 'autumn': 25, 'winter': 14},
+        'weather': {
+            'spring': ['clear', 'clear', 'heat', 'wind', 'cloudy'],
+            'summer': ['clear', 'heat', 'heat', 'wind', 'storm'],
+            'autumn': ['clear', 'clear', 'heat', 'wind', 'cloudy'],
+            'winter': ['clear', 'clear', 'cloudy', 'wind', 'rain'],
+        },
+    },
+    'coastal': {
+        'temperatures': {'spring': 15, 'summer': 23, 'autumn': 17, 'winter': 9},
+        'weather': {
+            'spring': ['cloudy', 'rain', 'fog', 'wind', 'clear'],
+            'summer': ['clear', 'cloudy', 'rain', 'fog', 'storm'],
+            'autumn': ['cloudy', 'rain', 'wind', 'storm', 'fog'],
+            'winter': ['cloudy', 'rain', 'wind', 'fog', 'snow'],
+        },
+    },
+    'highland': {
+        'temperatures': {'spring': 5, 'summer': 16, 'autumn': 7, 'winter': -6},
+        'weather': {
+            'spring': ['clear', 'cloudy', 'fog', 'rain', 'snow'],
+            'summer': ['clear', 'cloudy', 'rain', 'storm', 'wind'],
+            'autumn': ['cloudy', 'fog', 'rain', 'snow', 'wind'],
+            'winter': ['snow', 'snow', 'clear', 'fog', 'wind'],
+        },
+    },
+}
 
 
 def is_local_request(handler):
@@ -110,6 +217,182 @@ def is_local_request(handler):
         return host in get_ips()
     except Exception:
         return False
+
+
+def local_save_request_allowed(handler):
+    """本机页面专用：Tunnel、局域网玩家和跨站网页都不能调用磁盘存档桥。"""
+    if handler.headers.get(LOCAL_SAVE_HEADER) != '1' or not is_local_request(handler):
+        return False
+    host_header = str(handler.headers.get('Host') or '')
+    try:
+        host_url = urlparse('//' + host_header)
+        host_name = (host_url.hostname or '').lower()
+        host_port = host_url.port
+    except ValueError:
+        return False
+    local_hosts = {'localhost', '127.0.0.1', '::1'}
+    if host_name not in local_hosts or host_port not in (None, PORT):
+        return False
+    origin = str(handler.headers.get('Origin') or '').strip()
+    if origin:
+        try:
+            origin_url = urlparse(origin)
+            if (origin_url.scheme != 'http'
+                    or (origin_url.hostname or '').lower() not in local_hosts
+                    or origin_url.port not in (None, PORT)):
+                return False
+        except ValueError:
+            return False
+    return True
+
+
+def ensure_local_save_structure(root=None):
+    root = os.path.abspath(root or LOCAL_SAVE_ROOT)
+    os.makedirs(os.path.join(root, '战役'), exist_ok=True)
+    os.makedirs(os.path.join(root, '棋子库'), exist_ok=True)
+    return root
+
+
+def local_save_target(rel_path, operation, root=None):
+    raw = str(rel_path or '').replace('\\', '/')
+    if not raw or len(raw) > 768 or raw.startswith('/') or '\x00' in raw:
+        raise ValueError('invalid save path')
+    parts = raw.split('/')
+    if any(not part or part in ('.', '..') for part in parts):
+        raise ValueError('invalid save path')
+    top = parts[0]
+    if top == '存档索引.json':
+        allowed = len(parts) == 1 and operation in ('read', 'write')
+    elif top == '棋子库':
+        allowed = parts == ['棋子库', '棋子库.json'] and operation in ('read', 'write')
+    elif top == '战役':
+        if operation == 'list':
+            allowed = True
+        elif operation in ('read', 'write'):
+            allowed = len(parts) >= 3 and parts[-1].lower().endswith('.json')
+        elif operation in ('read-binary', 'write-binary'):
+            allowed = (
+                len(parts) == 3
+                and parts[-1].startswith('封面.')
+                and parts[-1].lower().endswith(CAMPAIGN_COVER_EXTENSIONS)
+            )
+        elif operation == 'delete':
+            allowed = len(parts) >= 2
+        else:
+            allowed = False
+    else:
+        allowed = False
+    if not allowed:
+        raise ValueError('save path is outside the allowed structure')
+
+    save_root = os.path.abspath(root or LOCAL_SAVE_ROOT)
+    target = os.path.abspath(os.path.join(save_root, *parts))
+    if os.path.commonpath([save_root, target]) != save_root:
+        raise ValueError('save path escapes root')
+    cursor = save_root
+    for part in parts:
+        cursor = os.path.join(cursor, part)
+        if os.path.lexists(cursor) and os.path.islink(cursor):
+            raise ValueError('symbolic links are not allowed in saves')
+    return target
+
+
+def perform_local_save_operation(data, root=None):
+    if not isinstance(data, dict):
+        raise ValueError('request must be an object')
+    operation = str(data.get('op') or '')
+    save_root = ensure_local_save_structure(root)
+    if operation == 'status':
+        return {'ok': True, 'mode': 'local-project', 'name': '存档'}
+
+    target = local_save_target(data.get('path'), operation, save_root)
+    if operation == 'read':
+        if not os.path.isfile(target):
+            return {'ok': True, 'text': None}
+        with open(target, 'r', encoding='utf-8') as handle:
+            return {'ok': True, 'text': handle.read()}
+    if operation == 'list':
+        kind = str(data.get('kind') or '')
+        if kind not in ('file', 'directory'):
+            raise ValueError('invalid entry kind')
+        entries = []
+        if os.path.isdir(target):
+            for entry in os.scandir(target):
+                if entry.is_symlink():
+                    continue
+                if kind == 'file' and entry.is_file(follow_symlinks=False):
+                    stat = entry.stat(follow_symlinks=False)
+                    entries.append({
+                        'name': entry.name,
+                        'lastModified': int(stat.st_mtime * 1000),
+                        'size': stat.st_size,
+                    })
+                elif kind == 'directory' and entry.is_dir(follow_symlinks=False):
+                    entries.append({'name': entry.name})
+        entries.sort(key=lambda item: item.get('name') or '')
+        return {'ok': True, 'entries': entries}
+    if operation == 'write':
+        text = data.get('text')
+        if not isinstance(text, str):
+            raise ValueError('save text must be a string')
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        temporary = target + '.tmp-' + secrets.token_hex(6)
+        try:
+            with open(temporary, 'w', encoding='utf-8', newline='\n') as handle:
+                handle.write(text)
+            os.replace(temporary, target)
+        finally:
+            if os.path.exists(temporary):
+                os.remove(temporary)
+        return {'ok': True}
+    if operation == 'read-binary':
+        if not os.path.isfile(target):
+            return {'ok': True, 'base64': None, 'mime': None}
+        if os.path.getsize(target) > MAX_CAMPAIGN_COVER_BYTES:
+            raise ValueError('campaign cover is too large')
+        extension = os.path.splitext(target)[1].lower()
+        mime = {
+            '.png': 'image/png',
+            '.jpg': 'image/jpeg',
+            '.jpeg': 'image/jpeg',
+            '.webp': 'image/webp',
+        }.get(extension, 'application/octet-stream')
+        with open(target, 'rb') as handle:
+            encoded = base64.b64encode(handle.read()).decode('ascii')
+        return {'ok': True, 'base64': encoded, 'mime': mime}
+    if operation == 'write-binary':
+        encoded = data.get('base64')
+        if not isinstance(encoded, str):
+            raise ValueError('campaign cover must be base64 data')
+        try:
+            binary = base64.b64decode(encoded.encode('ascii'), validate=True)
+        except (ValueError, UnicodeEncodeError) as error:
+            raise ValueError('invalid campaign cover data') from error
+        if len(binary) > MAX_CAMPAIGN_COVER_BYTES:
+            raise ValueError('campaign cover is too large')
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        temporary = target + '.tmp-' + secrets.token_hex(6)
+        try:
+            with open(temporary, 'wb') as handle:
+                handle.write(binary)
+            os.replace(temporary, target)
+        finally:
+            if os.path.exists(temporary):
+                os.remove(temporary)
+        return {'ok': True, 'size': len(binary)}
+    if operation == 'delete':
+        removed = False
+        if os.path.isdir(target):
+            if data.get('recursive'):
+                shutil.rmtree(target)
+            else:
+                os.rmdir(target)
+            removed = True
+        elif os.path.isfile(target):
+            os.remove(target)
+            removed = True
+        return {'ok': True, 'removed': removed}
+    raise ValueError('unsupported save operation')
 
 
 def consume_action_slot(session_token):
@@ -337,6 +620,37 @@ def cache_data_url(value):
     return '/api/assets/' + key
 
 
+def cache_player_portrait(value):
+    """校验玩家临时棋子图片并写入同源缓存，避免任意大文件进入房间状态。"""
+    if value in (None, ''):
+        return None, None, 200
+    if not isinstance(value, str):
+        return None, '棋子图片格式无效', 400
+    match = DATA_URL_RE.match(value)
+    mime = str(match.group(1) or '').lower() if match else ''
+    if not match or not match.group(2) or mime not in PLAYER_PORTRAIT_MIMES:
+        return None, '棋子图片仅支持 PNG、JPG 或 WebP', 400
+    try:
+        raw = base64.b64decode(match.group(3), validate=True)
+    except Exception:
+        return None, '棋子图片数据损坏', 400
+    if not raw:
+        return None, '棋子图片为空', 400
+    if len(raw) > MAX_PLAYER_PORTRAIT_BYTES:
+        return None, '棋子图片过大，请重新选择', 413
+    valid_signature = (
+        (mime == 'image/png' and raw.startswith(b'\x89PNG\r\n\x1a\n'))
+        or (mime == 'image/jpeg' and raw.startswith(b'\xff\xd8\xff'))
+        or (mime == 'image/webp' and len(raw) >= 12 and raw.startswith(b'RIFF') and raw[8:12] == b'WEBP')
+    )
+    if not valid_signature:
+        return None, '棋子图片内容与格式不匹配', 400
+    key = hashlib.sha256(raw).hexdigest()
+    ASSETS[key] = (mime, raw)
+    persist_asset(key, mime, raw)
+    return '/api/assets/' + key, None, 200
+
+
 def cache_stream_media(state):
     """就地压缩公开状态中的地图与头像；调用方须持有 LOCK。"""
     for m in (state or {}).get('maps', []) or []:
@@ -391,6 +705,129 @@ def finite_number(value):
     except (TypeError, ValueError, OverflowError):
         return None
     return number if math.isfinite(number) else None
+
+
+def weather_day_index(total_seconds):
+    total = max(0, int(finite_number(total_seconds) or 0))
+    return int(math.floor((total - WEATHER_ROLLOVER_SECONDS) / float(WORLD_SECONDS_PER_DAY)))
+
+
+def weather_season(total_seconds):
+    total = max(0, int(finite_number(total_seconds) or 0))
+    day_index = total // WORLD_SECONDS_PER_DAY
+    day_of_year = day_index % (WORLD_DAYS_PER_WEEK * WORLD_WEEKS_PER_YEAR)
+    week = day_of_year // WORLD_DAYS_PER_WEEK + 1
+    if week <= 13:
+        return 'spring'
+    if week <= 26:
+        return 'summer'
+    if week <= 39:
+        return 'autumn'
+    return 'winter'
+
+
+def normalize_weather(raw, total_seconds=None):
+    source = raw if isinstance(raw, dict) else {}
+    climate = source.get('climate') if source.get('climate') in CLIMATE_PROFILES else 'temperate'
+    condition = source.get('condition') if source.get('condition') in WEATHER_KEYS else 'clear'
+    wind = source.get('wind') if source.get('wind') in WIND_KEYS else 'breeze'
+    temperature = finite_number(source.get('temperature'))
+    temperature = max(-100, min(100, int(round(temperature if temperature is not None else 18))))
+    generated_day = finite_number(source.get('generatedDay'))
+    if generated_day is None:
+        generated_day = weather_day_index(total_seconds if total_seconds is not None else WEATHER_ROLLOVER_SECONDS)
+    return {
+        'climate': climate,
+        'condition': condition,
+        'temperature': temperature,
+        'wind': wind,
+        'generatedDay': int(generated_day),
+    }
+
+
+def weighted_weather_choice(weights, random_fn=random.random):
+    options = [(key, float(weights.get(key, 0))) for key in weights if float(weights.get(key, 0)) > 0]
+    total = sum(weight for _, weight in options)
+    if not options or total <= 0:
+        return None
+    sample = finite_number(random_fn())
+    sample = max(0.0, min(0.999999999999, sample if sample is not None else 0.0))
+    cursor = sample * total
+    for key, weight in options:
+        cursor -= weight
+        if cursor < 0:
+            return key
+    return options[-1][0]
+
+
+def climate_weather_weights(profile, season, previous_condition):
+    base = {}
+    for condition in profile.get('weather', {}).get(season, profile.get('weather', {}).get('spring', [])):
+        if condition in WEATHER_KEYS:
+            base[condition] = base.get(condition, 0) + 1
+    transition = WEATHER_MARKOV_TRANSITIONS.get(previous_condition, WEATHER_MARKOV_TRANSITIONS['clear'])
+    return dict((condition, weight * float(transition.get(condition, .01)))
+                for condition, weight in base.items())
+
+
+def weather_wind_weights(condition, previous_wind):
+    weather_weights = WEATHER_WIND_WEIGHTS.get(condition, WEATHER_WIND_WEIGHTS['clear'])
+    transition = WIND_MARKOV_TRANSITIONS.get(previous_wind, WIND_MARKOV_TRANSITIONS['breeze'])
+    return dict((wind, float(weather_weights.get(wind, .01)) * float(transition.get(wind, .01)))
+                for wind in WIND_KEYS)
+
+
+def generate_climate_weather(encounter, climate_key=None, total_seconds=None,
+                             random_fn=random.random, generated_day=None):
+    """运行一次天气马尔可夫转移；温度保留昨日惯性，风力也按独立链转移。"""
+    world = encounter.get('worldTime') if isinstance(encounter.get('worldTime'), dict) else {}
+    if total_seconds is None:
+        total_seconds = max(0, int(finite_number(world.get('totalSeconds')) or 0))
+    previous = normalize_weather(encounter.get('weather'), total_seconds)
+    climate = climate_key if climate_key in CLIMATE_PROFILES else previous['climate']
+    profile = CLIMATE_PROFILES[climate]
+    season = weather_season(total_seconds)
+    condition = weighted_weather_choice(
+        climate_weather_weights(profile, season, previous['condition']), random_fn
+    ) or 'clear'
+    expected = profile['temperatures'][season] + WEATHER_TEMPERATURE_DELTAS[condition]
+    noise = (max(0.0, min(1.0, finite_number(random_fn()) or 0.0)) * 4) - 2
+    temperature = max(-100, min(100, int(round(expected * .65 + previous['temperature'] * .35 + noise))))
+    wind = weighted_weather_choice(weather_wind_weights(condition, previous['wind']), random_fn) or 'breeze'
+    day = int(generated_day) if generated_day is not None else weather_day_index(total_seconds)
+    encounter['weather'] = {
+        'climate': climate,
+        'condition': condition,
+        'temperature': temperature,
+        'wind': wind,
+        'generatedDay': day,
+    }
+    return encounter['weather']
+
+
+def refresh_scheduled_weather(encounter, total_seconds, random_fn=random.random):
+    """跨过每日 08:00 时逐日推演，超长时间跳跃最多补算十年。"""
+    encounter['weather'] = normalize_weather(encounter.get('weather'), total_seconds)
+    current_day = weather_day_index(total_seconds)
+    generated_day = encounter['weather']['generatedDay']
+    if current_day < generated_day:
+        encounter['weather']['generatedDay'] = current_day
+        return None
+    if current_day == generated_day:
+        return None
+    missing_days = current_day - generated_day
+    first_day = (current_day - MAX_WEATHER_CATCHUP_DAYS + 1
+                 if missing_days > MAX_WEATHER_CATCHUP_DAYS else generated_day + 1)
+    for day in range(first_day, current_day + 1):
+        rollover_seconds = max(0, day * WORLD_SECONDS_PER_DAY + WEATHER_ROLLOVER_SECONDS)
+        generate_climate_weather(
+            encounter,
+            encounter['weather']['climate'],
+            rollover_seconds,
+            random_fn,
+            day,
+        )
+    return encounter['weather']
 
 
 def normalize_map_reaction(state, action, name):
@@ -580,6 +1017,11 @@ def movement_anchor(m, token):
 def encounter_state(state):
     encounter = (state or {}).get('encounter')
     if isinstance(encounter, dict):
+        if encounter.get('playMode') == 'turn' and not (encounter.get('entries') or []):
+            encounter['playMode'] = 'prepare'
+            encounter['currentEntryId'] = None
+            encounter['round'] = 1
+            encounter['turnPath'] = {'mapId': None, 'tokenId': None, 'points': []}
         return encounter
     if isinstance(state, dict):
         state['encounter'] = {}
@@ -637,30 +1079,37 @@ def can_act_with_token(state, token, player, action):
 
 
 def decrement_current_token_conditions(state):
-    """离开当前单位回合时递减有期限的公开状态；无限期状态保持不变。"""
+    """离开当前回合时，骑手、坐骑和同乘者各自递减一次有期限状态。"""
     token_id = current_turn_token_id(state)
     token = find_token(state, token_id)[1] if token_id else None
-    if not token or not isinstance(token.get('conditions'), list):
+    if not token:
         return False
     changed = False
-    next_conditions = []
-    for condition in token.get('conditions') or []:
-        if not isinstance(condition, dict):
-            next_conditions.append(condition)
-            continue
-        raw_remaining = condition.get('remainingTurns')
-        remaining_number = finite_number(raw_remaining)
-        if raw_remaining is None or remaining_number is None or remaining_number <= 0:
-            next_conditions.append(condition)
-            continue
-        remaining = max(0, int(remaining_number) - 1)
-        changed = True
-        if remaining:
-            updated = dict(condition)
-            updated['remainingTurns'] = remaining
-            next_conditions.append(updated)
-    if changed:
-        token['conditions'] = next_conditions
+    group_ids = token_control_group(state, token)
+    for map_obj in (state or {}).get('maps', []) or []:
+        for member in map_obj.get('tokens', []) or []:
+            if member.get('id') not in group_ids or not isinstance(member.get('conditions'), list):
+                continue
+            member_changed = False
+            next_conditions = []
+            for condition in member.get('conditions') or []:
+                if not isinstance(condition, dict):
+                    next_conditions.append(condition)
+                    continue
+                raw_remaining = condition.get('remainingTurns')
+                remaining_number = finite_number(raw_remaining)
+                if raw_remaining is None or remaining_number is None or remaining_number <= 0:
+                    next_conditions.append(condition)
+                    continue
+                remaining = max(0, int(remaining_number) - 1)
+                member_changed = True
+                if remaining:
+                    updated = dict(condition)
+                    updated['remainingTurns'] = remaining
+                    next_conditions.append(updated)
+            if member_changed:
+                member['conditions'] = next_conditions
+                changed = True
     return changed
 
 
@@ -684,6 +1133,163 @@ def clamp_token_point(m, token, point):
         'x': max(margin_x, min(map_w - margin_x, x)),
         'y': max(margin_y, min(map_h - margin_y, y)),
     }
+
+
+def normalize_player_spawn_action(state, requested, player, player_id=''):
+    """把玩家临时棋子请求收敛为只属于自己的安全棋子。"""
+    if not isinstance(requested, dict) or requested.get('op') != PLAYER_SPAWN_ACTION:
+        return None, '临时棋子数据无效', 400
+    map_obj = find_map(state, requested.get('mapId'))
+    if not map_obj:
+        return None, '当前地图不存在', 404
+    actor = str(player or '').strip()[:24]
+    if not actor:
+        return None, '缺少玩家名', 400
+    tokens = map_obj.get('tokens') if isinstance(map_obj.get('tokens'), list) else []
+    owned_temp_count = sum(
+        1 for token in tokens
+        if isinstance(token, dict) and token.get('playerCreated') is True
+        and str(token.get('owner') or '').strip() == actor
+    )
+    if owned_temp_count >= MAX_PLAYER_TEMP_TOKENS_PER_MAP:
+        return None, '每位玩家每张地图最多放置 12 个临时棋子', 409
+    draft = requested.get('draft')
+    if not isinstance(draft, dict):
+        return None, '临时棋子数据无效', 400
+    name = re.sub(r'[\x00-\x1f\x7f]+', '', str(draft.get('name') or '')).strip()[:24]
+    if not name:
+        name = (actor + '的临时棋子')[:24]
+    icon = re.sub(r'[\x00-\x1f\x7f]+', '', str(draft.get('icon') or '')).strip()[:4] or '🧙'
+    size = 2 if finite_int(draft.get('size'), 1, 2, 1) == 2 else 1
+    hp_max = finite_int(draft.get('hpMax'), 1, 99999, 10)
+    ac = finite_int(draft.get('ac'), 0, 99, 10)
+    icon_img, image_error, image_status = cache_player_portrait(draft.get('iconImg'))
+    if image_error:
+        return None, image_error, image_status
+    token = {
+        'id': 'pt-' + re.sub(r'[^A-Za-z0-9_-]', '', str(player_id or 'player'))[:24] + '-' + secrets.token_hex(6),
+        'name': name,
+        'type': 'pc',
+        'icon': icon,
+        'iconImg': icon_img,
+        'iconImgHd': None,
+        'iconImgPath': None,
+        'iconImgId': None,
+        'size': size,
+        'hp': hp_max,
+        'hpMax': hp_max,
+        'ac': ac,
+        'spellRange': normalize_spell_range(None),
+        'conditions': [],
+        'publicNote': '',
+        'gmNote': '',
+        'hiddenFromPlayers': False,
+        'owner': actor,
+        'mountId': None,
+        'groupKey': None,
+        'playerCreated': True,
+        'createdByPlayer': actor,
+    }
+    point = clamp_token_point(map_obj, token, {'x': requested.get('x'), 'y': requested.get('y')})
+    if point is None:
+        return None, '放置位置无效', 400
+    token.update(point)
+    return {
+        'op': PLAYER_SPAWN_ACTION,
+        'mapId': map_obj.get('id'),
+        'tokenId': token['id'],
+        'token': token,
+        'name': actor,
+        'actor': actor,
+    }, None, 200
+
+
+def normalize_player_delete_action(state, requested, player):
+    """只允许玩家删除自己创建、且仍归属于自己的临时棋子。"""
+    if not isinstance(requested, dict) or requested.get('op') != PLAYER_DELETE_ACTION:
+        return None, '删除请求无效', 400
+    map_obj, token = find_token(state, requested.get('tokenId'))
+    if not map_obj or not token:
+        return None, '棋子不存在', 404
+    requested_map_id = requested.get('mapId')
+    if requested_map_id is not None and requested_map_id != map_obj.get('id'):
+        return None, '地图与棋子不匹配', 400
+    actor = str(player or '').strip()[:24]
+    owner = str(token.get('owner') or '').strip()
+    if not actor or token.get('playerCreated') is not True or owner != actor:
+        return None, '只能删除自己创建的临时棋子', 403
+    return {
+        'op': PLAYER_DELETE_ACTION,
+        'mapId': map_obj.get('id'),
+        'tokenId': token.get('id'),
+        'tokenName': str(token.get('name') or '临时棋子')[:24],
+        'name': actor,
+        'actor': actor,
+    }, None, 200
+
+
+def normalize_player_dismount_action(state, requested, player):
+    """只允许玩家让自己名下、当前正在骑乘的骑手下马。"""
+    if not isinstance(requested, dict) or requested.get('op') != PLAYER_DISMOUNT_ACTION:
+        return None, '解除骑乘请求无效', 400
+    map_obj, rider = find_token(state, requested.get('tokenId'))
+    if not map_obj or not rider:
+        return None, '骑手棋子不存在', 404
+    requested_map_id = requested.get('mapId')
+    if requested_map_id is not None and requested_map_id != map_obj.get('id'):
+        return None, '地图与棋子不匹配', 400
+    actor = str(player or '').strip()[:24]
+    if not actor or str(rider.get('owner') or '').strip() != actor:
+        return None, '只能解除自己角色的骑乘', 403
+    mount_id = str(rider.get('mountId') or '').strip()
+    mount_map, mount = find_token(state, mount_id)
+    if not mount_id or not mount or mount_map is not map_obj:
+        return None, '这个角色当前没有有效坐骑', 409
+
+    permission_action = dict(requested)
+    allowed, reason = can_act_with_token(state, rider, actor, permission_action)
+    if not allowed:
+        return None, reason or '当前不能解除骑乘', 409 if reason == '回合已经变化，请重新操作' else 403
+
+    encounter = encounter_state(state)
+    unique_mount_controller = turn_controllers(state, mount) == {actor}
+    transferred_entry_ids = []
+    if unique_mount_controller:
+        transferred_entry_ids = [
+            entry.get('id') for entry in encounter.get('entries', []) or []
+            if isinstance(entry, dict) and entry.get('tokenId') == mount_id and entry.get('id')
+        ]
+    current_entry = initiative_entry(encounter, encounter.get('currentEntryId'))
+    current_will_follow_rider = bool(
+        current_entry and (
+            current_entry.get('tokenId') == rider.get('id')
+            or current_entry.get('id') in transferred_entry_ids
+        )
+    )
+    path = encounter.get('turnPath') if isinstance(encounter.get('turnPath'), dict) else {}
+    transfer_path = bool(
+        encounter.get('playMode') == 'turn'
+        and current_will_follow_rider
+        and path.get('mapId') == map_obj.get('id')
+        and path.get('tokenId') == mount_id
+    )
+    action = {
+        'op': PLAYER_DISMOUNT_ACTION,
+        'mapId': map_obj.get('id'),
+        'tokenId': rider.get('id'),
+        'mountId': mount_id,
+        'riderName': str(rider.get('name') or '骑手')[:24],
+        'mountName': str(mount.get('name') or '坐骑')[:24],
+        'riderColor': TOKEN_RING_COLORS.get(rider.get('type'), TOKEN_RING_COLORS['npc']),
+        'initiativeEntryIds': transferred_entry_ids,
+        'turnPathTransferred': transfer_path,
+        'playMode': permission_action.get('playMode', 'free'),
+        'name': actor,
+        'actor': actor,
+    }
+    if action['playMode'] == 'turn':
+        action['turnSerial'] = encounter_turn_serial(state)
+    return action, None, 200
 
 
 def same_point(a, b):
@@ -788,6 +1394,142 @@ def apply_action(state, action):
     if not isinstance(action, dict):
         return False
     op = action.get('op')
+    if op == PLAYER_SPAWN_ACTION:
+        map_obj = find_map(state, action.get('mapId'))
+        token = action.get('token')
+        actor = str(action.get('actor') or '').strip()
+        if not map_obj or not isinstance(token, dict) or not actor:
+            return False
+        token_id = str(token.get('id') or '')
+        if (not token_id.startswith('pt-') or token.get('playerCreated') is not True
+                or token.get('type') != 'pc' or str(token.get('owner') or '').strip() != actor):
+            return False
+        tokens = map_obj.get('tokens')
+        if not isinstance(tokens, list):
+            tokens = []
+            map_obj['tokens'] = tokens
+        existing = next((item for item in tokens if isinstance(item, dict) and item.get('id') == token_id), None)
+        if existing:
+            return str(existing.get('owner') or '').strip() == actor and existing.get('playerCreated') is True
+        tokens.append(dict(token))
+        return True
+    if op == PLAYER_DELETE_ACTION:
+        map_obj = find_map(state, action.get('mapId'))
+        token_id = str(action.get('tokenId') or '')
+        actor = str(action.get('actor') or '').strip()
+        if not map_obj or not token_id.startswith('pt-') or not actor:
+            return False
+        tokens = map_obj.get('tokens') if isinstance(map_obj.get('tokens'), list) else []
+        token = next((item for item in tokens if isinstance(item, dict) and item.get('id') == token_id), None)
+        if token and (token.get('playerCreated') is not True or str(token.get('owner') or '').strip() != actor):
+            return False
+        if token:
+            action['tokenName'] = str(token.get('name') or action.get('tokenName') or '临时棋子')[:24]
+        detached = []
+        for candidate in tokens:
+            if isinstance(candidate, dict) and candidate.get('mountId') == token_id:
+                candidate['mountId'] = None
+                detached.append(candidate.get('id'))
+        map_obj['tokens'] = [item for item in tokens
+                             if not isinstance(item, dict) or item.get('id') != token_id]
+
+        encounter = encounter_state(state)
+        old_entries = encounter.get('entries', []) if isinstance(encounter.get('entries'), list) else []
+        old_current_index = next((index for index, entry in enumerate(old_entries)
+                                  if isinstance(entry, dict) and entry.get('id') == encounter.get('currentEntryId')), -1)
+        removed_entry_ids = [entry.get('id') for entry in old_entries
+                             if isinstance(entry, dict) and entry.get('tokenId') == token_id]
+        encounter['entries'] = [entry for entry in old_entries
+                                if not isinstance(entry, dict) or entry.get('tokenId') != token_id]
+        current_removed = encounter.get('currentEntryId') in removed_entry_ids
+        if current_removed:
+            next_index = min(max(0, old_current_index), len(encounter['entries']) - 1) if encounter['entries'] else -1
+            encounter['currentEntryId'] = encounter['entries'][next_index].get('id') if next_index >= 0 else None
+        elif not any(isinstance(entry, dict) and entry.get('id') == encounter.get('currentEntryId')
+                     for entry in encounter['entries']):
+            encounter['currentEntryId'] = encounter['entries'][0].get('id') if encounter['entries'] else None
+        path = encounter.get('turnPath') if isinstance(encounter.get('turnPath'), dict) else {}
+        path_removed = path.get('tokenId') == token_id
+        if removed_entry_ids or path_removed:
+            encounter['turnSerial'] = encounter_turn_serial(state) + 1
+            encounter['turnPath'] = {'mapId': None, 'tokenId': None, 'points': []}
+        if encounter.get('playMode') == 'turn' and not encounter['entries']:
+            encounter['playMode'] = 'prepare'
+            encounter['currentEntryId'] = None
+            encounter['round'] = 1
+            encounter['turnPath'] = {'mapId': None, 'tokenId': None, 'points': []}
+        action['detachedRiderIds'] = [item for item in detached if item]
+        action['removedEntryIds'] = [item for item in removed_entry_ids if item]
+        action['currentEntryId'] = encounter.get('currentEntryId')
+        action['playMode'] = encounter.get('playMode')
+        action['round'] = max(1, int(finite_number(encounter.get('round')) or 1))
+        action['turnSerial'] = encounter_turn_serial(state)
+        return True
+    if op == PLAYER_DISMOUNT_ACTION:
+        map_obj, rider = find_token(state, action.get('tokenId'))
+        actor = str(action.get('actor') or '').strip()
+        mount_id = str(action.get('mountId') or '').strip()
+        if not map_obj or not rider or not actor or not mount_id:
+            return False
+        if action.get('mapId') != map_obj.get('id') or str(rider.get('owner') or '').strip() != actor:
+            return False
+        encounter = encounter_state(state)
+        entry_ids = [str(item) for item in action.get('initiativeEntryIds', []) if item]
+        transfer_path = action.get('turnPathTransferred') is True
+
+        # 同一标准动作可能因主机快照并发而被重放；最终状态一致时直接成功。
+        if not rider.get('mountId'):
+            entries_done = all(
+                (initiative_entry(encounter, entry_id) or {}).get('tokenId') == rider.get('id')
+                for entry_id in entry_ids
+            )
+            path = encounter.get('turnPath') if isinstance(encounter.get('turnPath'), dict) else {}
+            path_done = not transfer_path or path.get('tokenId') == rider.get('id')
+            return entries_done and path_done
+        if rider.get('mountId') != mount_id:
+            return False
+        mount_map, mount = find_token(state, mount_id)
+        if not mount or mount_map is not map_obj:
+            return False
+        replay_allowed, _ = can_act_with_token(state, rider, actor, action)
+        if not replay_allowed:
+            return False
+
+        unique_mount_controller = turn_controllers(state, mount) == {actor}
+        expected_entry_ids = [
+            str(entry.get('id')) for entry in encounter.get('entries', []) or []
+            if unique_mount_controller and isinstance(entry, dict)
+            and entry.get('tokenId') == mount_id and entry.get('id')
+        ]
+        if entry_ids != expected_entry_ids:
+            return False
+        current_entry = initiative_entry(encounter, encounter.get('currentEntryId'))
+        current_will_follow_rider = bool(
+            current_entry and (
+                current_entry.get('tokenId') == rider.get('id')
+                or str(current_entry.get('id')) in expected_entry_ids
+            )
+        )
+        path = encounter.get('turnPath') if isinstance(encounter.get('turnPath'), dict) else {}
+        expected_path_transfer = bool(
+            encounter.get('playMode') == 'turn'
+            and current_will_follow_rider
+            and path.get('mapId') == map_obj.get('id')
+            and path.get('tokenId') == mount_id
+        )
+        if transfer_path != expected_path_transfer:
+            return False
+
+        rider['mountId'] = None
+        for entry_id in expected_entry_ids:
+            entry = initiative_entry(encounter, entry_id)
+            if entry:
+                entry['tokenId'] = rider.get('id')
+                entry['name'] = str(rider.get('name') or entry.get('name') or '骑手')[:48]
+                entry['color'] = TOKEN_RING_COLORS.get(rider.get('type'), TOKEN_RING_COLORS['npc'])
+        if expected_path_transfer:
+            path['tokenId'] = rider.get('id')
+        return True
     if op in INITIATIVE_ACTIONS:
         encounter = encounter_state(state)
         source = initiative_entry(encounter, action.get('entryId'))
@@ -848,8 +1590,18 @@ def apply_action(state, action):
         encounter['turnSerial'] = max(1, int(next_serial))
         encounter['turnPath'] = {'mapId': None, 'tokenId': None, 'points': []}
         world = encounter.setdefault('worldTime', {})
-        world['totalSeconds'] = max(0, int(finite_number(action.get('worldTimeSeconds')) or world.get('totalSeconds', 0)))
+        old_total = max(0, int(finite_number(world.get('totalSeconds')) or 0))
+        encounter['weather'] = normalize_weather(encounter.get('weather'), old_total)
+        requested_total = finite_number(action.get('worldTimeSeconds'))
+        world['totalSeconds'] = max(0, int(requested_total if requested_total is not None else old_total))
         world['runningSince'] = None
+        if isinstance(action.get('weather'), dict):
+            encounter['weather'] = normalize_weather(action['weather'], world['totalSeconds'])
+            action['weather'] = dict(encounter['weather'])
+        else:
+            generated_weather = refresh_scheduled_weather(encounter, world['totalSeconds'])
+            if generated_weather:
+                action['weather'] = dict(generated_weather)
         return True
     if op in DOODLE_ACTIONS:
         return apply_doodle_action(state, action)
@@ -857,11 +1609,11 @@ def apply_action(state, action):
     if not m or not t:
         return False
     actor = str(action.get('actor') or '').strip()
-    if op in ('moveToken', 'patchToken') and actor:
+    if (op in ('moveToken', 'patchToken') or op in TURN_PATH_ACTIONS) and actor:
         replay_allowed, _ = can_act_with_token(state, t, actor, action)
         if not replay_allowed:
             return False
-    if op in ('moveToken', 'patchToken') and action.get('mapId') is not None and action.get('mapId') != m.get('id'):
+    if (op in ('moveToken', 'patchToken') or op in TURN_PATH_ACTIONS) and action.get('mapId') is not None and action.get('mapId') != m.get('id'):
         return False
     if op == 'patchToken':
         encounter = encounter_state(state)
@@ -911,6 +1663,60 @@ def apply_action(state, action):
                     patch[k] = [dict(condition) for condition in public_conditions]
                     accepted = True
         return accepted
+    if op in TURN_PATH_ACTIONS:
+        t = movement_anchor(m, t)
+        action['tokenId'] = t.get('id')
+        encounter = encounter_state(state)
+        if encounter.get('playMode') != 'turn':
+            return False
+        serial = finite_number(action.get('turnSerial'))
+        if serial is None or int(serial) != encounter_turn_serial(state):
+            return False
+        existing = encounter.get('turnPath')
+        canonical_replay = action.get('pathMode') == 'replace' and isinstance(action.get('path'), list)
+        if not canonical_replay and (not isinstance(existing, dict)
+                                     or existing.get('mapId') != m.get('id')
+                                     or existing.get('tokenId') != t.get('id')):
+            return False
+        if canonical_replay:
+            raw_points = action.get('path')
+        else:
+            raw_points = existing.get('points', []) or []
+        points = []
+        for raw_point in raw_points:
+            if not isinstance(raw_point, dict):
+                return False
+            normalized = clamp_token_point(m, t, raw_point)
+            if normalized is None:
+                return False
+            if not points or not same_point(points[-1], normalized):
+                points.append(normalized)
+        if not canonical_replay:
+            if len(points) < 2:
+                return False
+            points = points[:-1] if op == 'turnPathUndo' else points[:1]
+            action['pathMode'] = 'replace'
+            action['path'] = [dict(candidate) for candidate in points]
+        if not points or len(points) > MAX_TURN_PATH_POINTS:
+            return False
+        target = points[-1]
+        encounter['turnPath'] = {
+            'mapId': m.get('id'),
+            'tokenId': t.get('id'),
+            'points': [dict(candidate) for candidate in points],
+        }
+        t['x'] = target['x']
+        t['y'] = target['y']
+        for rider in m.get('tokens', []) or []:
+            if rider.get('mountId') == t.get('id'):
+                rider['x'] = t['x']
+                rider['y'] = t['y']
+        action['mapId'] = m.get('id')
+        action['x'] = target['x']
+        action['y'] = target['y']
+        action['playMode'] = 'turn'
+        action['turnSerial'] = int(serial)
+        return True
     if op == 'moveToken':
         t = movement_anchor(m, t)
         action['tokenId'] = t.get('id')
@@ -1025,7 +1831,7 @@ def online_players():
     result = []
     for session in SESSIONS.values():
         item = dict(session)
-        item['online'] = int(session.get('lastSeen', 0)) >= cutoff
+        item['online'] = int(session.get('lastSeen', 0)) >= cutoff and session.get('status') != 'offline'
         item.pop('token', None)
         result.append(item)
     result.sort(key=lambda item: (not item.get('online'), item.get('name', '').lower()))
@@ -1138,15 +1944,25 @@ class Handler(SimpleHTTPRequestHandler):
             with LOCK:
                 players = online_players()
                 revision = STATE_REVISION
+                snapshot = STATE if isinstance(STATE, dict) else {}
+                maps = snapshot.get('maps') if isinstance(snapshot.get('maps'), list) else []
+                active_map_id = snapshot.get('activeMapId')
+                active_map = next((item for item in maps if isinstance(item, dict) and item.get('id') == active_map_id), None)
+                if active_map is None:
+                    active_map = next((item for item in maps if isinstance(item, dict)), None)
             self._send_json({
                 'port': PORT,
                 'bind': BIND_HOST,
                 'ips': get_ips(),
                 'name': '桑哆尔联机',
+                'protocolVersion': SERVER_PROTOCOL_VERSION,
                 'sessionId': SESSION_ID,
                 'roomCode': ROOM_CODE,
                 'stateRevision': revision,
                 'playerCount': len([p for p in players if p.get('online')]),
+                'campaignName': snapshot.get('campaignName') or '',
+                'activeMapName': active_map.get('name') if active_map else '',
+                'mapCount': len(maps),
                 'endpoints': {'host': '/主控台/主控台.html', 'player': '/主控台/玩家.html'},
             })
         elif path == '/api/players':
@@ -1196,9 +2012,29 @@ class Handler(SimpleHTTPRequestHandler):
         body = self.rfile.read(length) if length else b'{}'
         return json.loads(body.decode('utf-8'))
 
+    def handle_local_save(self):
+        if not local_save_request_allowed(self):
+            self._send_json({'ok': False, 'error': 'local save api is host-only'}, 403)
+            return
+        try:
+            data = self._read_json_body(MAX_LOCAL_SAVE_BODY)
+            result = perform_local_save_operation(data)
+        except OverflowError:
+            self._send_json({'ok': False, 'error': 'save too large'}, 413)
+            return
+        except (ValueError, TypeError, json.JSONDecodeError) as error:
+            self._send_json({'ok': False, 'error': str(error) or 'invalid save request'}, 400)
+            return
+        except OSError as error:
+            self._send_json({'ok': False, 'error': 'save operation failed: ' + str(error)}, 500)
+            return
+        self._send_json(result)
+
     def do_POST(self):
         global STATE, STATE_REVISION, NEXT_SEQ
-        if self.path == '/api/session':
+        if self.path == '/api/local-save':
+            self.handle_local_save()
+        elif self.path == '/api/session':
             try:
                 data = self._read_json_body(64 * 1024)
             except OverflowError:
@@ -1492,7 +2328,9 @@ class Handler(SimpleHTTPRequestHandler):
                     total_seconds = max(0, int(finite_number(world.get('totalSeconds')) or 0))
                     running_since = finite_number(world.get('runningSince'))
                     if running_since:
-                        total_seconds += max(0, int((time.time() * 1000 - running_since) / 1000))
+                        rate = finite_number(world.get('rate'))
+                        rate = max(.01, min(60, rate if rate is not None and rate > 0 else 1))
+                        total_seconds += max(0, int((time.time() * 1000 - running_since) * rate / 1000))
                     seconds_per_round = max(1, int(finite_number(encounter.get('secondsPerRound')) or 6))
                     if next_index == 0:
                         total_seconds += seconds_per_round
@@ -1563,8 +2401,33 @@ class Handler(SimpleHTTPRequestHandler):
                 if STATE is None:
                     self._send_json({'ok': False, 'error': '主机尚未推送状态'}, 400)
                     return
+                is_spawn_action = action.get('op') == PLAYER_SPAWN_ACTION
+                is_delete_action = action.get('op') == PLAYER_DELETE_ACTION
+                is_dismount_action = action.get('op') == PLAYER_DISMOUNT_ACTION
                 is_doodle_action = action.get('op') in DOODLE_ACTIONS
-                if is_doodle_action:
+                if is_spawn_action:
+                    normalized_spawn, spawn_error, spawn_status = normalize_player_spawn_action(
+                        STATE, action, player, (session or {}).get('playerId')
+                    )
+                    if not normalized_spawn:
+                        self._send_json({'ok': False, 'error': spawn_error or '临时棋子数据无效'}, spawn_status or 400)
+                        return
+                    action = normalized_spawn
+                elif is_delete_action:
+                    normalized_delete, delete_error, delete_status = normalize_player_delete_action(STATE, action, player)
+                    if not normalized_delete:
+                        self._send_json({'ok': False, 'error': delete_error or '删除请求无效'}, delete_status or 400)
+                        return
+                    action = normalized_delete
+                elif is_dismount_action:
+                    normalized_dismount, dismount_error, dismount_status = normalize_player_dismount_action(
+                        STATE, action, player
+                    )
+                    if not normalized_dismount:
+                        self._send_json({'ok': False, 'error': dismount_error or '解除骑乘请求无效'}, dismount_status or 400)
+                        return
+                    action = normalized_dismount
+                elif is_doodle_action:
                     # 已加入房间的玩家都可以使用共享标注；作者名由服务器写入，不能伪造。
                     action['name'] = player
                 else:
@@ -1572,7 +2435,7 @@ class Handler(SimpleHTTPRequestHandler):
                     if not tok:
                         self._send_json({'ok': False, 'error': '棋子不存在'}, 404)
                         return
-                    if action.get('op') in ('moveToken', 'patchToken'):
+                    if action.get('op') in ('moveToken', 'patchToken') or action.get('op') in TURN_PATH_ACTIONS:
                         allowed, reason = can_act_with_token(STATE, tok, player, action)
                         if not allowed:
                             self._send_json({'ok': False, 'error': reason}, 409 if reason == '回合已经变化，请重新操作' else 403)
@@ -1582,11 +2445,22 @@ class Handler(SimpleHTTPRequestHandler):
                             return
                         # 记录动作原始玩家，主机快照并发覆盖后重放时会重新核对最新归属。
                         action['actor'] = player
+                        if action.get('op') in TURN_PATH_ACTIONS:
+                            # 路径结果只能由服务器从当前权威路径推导；客户端不能自带替换内容。
+                            action.pop('path', None)
+                            action.pop('pathMode', None)
                     elif not can_control(STATE, tok, player):
                         self._send_json({'ok': False, 'error': '只能操作自己名下的棋子'}, 403)
                         return
                 if not apply_action(STATE, action):
-                    error = '涂鸦数据无效或地图不存在' if is_doodle_action else '不支持的动作'
+                    if is_spawn_action:
+                        error = '临时棋子放置失败'
+                    elif is_delete_action:
+                        error = '临时棋子删除失败'
+                    elif is_dismount_action:
+                        error = '解除骑乘失败'
+                    else:
+                        error = '涂鸦数据无效或地图不存在' if is_doodle_action else '不支持的动作'
                     self._send_json({'ok': False, 'error': error}, 400)
                     return
                 STATE_REVISION += 1

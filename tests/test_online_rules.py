@@ -1,8 +1,10 @@
 import copy
+import base64
 import importlib.util
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -46,6 +48,8 @@ def make_state(play_mode='turn'):
             ],
             'turnPath': {'mapId': None, 'tokenId': None, 'points': []},
             'worldTime': {'totalSeconds': 100, 'runningSince': None},
+            'weather': {'climate': 'temperate', 'condition': 'clear', 'temperature': 18,
+                        'wind': 'breeze', 'generatedDay': -1},
         },
     }
 
@@ -146,9 +150,82 @@ class TurnPermissionTests(unittest.TestCase):
         self.assertEqual(state['encounter']['turnPath']['tokenId'], 'mount')
         self.assertEqual(state['encounter']['turnPath']['points'][-1], {'x': 410.0, 'y': 360.0})
 
-    def test_end_turn_decrements_condition_and_clears_path(self):
+    def test_turn_path_undo_moves_mount_group_back_and_replay_is_idempotent(self):
+        state = make_state()
+        points = [{'x': 250, 'y': 250}, {'x': 300, 'y': 250}, {'x': 350, 'y': 300}]
+        state['encounter']['turnPath'] = {'mapId': 'map-1', 'tokenId': 'mount', 'points': copy.deepcopy(points)}
+        for token_id in ('rider', 'mount', 'co-rider'):
+            token = SERVER.find_token(state, token_id)[1]
+            token['x'], token['y'] = 350, 300
+        action = {
+            'op': 'turnPathUndo', 'tokenId': 'rider', 'mapId': 'map-1', 'actor': 'Alice',
+            'playMode': 'turn', 'turnSerial': 7,
+        }
+
+        self.assertTrue(SERVER.apply_action(state, action))
+        self.assertEqual(action['tokenId'], 'mount')
+        self.assertEqual(action['pathMode'], 'replace')
+        self.assertEqual(action['path'], [{'x': 250.0, 'y': 250.0}, {'x': 300.0, 'y': 250.0}])
+        self.assertEqual(state['encounter']['turnPath']['points'], action['path'])
+        for token_id in ('rider', 'mount', 'co-rider'):
+            token = SERVER.find_token(state, token_id)[1]
+            self.assertEqual((token['x'], token['y']), (300.0, 250.0))
+
+        # 主机上传快照时会重放同一个标准动作；完整替换不能再少一个点。
+        self.assertTrue(SERVER.apply_action(state, action))
+        self.assertEqual(state['encounter']['turnPath']['points'], action['path'])
+        self.assertEqual((SERVER.find_token(state, 'mount')[1]['x'], SERVER.find_token(state, 'mount')[1]['y']),
+                         (300.0, 250.0))
+
+    def test_turn_path_reset_returns_mount_group_to_turn_start(self):
+        state = make_state()
+        state['encounter']['turnPath'] = {
+            'mapId': 'map-1', 'tokenId': 'mount',
+            'points': [{'x': 250, 'y': 250}, {'x': 300, 'y': 250}, {'x': 350, 'y': 300}],
+        }
+        for token_id in ('rider', 'mount', 'co-rider'):
+            token = SERVER.find_token(state, token_id)[1]
+            token['x'], token['y'] = 350, 300
+        action = {
+            'op': 'turnPathReset', 'tokenId': 'mount', 'mapId': 'map-1', 'actor': 'Alice',
+            'playMode': 'turn', 'turnSerial': 7,
+        }
+
+        self.assertTrue(SERVER.apply_action(state, action))
+        self.assertEqual(action['pathMode'], 'replace')
+        self.assertEqual(state['encounter']['turnPath']['points'], [{'x': 250.0, 'y': 250.0}])
+        for token_id in ('rider', 'mount', 'co-rider'):
+            token = SERVER.find_token(state, token_id)[1]
+            self.assertEqual((token['x'], token['y']), (250.0, 250.0))
+
+    def test_turn_path_change_rejects_wrong_player_and_stale_turn(self):
+        state = make_state()
+        state['encounter']['turnPath'] = {
+            'mapId': 'map-1', 'tokenId': 'mount',
+            'points': [{'x': 250, 'y': 250}, {'x': 300, 'y': 250}],
+        }
+        original = copy.deepcopy(state)
+        wrong_player = {
+            'op': 'turnPathUndo', 'tokenId': 'rider', 'mapId': 'map-1', 'actor': 'Bob',
+            'playMode': 'turn', 'turnSerial': 7,
+        }
+        stale_turn = {
+            'op': 'turnPathReset', 'tokenId': 'rider', 'mapId': 'map-1', 'actor': 'Alice',
+            'playMode': 'turn', 'turnSerial': 6,
+        }
+
+        self.assertFalse(SERVER.apply_action(state, wrong_player))
+        self.assertFalse(SERVER.apply_action(state, stale_turn))
+        self.assertEqual(state, original)
+
+    def test_end_turn_decrements_every_mount_group_member_once_and_clears_path(self):
         state = make_state()
         state['encounter']['turnPath'] = {'mapId': 'map-1', 'tokenId': 'mount', 'points': [{'x': 250, 'y': 250}]}
+        SERVER.find_token(state, 'rider')[1]['conditions'].append({'label': '永久', 'remainingTurns': None})
+        SERVER.find_token(state, 'mount')[1]['conditions'] = [
+            {'label': '短暂', 'remainingTurns': 1}, {'label': '永久', 'remainingTurns': None},
+        ]
+        SERVER.find_token(state, 'co-rider')[1]['conditions'] = [{'label': '防护', 'remainingTurns': 3}]
         action = {'op': 'endTurn', 'turnSerial': 7, 'nextEntryId': 'init-other', 'nextTurnSerial': 8,
                   'round': 1, 'worldTimeSeconds': 100}
         self.assertTrue(SERVER.apply_action(state, action))
@@ -156,6 +233,47 @@ class TurnPermissionTests(unittest.TestCase):
         self.assertEqual(state['encounter']['turnSerial'], 8)
         self.assertEqual(state['encounter']['turnPath']['points'], [])
         self.assertEqual(SERVER.find_token(state, 'rider')[1]['conditions'][0]['remainingTurns'], 1)
+        self.assertIsNone(SERVER.find_token(state, 'rider')[1]['conditions'][1]['remainingTurns'])
+        self.assertEqual(SERVER.find_token(state, 'mount')[1]['conditions'], [
+            {'label': '永久', 'remainingTurns': None},
+        ])
+        self.assertEqual(SERVER.find_token(state, 'co-rider')[1]['conditions'][0]['remainingTurns'], 2)
+
+
+class WeatherMarkovTests(unittest.TestCase):
+    def test_previous_weather_changes_the_next_day_weights(self):
+        profile = SERVER.CLIMATE_PROFILES['temperate']
+        rain_weights = SERVER.climate_weather_weights(profile, 'spring', 'rain')
+        clear_weights = SERVER.climate_weather_weights(profile, 'spring', 'clear')
+        self.assertGreater(rain_weights['rain'], rain_weights['clear'])
+        self.assertGreater(clear_weights['clear'], clear_weights['rain'])
+
+    def test_multi_day_jump_runs_the_chain_once_per_missing_day(self):
+        encounter = make_state()['encounter']
+        calls = []
+
+        def deterministic_random():
+            calls.append(True)
+            return .42
+
+        target_seconds = 2 * SERVER.WORLD_SECONDS_PER_DAY + SERVER.WEATHER_ROLLOVER_SECONDS
+        weather = SERVER.refresh_scheduled_weather(encounter, target_seconds, deterministic_random)
+        self.assertIsNotNone(weather)
+        self.assertEqual(weather['generatedDay'], 2)
+        self.assertEqual(len(calls), 9)  # 每日：天气、温度扰动、风力各一次。
+
+    def test_end_turn_crossing_eight_am_broadcasts_authoritative_weather(self):
+        state = make_state()
+        state['encounter']['worldTime']['totalSeconds'] = SERVER.WEATHER_ROLLOVER_SECONDS - 1
+        state['encounter']['weather']['generatedDay'] = -1
+        action = {
+            'op': 'endTurn', 'turnSerial': 7, 'nextEntryId': 'init-other', 'nextTurnSerial': 8,
+            'round': 2, 'worldTimeSeconds': SERVER.WEATHER_ROLLOVER_SECONDS + 5,
+        }
+        self.assertTrue(SERVER.apply_action(state, action))
+        self.assertIn('weather', action)
+        self.assertEqual(action['weather'], state['encounter']['weather'])
+        self.assertEqual(action['weather']['generatedDay'], 0)
 
 
 class PlayerConditionPatchTests(unittest.TestCase):
@@ -238,6 +356,293 @@ class PlayerConditionPatchTests(unittest.TestCase):
         }
         self.assertFalse(SERVER.apply_action(state, action))
         self.assertEqual(SERVER.find_token(state, 'rider')[1]['conditions'], original)
+
+
+class PlayerSpawnTokenTests(unittest.TestCase):
+    def normalized(self, state, draft=None, **request_overrides):
+        request = {
+            'op': 'spawnToken',
+            'mapId': 'map-1',
+            'x': 5000,
+            'y': -50,
+            'draft': draft if draft is not None else {
+                'name': '  Alice 的召唤物\x00  ',
+                'type': 'enemy',
+                'owner': 'Mallory',
+                'id': 'forged-id',
+                'hpMax': 200000,
+                'ac': -5,
+                'icon': '🐺',
+                'size': 2,
+            },
+        }
+        request.update(request_overrides)
+        return SERVER.normalize_player_spawn_action(state, request, 'Alice', 'player-123')
+
+    def test_server_owns_identity_type_fields_and_position(self):
+        state = make_state(play_mode='free')
+        action, error, status = self.normalized(state)
+
+        self.assertIsNone(error)
+        self.assertEqual(status, 200)
+        token = action['token']
+        self.assertRegex(token['id'], r'^pt-player-123-[0-9a-f]{12}$')
+        self.assertNotEqual(token['id'], 'forged-id')
+        self.assertEqual(token['name'], 'Alice 的召唤物')
+        self.assertEqual(token['type'], 'pc')
+        self.assertEqual(token['owner'], 'Alice')
+        self.assertEqual(token['createdByPlayer'], 'Alice')
+        self.assertTrue(token['playerCreated'])
+        self.assertEqual((token['hp'], token['hpMax'], token['ac'], token['size']), (99999, 99999, 0, 2))
+        self.assertEqual((token['x'], token['y']), (950.0, 50.0))
+        self.assertIsNone(token['iconImg'])
+        self.assertIsNone(token['iconImgPath'])
+        self.assertEqual(token['conditions'], [])
+
+    def test_player_portrait_is_validated_cached_and_attached(self):
+        state = make_state(play_mode='free')
+        raw = b'\x89PNG\r\n\x1a\n' + b'player-portrait'
+        portrait = 'data:image/png;base64,' + base64.b64encode(raw).decode('ascii')
+        draft = {'name': '头像棋子', 'hpMax': 12, 'ac': 14, 'icon': '🧙', 'size': 1, 'iconImg': portrait}
+        key = SERVER.hashlib.sha256(raw).hexdigest()
+        try:
+            with mock.patch.object(SERVER, 'persist_asset') as persist:
+                action, error, status = self.normalized(state, draft=draft)
+            self.assertIsNone(error)
+            self.assertEqual(status, 200)
+            self.assertEqual(action['token']['iconImg'], '/api/assets/' + key)
+            persist.assert_called_once_with(key, 'image/png', raw)
+        finally:
+            SERVER.ASSETS.pop(key, None)
+
+    def test_player_portrait_rejects_unsupported_or_spoofed_content(self):
+        state = make_state(play_mode='free')
+        base_draft = {'name': '坏头像', 'hpMax': 10, 'ac': 10, 'icon': '🧙', 'size': 1}
+        svg = dict(base_draft, iconImg='data:image/svg+xml;base64,' + base64.b64encode(b'<svg/>').decode('ascii'))
+        action, error, status = self.normalized(state, draft=svg)
+        self.assertIsNone(action)
+        self.assertIn('仅支持', error)
+        self.assertEqual(status, 400)
+
+        spoofed = dict(base_draft, iconImg='data:image/png;base64,' + base64.b64encode(b'not-a-png').decode('ascii'))
+        action, error, status = self.normalized(state, draft=spoofed)
+        self.assertIsNone(action)
+        self.assertIn('格式不匹配', error)
+        self.assertEqual(status, 400)
+
+    def test_apply_is_idempotent_and_another_actor_cannot_replay(self):
+        state = make_state(play_mode='free')
+        action, _, _ = self.normalized(state, x=300, y=350)
+        self.assertTrue(SERVER.apply_action(state, action))
+        self.assertTrue(SERVER.apply_action(state, action))
+        spawned = [token for token in state['maps'][0]['tokens'] if token.get('playerCreated')]
+        self.assertEqual(len(spawned), 1)
+
+        forged_replay = copy.deepcopy(action)
+        forged_replay['actor'] = 'Bob'
+        self.assertFalse(SERVER.apply_action(state, forged_replay))
+        self.assertEqual(len([token for token in state['maps'][0]['tokens'] if token.get('playerCreated')]), 1)
+
+    def test_limit_is_per_player_per_map(self):
+        state = make_state(play_mode='free')
+        for index in range(SERVER.MAX_PLAYER_TEMP_TOKENS_PER_MAP):
+            action, error, status = self.normalized(state, x=100 + index, y=200)
+            self.assertIsNone(error)
+            self.assertEqual(status, 200)
+            self.assertTrue(SERVER.apply_action(state, action))
+
+        action, error, status = self.normalized(state, x=400, y=200)
+        self.assertIsNone(action)
+        self.assertIn('最多放置 12 个', error)
+        self.assertEqual(status, 409)
+
+        bob_action, error, status = SERVER.normalize_player_spawn_action(state, {
+            'op': 'spawnToken', 'mapId': 'map-1', 'x': 400, 'y': 200,
+            'draft': {'name': 'Bob 的临时棋子', 'hpMax': 10, 'ac': 10, 'icon': '🧙', 'size': 1},
+        }, 'Bob', 'player-456')
+        self.assertIsNone(error)
+        self.assertEqual(status, 200)
+        self.assertTrue(SERVER.apply_action(state, bob_action))
+
+    def test_invalid_map_draft_and_coordinates_are_rejected(self):
+        state = make_state(play_mode='free')
+        action, _, status = self.normalized(state, mapId='missing')
+        self.assertIsNone(action)
+        self.assertEqual(status, 404)
+
+        action, _, status = self.normalized(state, draft='not-an-object')
+        self.assertIsNone(action)
+        self.assertEqual(status, 400)
+
+        action, _, status = self.normalized(state, x='not-a-number')
+        self.assertIsNone(action)
+        self.assertEqual(status, 400)
+
+
+class PlayerDeleteTokenTests(unittest.TestCase):
+    def add_temp_token(self, state, owner='Alice'):
+        token = {
+            'id': 'pt-player-123-delete', 'name': 'Alice 的召唤物', 'type': 'pc',
+            'owner': owner, 'playerCreated': True, 'createdByPlayer': owner,
+            'size': 2, 'mountId': None, 'x': 250, 'y': 250,
+            'hp': 10, 'hpMax': 10, 'ac': 12, 'conditions': [],
+        }
+        state['maps'][0]['tokens'].append(token)
+        return token
+
+    def test_owner_can_delete_temp_token_and_cleanup_linked_state(self):
+        state = make_state(play_mode='turn')
+        token = self.add_temp_token(state)
+        state['maps'][0]['tokens'][0]['mountId'] = token['id']
+        state['encounter']['entries'] = [
+            {'id': 'init-temp', 'name': token['name'], 'tokenId': token['id'], 'value': 20},
+            {'id': 'init-other', 'name': '其他角色', 'tokenId': 'other', 'value': 12},
+        ]
+        state['encounter']['currentEntryId'] = 'init-temp'
+        state['encounter']['turnPath'] = {
+            'mapId': 'map-1', 'tokenId': token['id'],
+            'points': [{'x': 250, 'y': 250}, {'x': 300, 'y': 250}],
+        }
+        action, error, status = SERVER.normalize_player_delete_action(state, {
+            'op': 'deletePlayerToken', 'mapId': 'map-1', 'tokenId': token['id'],
+        }, 'Alice')
+        self.assertIsNone(error)
+        self.assertEqual(status, 200)
+        self.assertTrue(SERVER.apply_action(state, action))
+        self.assertIsNone(SERVER.find_token(state, token['id'])[1])
+        self.assertIsNone(SERVER.find_token(state, 'rider')[1]['mountId'])
+        self.assertEqual(state['encounter']['currentEntryId'], 'init-other')
+        self.assertEqual(state['encounter']['turnSerial'], 8)
+        self.assertEqual(state['encounter']['turnPath']['points'], [])
+        self.assertEqual(action['removedEntryIds'], ['init-temp'])
+
+        self.assertTrue(SERVER.apply_action(state, action))
+        self.assertEqual(state['encounter']['turnSerial'], 8)
+
+    def test_player_cannot_delete_host_or_another_players_token(self):
+        state = make_state(play_mode='free')
+        action, error, status = SERVER.normalize_player_delete_action(state, {
+            'op': 'deletePlayerToken', 'mapId': 'map-1', 'tokenId': 'rider',
+        }, 'Alice')
+        self.assertIsNone(action)
+        self.assertIn('自己创建', error)
+        self.assertEqual(status, 403)
+
+        token = self.add_temp_token(state, owner='Bob')
+        action, error, status = SERVER.normalize_player_delete_action(state, {
+            'op': 'deletePlayerToken', 'mapId': 'map-1', 'tokenId': token['id'],
+        }, 'Alice')
+        self.assertIsNone(action)
+        self.assertIn('自己创建', error)
+        self.assertEqual(status, 403)
+
+    def test_delete_rejects_wrong_map_and_forged_replay(self):
+        state = make_state(play_mode='free')
+        token = self.add_temp_token(state)
+        action, error, status = SERVER.normalize_player_delete_action(state, {
+            'op': 'deletePlayerToken', 'mapId': 'wrong-map', 'tokenId': token['id'],
+        }, 'Alice')
+        self.assertIsNone(action)
+        self.assertIn('地图与棋子不匹配', error)
+        self.assertEqual(status, 400)
+
+        forged = {
+            'op': 'deletePlayerToken', 'mapId': 'map-1', 'tokenId': token['id'],
+            'actor': 'Mallory',
+        }
+        self.assertFalse(SERVER.apply_action(state, forged))
+        self.assertIsNotNone(SERVER.find_token(state, token['id'])[1])
+
+
+class PlayerDismountTests(unittest.TestCase):
+    def normalize(self, state, player='Alice', **updates):
+        request = {
+            'op': 'dismountToken', 'mapId': 'map-1', 'tokenId': 'rider',
+            'playMode': 'turn' if state['encounter']['playMode'] == 'turn' else 'free',
+        }
+        if state['encounter']['playMode'] == 'turn':
+            request['turnSerial'] = state['encounter']['turnSerial']
+        request.update(updates)
+        return SERVER.normalize_player_dismount_action(state, request, player)
+
+    def test_owner_can_dismount_in_free_mode_and_replay_is_idempotent(self):
+        state = make_state(play_mode='free')
+        rider = SERVER.find_token(state, 'rider')[1]
+        before_position = (rider['x'], rider['y'])
+
+        action, error, status = self.normalize(state)
+        self.assertIsNone(error)
+        self.assertEqual(status, 200)
+        self.assertEqual(action['mountId'], 'mount')
+        self.assertTrue(SERVER.apply_action(state, action))
+        self.assertIsNone(rider['mountId'])
+        self.assertEqual((rider['x'], rider['y']), before_position)
+        self.assertTrue(SERVER.apply_action(state, action))
+
+    def test_player_cannot_dismount_another_players_rider_or_an_unmounted_token(self):
+        state = make_state(play_mode='free')
+        action, error, status = self.normalize(state, player='Bob')
+        self.assertIsNone(action)
+        self.assertIn('自己角色', error)
+        self.assertEqual(status, 403)
+
+        state['maps'][0]['tokens'][0]['mountId'] = None
+        action, error, status = self.normalize(state)
+        self.assertIsNone(action)
+        self.assertIn('没有有效坐骑', error)
+        self.assertEqual(status, 409)
+
+    def test_turn_mode_requires_the_players_current_turn(self):
+        state = make_state(play_mode='turn')
+        state['encounter']['currentEntryId'] = 'init-other'
+        action, error, status = self.normalize(state)
+        self.assertIsNone(action)
+        self.assertIn('尚未轮到', error)
+        self.assertEqual(status, 403)
+        self.assertEqual(SERVER.find_token(state, 'rider')[1]['mountId'], 'mount')
+
+    def test_unique_mount_controller_keeps_initiative_and_path_on_the_rider(self):
+        state = make_state(play_mode='turn')
+        state['maps'][0]['tokens'] = [
+            token for token in state['maps'][0]['tokens'] if token['id'] != 'co-rider'
+        ]
+        SERVER.find_token(state, 'rider')[1]['type'] = 'pc'
+        state['encounter']['entries'][0]['tokenId'] = 'mount'
+        state['encounter']['turnPath'] = {
+            'mapId': 'map-1', 'tokenId': 'mount',
+            'points': [{'x': 250, 'y': 250}, {'x': 300, 'y': 250}],
+        }
+
+        action, error, status = self.normalize(state)
+        self.assertIsNone(error)
+        self.assertEqual(status, 200)
+        self.assertEqual(action['initiativeEntryIds'], ['init-rider'])
+        self.assertTrue(action['turnPathTransferred'])
+        self.assertTrue(SERVER.apply_action(state, action))
+        self.assertEqual(state['encounter']['entries'][0]['tokenId'], 'rider')
+        self.assertEqual(state['encounter']['entries'][0]['color'], '#5b8cff')
+        self.assertEqual(state['encounter']['turnPath']['tokenId'], 'rider')
+        self.assertEqual(state['encounter']['turnSerial'], 7)
+        rider = SERVER.find_token(state, 'rider')[1]
+        self.assertEqual(SERVER.can_act_with_token(
+            state, rider, 'Alice', {'playMode': 'turn', 'turnSerial': 7}
+        ), (True, None))
+
+    def test_shared_mount_turn_is_not_reassigned_to_one_departing_rider(self):
+        state = make_state(play_mode='turn')
+        state['encounter']['entries'][0]['tokenId'] = 'mount'
+        state['encounter']['turnPath'] = {
+            'mapId': 'map-1', 'tokenId': 'mount',
+            'points': [{'x': 250, 'y': 250}, {'x': 300, 'y': 250}],
+        }
+        action, error, status = self.normalize(state)
+        self.assertIsNone(error)
+        self.assertEqual(status, 200)
+        self.assertEqual(action['initiativeEntryIds'], [])
+        self.assertFalse(action['turnPathTransferred'])
+        self.assertTrue(SERVER.apply_action(state, action))
+        self.assertEqual(state['encounter']['entries'][0]['tokenId'], 'mount')
+        self.assertEqual(state['encounter']['turnPath']['tokenId'], 'mount')
 
 
 class InitiativePreparationTests(unittest.TestCase):

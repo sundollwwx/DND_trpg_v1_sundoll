@@ -10,6 +10,8 @@ HOST_JS = (PROJECT_ROOT / '主控台' / 'app.js').read_text(encoding='utf-8')
 HOST_CSS = (PROJECT_ROOT / '主控台' / 'style.css').read_text(encoding='utf-8')
 PLAYER_HTML = (PROJECT_ROOT / '主控台' / '玩家.html').read_text(encoding='utf-8')
 CONDITION_SPRITE = PROJECT_ROOT / 'asset' / '界面' / '状态图标-v1.png'
+PORTRAIT_TOOL = (PROJECT_ROOT / 'asset' / '棋子库' / '棋子库.html').read_text(encoding='utf-8')
+PORTRAIT_WORKFLOW = (PROJECT_ROOT / 'asset' / '棋子库' / '立绘制作流程.md').read_text(encoding='utf-8')
 
 
 class ShellSimplificationTests(unittest.TestCase):
@@ -47,6 +49,13 @@ class ShellSimplificationTests(unittest.TestCase):
         self.assertIn("badge.textContent=condition.icon||'◆'", PLAYER_HTML)
         self.assertIn('condition-pixels-ready', HOST_CSS)
         self.assertIn('condition-pixels-ready', PLAYER_HTML)
+
+    def test_every_portrait_prompt_uses_a_real_circular_base(self):
+        self.assertIn('明确画出一个完整圆形底板', PORTRAIT_TOOL)
+        self.assertIn('圆形底板以外使用干净、均匀的纯白色', PORTRAIT_TOOL)
+        self.assertIn('必须在画布正中央明确画出', PORTRAIT_WORKFLOW)
+        self.assertNotIn('不要画出圆形底板', PORTRAIT_TOOL)
+        self.assertNotIn('不要画出圆形底板', PORTRAIT_WORKFLOW)
 
 
 if __name__ == '__main__':

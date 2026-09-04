@@ -9,6 +9,7 @@ HOST_JS = (PROJECT_ROOT / '主控台' / 'app.js').read_text(encoding='utf-8')
 HOST_CSS = (PROJECT_ROOT / '主控台' / 'style.css').read_text(encoding='utf-8')
 PLAYER_HTML = (PROJECT_ROOT / '主控台' / '玩家.html').read_text(encoding='utf-8')
 DICE_JS = (PROJECT_ROOT / '骰子动画.js').read_text(encoding='utf-8')
+SERVER_PY = (PROJECT_ROOT / '主控台' / '联机服务器.py').read_text(encoding='utf-8')
 
 
 def attribute_values(markup, attribute):
@@ -45,6 +46,7 @@ class ClientParityTests(unittest.TestCase):
         self.assertIn('uv-handedness-r7', host_version.group(1))
         self.assertIn('result-focus-r8', host_version.group(1))
         self.assertIn('public-skin-r9', host_version.group(1))
+        self.assertIn('d20-tilt-r10', host_version.group(1))
 
     def test_player_private_rolls_stay_local_and_public_rolls_share_skin(self):
         self.assertEqual(attribute_values(PLAYER_HTML, 'data-dice-visibility'), {'public', 'private'})
@@ -62,7 +64,16 @@ class ClientParityTests(unittest.TestCase):
         self.assertIn('rollQueue.splice(0, rollQueue.length)', DICE_JS)
         self.assertIn("const DICE_SIZE_MULTIPLIER = 1.30", DICE_JS)
         self.assertIn("const numberY = dieKind === 'd20' ? 138 : 132", DICE_JS)
+        self.assertIn('const D20_RESULT_TILT_DEGREES = 16', DICE_JS)
+        self.assertIn("if (key === 'd20') qFinal.premultiply(d20ResultTilt).normalize()", DICE_JS)
         self.assertIn('faceTexture(highlighted, faceLength, faceLabel, skin, key)', DICE_JS)
+
+    def test_stream_start_button_uses_readable_white_text(self):
+        block = re.search(r'#btn-stream-toggle\.primary\s*\{([^}]+)\}', HOST_CSS)
+        self.assertIsNotNone(block)
+        css = re.sub(r'\s+', '', block.group(1))
+        self.assertIn('color:#fff', css)
+        self.assertIn('text-shadow:', css)
 
     def test_condition_badges_start_at_top_right_above_tokens(self):
         for source in (HOST_CSS, PLAYER_HTML):
@@ -83,10 +94,10 @@ class ClientParityTests(unittest.TestCase):
 
     def test_player_sidebars_use_clear_workspace_and_detail_categories(self):
         self.assertEqual(attribute_values(PLAYER_HTML, 'data-player-workspace-tab'), {
-            'room', 'tools', 'draw', 'resources',
+            'room', 'units', 'tools', 'draw', 'resources',
         })
         self.assertEqual(attribute_values(PLAYER_HTML, 'data-player-workspace'), {
-            'room', 'tools', 'draw', 'resources',
+            'room', 'units', 'tools', 'draw', 'resources',
         })
         self.assertEqual(attribute_values(PLAYER_HTML, 'data-player-detail-tab'), {
             'status', 'tactics', 'notes',
@@ -96,6 +107,64 @@ class ClientParityTests(unittest.TestCase):
         })
         self.assertIn('function activatePlayerWorkspace(', PLAYER_HTML)
         self.assertIn('function activatePlayerDetailTab(', PLAYER_HTML)
+
+    def test_unit_browser_is_unified_and_player_spawn_stays_personal(self):
+        self.assertEqual(HOST_HTML.count('class="card unit-browser-card"'), 1)
+        self.assertIn('id="unit-library-panel"', HOST_HTML)
+        self.assertIn('id="unit-custom-panel"', HOST_HTML)
+        self.assertIn('data-unit-source="library"', HOST_HTML)
+        self.assertIn('data-unit-source="custom"', HOST_HTML)
+        self.assertIn('id="lib-search"', HOST_HTML)
+        self.assertIn('id="lib-recent"', HOST_HTML)
+        self.assertIn('function renderRecentLibraryPresets(', HOST_JS)
+        self.assertIn("main.addEventListener('click', () => placePresetOnMap(p.id))", HOST_JS)
+        self.assertIn("workspace === 'units'", HOST_JS)
+        self.assertIn("card.classList.contains('unit-browser-card')", HOST_JS)
+
+        self.assertIn('data-player-workspace-tab="units"', PLAYER_HTML)
+        self.assertIn('id="player-place-token"', PLAYER_HTML)
+        self.assertIn('id="player-token-image"', PLAYER_HTML)
+        self.assertIn('iconImg:playerDraftPortrait||null', PLAYER_HTML)
+        self.assertIn("op:'spawnToken'", PLAYER_HTML)
+        self.assertIn("if(a.op==='spawnToken')", PLAYER_HTML)
+        self.assertIn("a.op === 'spawnToken'", HOST_JS)
+        self.assertIn('id="player-delete-token"', PLAYER_HTML)
+        self.assertIn("op:'deletePlayerToken'", PLAYER_HTML)
+        self.assertIn("if(a.op==='deletePlayerToken')", PLAYER_HTML)
+        self.assertIn("a.op === 'deletePlayerToken'", HOST_JS)
+        self.assertIn('remoteToken?.playerCreated === true', HOST_JS)
+        self.assertIn('createdByPlayer: t.playerCreated === true', HOST_JS)
+        self.assertNotIn('id="lib-list"', PLAYER_HTML)
+        self.assertNotIn('data-unit-source="library"', PLAYER_HTML)
+
+    def test_player_can_dismount_an_owned_rider_and_both_clients_apply_it(self):
+        self.assertIn("op:'dismountToken'", PLAYER_HTML)
+        self.assertIn("if(a.op==='dismountToken')", PLAYER_HTML)
+        self.assertIn("a.op === 'dismountToken'", HOST_JS)
+        self.assertIn("PLAYER_DISMOUNT_ACTION = 'dismountToken'", SERVER_PY)
+        self.assertIn('function dismountOwnedRider(', PLAYER_HTML)
+        self.assertIn('className=\'mounted-detail-dismount\'', PLAYER_HTML)
+        self.assertIn('turnPathTransferred', PLAYER_HTML)
+        self.assertIn('turnPathTransferred', HOST_JS)
+
+    def test_owned_player_tokens_stay_clickable_when_tokens_overlap(self):
+        base = re.search(r'\.token\s*\{([^}]+)\}', PLAYER_HTML)
+        owned = re.search(r'\.token\.mine\s*\{([^}]+)\}', PLAYER_HTML)
+        dragging = re.search(r'\.token\.dragging\s*\{([^}]+)\}', PLAYER_HTML)
+        self.assertIsNotNone(base)
+        self.assertIsNotNone(owned)
+        self.assertIsNotNone(dragging)
+        self.assertIn('z-index:0', re.sub(r'\s+', '', base.group(1)))
+        self.assertIn('z-index:2', re.sub(r'\s+', '', owned.group(1)))
+        self.assertIn('z-index:4', re.sub(r'\s+', '', dragging.group(1)))
+
+    def test_host_has_a_live_player_connection_indicator(self):
+        self.assertIn('id="host-connection"', HOST_HTML)
+        for state_name in ('off', 'connecting', 'online'):
+            self.assertIn(f"'{state_name}'", HOST_JS)
+        self.assertIn("ev.type === 'presence'", HOST_JS)
+        self.assertIn('已联机 · ${playerCount} 人', HOST_JS)
+        self.assertIn('.host-connection[data-state="online"]', HOST_CSS)
 
     def test_player_can_edit_only_public_conditions_and_host_is_notified(self):
         for element_id in (
@@ -222,7 +291,7 @@ class ClientParityTests(unittest.TestCase):
             self.assertIn('#turn-path-canvas{z-index:2;', compact)
             self.assertIn('#doodle-canvas{', compact)
             self.assertIn('z-index:3;', compact)
-        self.assertIn("${streamInfo.readyCount || 0} 人已准备", HOST_JS)
+        self.assertIn('${readyCount} 人已准备', HOST_JS)
 
     def test_rest_transition_is_broadcast_and_rendered_on_both_clients(self):
         self.assertIn("Object.freeze({ short: 2200, long: 4400 })", HOST_JS)
@@ -238,16 +307,10 @@ class ClientParityTests(unittest.TestCase):
         self.assertIn("'mapReaction','restTransition'", PLAYER_HTML)
         self.assertIn('fallback=isLong?4400:2200', PLAYER_HTML)
 
-    def test_mounted_tokens_have_link_badges_and_player_pair_details(self):
-        for source in (HOST_CSS, PLAYER_HTML):
-            block = re.search(r'\.mount-chain-badge\s*\{([^}]+)\}', source)
-            self.assertIsNotNone(block)
-            css = re.sub(r'\s+', '', block.group(1))
-            self.assertIn('left:-3px', css)
-            self.assertIn('top:-3px', css)
-            self.assertIn('z-index:7', css)
-        self.assertIn("chainBadge.className = 'mount-chain-badge'", HOST_JS)
-        self.assertIn("chain.className='mount-chain-badge'", PLAYER_HTML)
+    def test_mounted_tokens_skip_map_badges_but_keep_player_pair_details(self):
+        self.assertNotIn('mount-chain-badge', HOST_CSS)
+        self.assertNotIn('mount-chain-badge', HOST_JS)
+        self.assertNotIn('mount-chain-badge', PLAYER_HTML)
         self.assertIn('id="detail-mounted-chain"', PLAYER_HTML)
         self.assertIn('function mountedDetailPair(', PLAYER_HTML)
         self.assertIn("mountedDetailUnitButton(pair.rider,'玩家')", PLAYER_HTML)
@@ -299,6 +362,84 @@ class ClientParityTests(unittest.TestCase):
         self.assertIn("Math.round(p.x/grid-.5)*grid+grid/2", body)
         self.assertIn('Math.hypot(p.x-intersections.x,p.y-intersections.y)', body)
         self.assertIn('方格交点或格心', PLAYER_HTML)
+
+    def test_player_can_undo_or_reset_the_authoritative_turn_path(self):
+        for element_id in ('turn-path-actions', 'turn-path-undo', 'turn-path-reset'):
+            self.assertIn(f'id="{element_id}"', PLAYER_HTML)
+        self.assertIn("runTurnPathAction('turnPathUndo')", PLAYER_HTML)
+        self.assertIn("runTurnPathAction('turnPathReset')", PLAYER_HTML)
+        player_action = function_body(PLAYER_HTML, 'runTurnPathAction', 'renderMap')
+        self.assertIn('tokenId:current.id', player_action)
+        self.assertNotIn('tokenId:anchor.id', player_action)
+        self.assertIn("a.op==='turnPathUndo'||a.op==='turnPathReset'", PLAYER_HTML)
+        self.assertIn("a.op === 'turnPathUndo' || a.op === 'turnPathReset'", HOST_JS)
+
+    def test_host_can_undo_or_reset_any_current_turn_path(self):
+        for element_id in ('host-turn-path-actions', 'btn-turn-path-undo', 'btn-turn-path-reset'):
+            self.assertIn(f'id="{element_id}"', HOST_HTML)
+        self.assertIn('function hostTurnPathContext(', HOST_JS)
+        self.assertIn('function updateHostTurnPathControls(', HOST_JS)
+        host_action = function_body(HOST_JS, 'applyHostTurnPathAction', 'worldTimeNow')
+        self.assertIn("op === 'turnPathUndo'", host_action)
+        self.assertIn("points.slice(0, -1)", host_action)
+        self.assertIn("points.slice(0, 1)", host_action)
+        self.assertIn('moveToken(context.anchor.id', host_action)
+        self.assertNotIn('.owner', host_action)
+        self.assertIn("a.pathMode !== 'replace'", HOST_JS)
+        self.assertIn('remoteStreamSeq < latestSeqAtResponse', HOST_JS)
+        self.assertIn('remoteStreamSeq > previouslyAppliedSeq && remotePathChanged', HOST_JS)
+
+    def test_drag_path_coalesces_a_tolerant_one_cell_corner_into_a_diagonal(self):
+        for source in (HOST_JS, PLAYER_HTML):
+            self.assertIn('TURN_DIAGONAL_MIN_STEP', source)
+            self.assertIn('TURN_DIAGONAL_MAX_STEP', source)
+            self.assertIn('function recordTurnDragPoint(', source)
+            body = function_body(source, 'recordTurnDragPoint', 'appendTurnPath')
+            self.assertIn('firstHorizontal', body)
+            self.assertIn('secondVertical', body)
+            self.assertIn('points[points.length - 1] = candidate', body.replace('points[points.length-1]', 'points[points.length - 1]'))
+        self.assertIn('recordTurnDragPoint(drag,{x:t.x,y:t.y},currentMap.gridSize,state.snap!==false)', PLAYER_HTML)
+        self.assertIn('recordTurnDragPoint(drag, { x: token.x, y: token.y }, m.gridSize, Boolean(state.snap))', HOST_JS)
+
+    def test_mount_group_conditions_decrement_together_on_all_three_surfaces(self):
+        host_body = function_body(HOST_JS, 'decrementCurrentTokenConditions', 'returnToCombatPreparationIfEmpty')
+        player_body = function_body(PLAYER_HTML, 'decrementCurrentTokenConditions', 'recordTurnDragPoint')
+        self.assertIn('tokenControlGroup(token)', host_body)
+        self.assertIn('activeTokens().forEach', host_body)
+        self.assertIn('tokenControlGroup(token)', player_body)
+        self.assertIn('(currentMap.tokens||[]).forEach', player_body)
+        self.assertIn('group_ids = token_control_group(state, token)', SERVER_PY)
+
+    def test_empty_initiative_returns_turn_mode_to_preparation(self):
+        empty_handler = function_body(HOST_JS, 'returnToCombatPreparationIfEmpty', 'advanceEncounter')
+        self.assertIn("e.playMode === 'turn'", empty_handler)
+        self.assertIn("e.playMode = 'prepare'", empty_handler)
+        self.assertIn('returnToCombatPreparationIfEmpty(e)', HOST_JS)
+        self.assertIn("e.worldTime.resumeAfterTurn || wasRunning", HOST_JS)
+        self.assertIn("if (e.worldTime.resumeAfterTurn) e.worldTime.runningSince", HOST_JS)
+        self.assertIn("e.playMode==='turn'&&(!Array.isArray(e.entries)||!e.entries.length)", PLAYER_HTML)
+        self.assertIn("encounter.get('playMode') == 'turn' and not (encounter.get('entries') or [])", SERVER_PY)
+
+    def test_weather_uses_markov_memory_and_server_authority(self):
+        for marker in (
+            'WEATHER_MARKOV_TRANSITIONS',
+            'WIND_MARKOV_TRANSITIONS',
+            'MAX_WEATHER_CATCHUP_DAYS',
+            'expectedTemperature * 0.65 + previous.temperature * 0.35',
+            'for (let day = firstDay; day <= currentDay; day += 1)',
+        ):
+            self.assertIn(marker, HOST_JS)
+        for marker in (
+            'WEATHER_MARKOV_TRANSITIONS',
+            'WIND_MARKOV_TRANSITIONS',
+            'MAX_WEATHER_CATCHUP_DAYS',
+            'expected * .65 + previous[\'temperature\'] * .35',
+            'for day in range(first_day, current_day + 1)',
+            "action['weather'] = dict(generated_weather)",
+        ):
+            self.assertIn(marker, SERVER_PY)
+        self.assertIn("if (a.weather && typeof a.weather === 'object')", HOST_JS)
+        self.assertIn("if(a.weather&&typeof a.weather==='object')", PLAYER_HTML)
 
 
 if __name__ == '__main__':
