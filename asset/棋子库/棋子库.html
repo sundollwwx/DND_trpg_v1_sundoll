@@ -112,6 +112,7 @@ main { flex:1; display:flex; min-height:0; }
 .hd-missing { border:1px solid var(--danger); background:rgba(231,78,94,.12); border-radius:10px; padding:10px 12px; font-size:12px; color:var(--text); line-height:1.7; max-height:22vh; overflow-y:auto; }
 .portrait-flow { width:520px; }
 .portrait-flow textarea { min-height:88px; resize:vertical; }
+#portrait-prompt { min-height:280px; }
 .portrait-preview { display:flex; align-items:center; gap:12px; padding:10px; border:1px solid var(--border); border-radius:10px; background:var(--panel2); }
 .portrait-preview img { width:84px; height:84px; border-radius:12px; object-fit:cover; border:1px solid var(--border); background:#141722; }
 .portrait-step { font-size:12px; color:var(--muted); line-height:1.6; }
@@ -239,12 +240,21 @@ main { flex:1; display:flex; min-height:0; }
     <h2>🎨 立绘工作台</h2>
     <div class="portrait-step">① 选择棋子并补充外观；② 复制提示词给 Codex 或图像模型绘制；③ 导入成图。工具会生成 2048px 原图缓存、512px 高清展示版和 192px 轻量版，并自动绑定棋子。</div>
     <select id="portrait-token"></select>
-    <select id="portrait-style">
-      <option value="暗黑奇幻写实插画">暗黑奇幻写实</option>
-      <option value="经典奇幻规则书插画">经典规则书风格</option>
-      <option value="精致日系奇幻插画">日系奇幻</option>
-      <option value="厚涂概念设计">厚涂概念设计</option>
-    </select>
+    <div class="row">
+      <select id="portrait-kind" title="立绘类型">
+        <option value="character">人物</option>
+        <option value="creature">生物</option>
+        <option value="mount">坐骑</option>
+        <option value="object">物件</option>
+        <option value="spell-construct">法术造物</option>
+      </select>
+      <select id="portrait-style" title="画面风格">
+        <option value="暗黑奇幻写实插画">暗黑奇幻写实</option>
+        <option value="经典奇幻规则书插画">经典规则书风格</option>
+        <option value="精致日系奇幻插画">日系奇幻</option>
+        <option value="厚涂概念设计">厚涂概念设计</option>
+      </select>
+    </div>
     <textarea id="portrait-notes" placeholder="外观补充，例如：灰绿色皮肤，破旧皮甲，右手弯刀，警惕神情"></textarea>
     <textarea id="portrait-prompt" readonly></textarea>
     <div class="row">
@@ -1209,22 +1219,77 @@ function portraitSelectedPreset() {
   return presets.find((p) => p.id === $('#portrait-token').value) || null;
 }
 
+const PORTRAIT_PROMPT_PROFILES = Object.freeze({
+  character: {
+    label: '人物',
+    placeholder: '外观补充，例如：年龄与体型，肤色与发型，服装材质，主武器，神情，代表性色彩',
+    direction: '单个人物全身立绘，正面或轻微四分之三视角；站姿和动作简洁有力，面部、头肩轮廓、主武器或标志性装备构成主要识别点。',
+    limits: '只出现一名人物；手部、武器与穿戴关系合理；不要遮挡面部，不要用大面积披风或特效吞没身体轮廓。'
+  },
+  creature: {
+    label: '生物',
+    placeholder: '外观补充，例如：体型，皮毛或鳞片颜色，角翼尾特征，攻击方式，姿态，代表性色彩',
+    direction: '单个完整生物，采用能说明身体结构的正面或四分之三视角；优先表现物种轮廓、头部、肢体比例以及角、翼、尾等关键特征。',
+    limits: '只出现一个生物；解剖结构和着地关系清楚；不要重复肢体，不要让翅膀、尾巴、角或主要武器出框。'
+  },
+  mount: {
+    label: '坐骑',
+    placeholder: '外观补充，例如：物种与体型，毛色或鳞色，鞍具缰具，阵营装饰，动态，代表性色彩',
+    direction: '单独展示一匹完整坐骑，使用侧前方四分之三视角；清楚表现头部、躯干、四肢、承载结构以及鞍具或缰具，姿态稳定并具有前进感。',
+    limits: '不要骑手或额外角色；鞍具必须符合身体结构；不要用扬尘、火焰或翅膀遮住腿部与承载位置。'
+  },
+  object: {
+    label: '物件',
+    placeholder: '外观补充，例如：材质，尺寸，结构，磨损程度，功能部件，魔法痕迹，代表性色彩',
+    direction: '单件物品的完整展示，采用略微俯视的三分之四视角；以外轮廓、材质分区和功能部件说明它是什么、如何使用。',
+    limits: '不要人物、手、容器外的额外道具或完整场景；不要用复杂装饰掩盖功能结构；允许轻微接触阴影帮助辨认体积。'
+  },
+  'spell-construct': {
+    label: '法术造物',
+    placeholder: '外观补充，例如：法术学派，能量颜色，实体或半透明形态，核心符号，动作，代表性光效',
+    direction: '单个法术造物，建立稳定、可一眼辨认的主体轮廓；用一个核心形态和一种主要能量效果表达法术性质，兼顾实体感与魔法感。',
+    limits: '不要施法者、施法者的身体部位或额外目标；不要让粒子、烟雾、光晕和符文覆盖主体轮廓；不要生成文字。'
+  }
+});
+
+function portraitKindFor(p) {
+  if (!p) return 'creature';
+  const category = String(p.category || '').split('/')[0].trim();
+  if (category === '坐骑') return 'mount';
+  if (category === '物件') return 'object';
+  if (category === '法术造物') return 'spell-construct';
+  if (category === '玩家' || category === 'NPC' || p.type === 'pc' || p.type === 'npc') return 'character';
+  return 'creature';
+}
+
+function syncPortraitKind() {
+  $('#portrait-kind').value = portraitKindFor(portraitSelectedPreset());
+}
+
 function portraitPromptFor(p) {
   if (!p) return '';
   const style = $('#portrait-style').value;
+  const profile = PORTRAIT_PROMPT_PROFILES[$('#portrait-kind').value] || PORTRAIT_PROMPT_PROFILES.creature;
   const notes = $('#portrait-notes').value.trim();
   const role = TYPE_META[p.type] ? TYPE_META[p.type].label : '角色';
   return [
     '用途：跑团地图棋子立绘。',
-    `主体：${p.name}，${p.category || '奇幻生物'}，${role}。${notes ? '外观要求：' + notes + '。' : ''}`,
-    `风格：${style}，西幻史诗厚涂写实，高细节，单角色全身，正面或轻微四分之三视角。`,
-    '构图：1:1 正方形；中央圆形区域约占画布 86%；角色、四肢、翅膀和装备完整收在圆内，并保留安全边距。',
-    '背景：圆内只使用暖色旧羊皮纸纹理；圆形以外必须是纯白色，不得延伸场景。',
-    '限制：不要文字、彩色外环、边框、UI、签名、水印，不要裁切头顶、武器或脚部，不要出现额外角色或卡通风格。'
+    `类型：${profile.label}。`,
+    `主体：${p.name}；分类：${p.category || '其他'}；阵营用途：${role}。`,
+    notes ? `外观要求：${notes}。` : '外观要求：依据主体名称和分类建立明确、克制、容易复现的造型。',
+    `主体表现：${profile.direction}`,
+    `风格：${style}，西幻规则书插画质感，厚涂写实，材质明确，细节服从整体轮廓和识别。`,
+    '圆形棋子适配：输出仍为 1:1 正方形，但最终会被界面放大并裁切成圆形。以画布中心、直径约占画布 86% 的无形圆形作为构图安全区；完整保留头顶、底部、四肢、角、翼、尾、武器和关键特效，全部关键辨识信息必须位于安全区内。安全区只是定位参考，不得画出圆形边缘。',
+    '小尺寸可读性：以最终圆形裁切效果检查；缩小到 192×192 时边缘、姿态和主要装备不能糊成一团，缩小到 64×64 时仍能辨认主体类别、朝向以及 1—2 个核心特征。使用清楚的剪影、大色块、明暗层级和单一色彩焦点，不依赖细碎纹样、微小饰品或密集粒子。',
+    '背景：整张方形画布连续铺满低信息量的浅暖旧纸色或柔和中性底，背景均匀并与主体形成清楚的明暗或冷暖对比；不要画出圆形底板、圆形边界、内外分区、外环、徽章框或场景化环境。',
+    `类型限制：${profile.limits}`,
+    '通用限制：不要文字、边框、UI、签名、水印、彩色装饰环或多格排版；不要裁切主体；不要添加未要求的角色、肢体或叙事元素。'
   ].join('\n');
 }
 
 function refreshPortraitPrompt() {
+  const profile = PORTRAIT_PROMPT_PROFILES[$('#portrait-kind').value] || PORTRAIT_PROMPT_PROFILES.creature;
+  $('#portrait-notes').placeholder = profile.placeholder;
   $('#portrait-prompt').value = portraitPromptFor(portraitSelectedPreset());
 }
 
@@ -1240,6 +1305,7 @@ function openPortraitFlow() {
     });
   $('#portrait-preview-row').hidden = true;
   $('#portrait-modal').hidden = false;
+  syncPortraitKind();
   refreshPortraitPrompt();
   loadPortraitDirHandle();
 }
@@ -1287,7 +1353,8 @@ function importPortraitFile(file) {
 $('#btn-portrait-flow').addEventListener('click', openPortraitFlow);
 $('#btn-portrait-close').addEventListener('click', () => { $('#portrait-modal').hidden = true; });
 $('#portrait-modal').addEventListener('click', (e) => { if (e.target === $('#portrait-modal')) $('#portrait-modal').hidden = true; });
-$('#portrait-token').addEventListener('change', refreshPortraitPrompt);
+$('#portrait-token').addEventListener('change', () => { syncPortraitKind(); refreshPortraitPrompt(); });
+$('#portrait-kind').addEventListener('change', refreshPortraitPrompt);
 $('#portrait-style').addEventListener('change', refreshPortraitPrompt);
 $('#portrait-notes').addEventListener('input', refreshPortraitPrompt);
 $('#btn-portrait-copy').addEventListener('click', copyPortraitPrompt);

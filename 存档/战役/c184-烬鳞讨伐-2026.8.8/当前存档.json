@@ -1,7 +1,7 @@
 {
   "format": "sangduoer-campaign",
   "schemaVersion": 4,
-  "savedAt": 1788496108165,
+  "savedAt": 1788497197022,
   "campaignId": "c184",
   "campaignName": "烬鳞讨伐-2026.8.8",
   "state": {
@@ -6972,11 +6972,11 @@
             },
             "conditions": [
               {
-                "id": "cond282",
-                "key": "unconscious",
-                "label": "昏迷",
-                "icon": "💤",
-                "color": "#9b8cff",
+                "id": "cond283",
+                "key": "petrified",
+                "label": "石化",
+                "icon": "🗿",
+                "color": "#a9b3bf",
                 "remainingTurns": 1,
                 "visibility": "public"
               }
@@ -7076,9 +7076,9 @@
           }
         ],
         "cam": {
-          "x": -2273.2721021190655,
-          "y": -1751.7363417339325,
-          "zoom": 2.8756949337277167
+          "x": -2607.8866948927352,
+          "y": -1996.5037535835363,
+          "zoom": 3.2696873251588934
         }
       },
       {
