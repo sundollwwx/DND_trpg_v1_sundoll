@@ -43,7 +43,28 @@ RECENT_ACTIONS = []   # 玩家动作（带自增 seq），用于主机合并
 NEXT_SEQ = 1
 MAX_RECENT = 500
 MAX_BODY = 12 * 1024 * 1024
-PATCH_FIELDS = {'hp', 'hpMax', 'ac', 'spellRange'}
+PATCH_FIELDS = {'hp', 'hpMax', 'ac', 'spellRange', 'conditions'}
+MAX_TOKEN_CONDITIONS = 20
+CONDITION_ID_RE = re.compile(r'^[A-Za-z0-9_.:-]{1,96}$')
+CONDITION_KEY_RE = re.compile(r'^[A-Za-z0-9_-]{1,32}$')
+CONDITION_COLOR_RE = re.compile(r'^#[0-9A-Fa-f]{6}$')
+CONDITION_META = {
+    'prone': ('倒地', '🛌', '#f4a261'),
+    'unconscious': ('昏迷', '💤', '#9b8cff'),
+    'incapacitated': ('失能', '🚫', '#b9c0cc'),
+    'blinded': ('目盲', '🙈', '#c6a97d'),
+    'deafened': ('耳聋', '🙉', '#c6a97d'),
+    'frightened': ('恐慌', '😨', '#d879ff'),
+    'charmed': ('魅惑', '💗', '#ff8fb3'),
+    'poisoned': ('中毒', '☠️', '#79c267'),
+    'grappled': ('擒抱', '✊', '#d99b62'),
+    'restrained': ('束缚', '⛓️', '#d99b62'),
+    'stunned': ('眩晕', '💫', '#ffd166'),
+    'petrified': ('石化', '🗿', '#a9b3bf'),
+    'invisible': ('隐形', '👻', '#8fbaff'),
+    'concentrating': ('专注', '🎯', '#68d9c0'),
+    'burning': ('燃烧', '🔥', '#ef6c45'),
+}
 MAX_MOVE_POINTS = 60
 MAX_TURN_PATH_POINTS = 200
 MAX_ACTION_BODY = 512 * 1024
@@ -132,6 +153,59 @@ def normalize_spell_range(raw):
     direction_number = finite_number(source.get('direction'))
     direction = int(round((direction_number if direction_number is not None else 0) / 5.0) * 5) % 360
     return {'shape': shape, 'feet': feet, 'direction': direction}
+
+
+def normalize_public_condition(raw):
+    """把玩家提交的单个状态收敛为公开、有限且可安全广播的数据。"""
+    if not isinstance(raw, dict):
+        return None
+    raw_key = str(raw.get('key') or 'custom').strip()
+    key = raw_key if CONDITION_KEY_RE.fullmatch(raw_key) else 'custom'
+    meta = CONDITION_META.get(key)
+    if meta:
+        label, icon, color = meta
+    else:
+        key = 'custom'
+        label = str(raw.get('label') or '').strip()[:24]
+        icon = str(raw.get('icon') or '◆').strip()[:4] or '◆'
+        raw_color = str(raw.get('color') or '').strip()
+        color = raw_color if CONDITION_COLOR_RE.fullmatch(raw_color) else '#a8b3c7'
+    if not label:
+        return None
+    condition_id = str(raw.get('id') or '').strip()
+    if not CONDITION_ID_RE.fullmatch(condition_id):
+        condition_id = 'cond-' + secrets.token_hex(8)
+    raw_turns = raw.get('remainingTurns')
+    turns_number = None if raw_turns in (None, '') else finite_number(raw_turns)
+    remaining_turns = None
+    if turns_number is not None and turns_number > 0:
+        remaining_turns = max(1, min(999, int(turns_number)))
+    return {
+        'id': condition_id,
+        'key': key,
+        'label': label,
+        'icon': icon,
+        'color': color,
+        'remainingTurns': remaining_turns,
+        'visibility': 'public',
+    }
+
+
+def normalize_public_conditions(raw):
+    """校验玩家状态数组；非数组拒绝，非法条目过滤，最多保留 20 项。"""
+    if not isinstance(raw, list):
+        return None
+    result = []
+    seen_ids = set()
+    for item in raw[:MAX_TOKEN_CONDITIONS]:
+        condition = normalize_public_condition(item)
+        if not condition:
+            continue
+        if condition['id'] in seen_ids:
+            condition['id'] = 'cond-' + secrets.token_hex(8)
+        seen_ids.add(condition['id'])
+        result.append(condition)
+    return result
 
 
 def normalize_roll_action(action, name):
@@ -781,6 +855,8 @@ def apply_action(state, action):
         replay_allowed, _ = can_act_with_token(state, t, actor, action)
         if not replay_allowed:
             return False
+    if op in ('moveToken', 'patchToken') and action.get('mapId') is not None and action.get('mapId') != m.get('id'):
+        return False
     if op == 'patchToken':
         encounter = encounter_state(state)
         current_mode = 'turn' if encounter.get('playMode') == 'turn' else 'free'
@@ -821,6 +897,13 @@ def apply_action(state, action):
                 t[k] = normalize_spell_range(v)
                 patch[k] = dict(t[k])
                 accepted = True
+            elif k == 'conditions':
+                public_conditions = normalize_public_conditions(v)
+                if public_conditions is not None:
+                    t[k] = public_conditions
+                    # 广播经过服务器校验的版本，避免客户端把额外字段带给主控台。
+                    patch[k] = [dict(condition) for condition in public_conditions]
+                    accepted = True
         return accepted
     if op == 'moveToken':
         t = movement_anchor(m, t)
@@ -1487,7 +1570,7 @@ class Handler(SimpleHTTPRequestHandler):
                         if not allowed:
                             self._send_json({'ok': False, 'error': reason}, 409 if reason == '回合已经变化，请重新操作' else 403)
                             return
-                        if action.get('op') == 'moveToken' and action.get('mapId') is not None and action.get('mapId') != map_obj.get('id'):
+                        if action.get('mapId') is not None and action.get('mapId') != map_obj.get('id'):
                             self._send_json({'ok': False, 'error': '地图与棋子不匹配'}, 400)
                             return
                         # 记录动作原始玩家，主机快照并发覆盖后重放时会重新核对最新归属。

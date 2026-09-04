@@ -2865,18 +2865,79 @@ html.condition-pixels-ready .token-condition-badge[data-condition-icon]::before 
 }
 
 .init-bar-add {
-  display: flex;
-  gap: 4px;
-  align-items: center;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(112px, auto);
+  gap: 6px;
+  align-items: end;
 }
 
-.init-bar-add input:first-child {
-  flex: 1;
+.init-selected-token {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 5px 7px;
+  border: 1px solid color-mix(in srgb, var(--initiative-token-color, var(--border)) 45%, var(--border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--initiative-token-color, #263041) 8%, rgba(19, 22, 30, .86));
+}
+
+.init-selected-token.empty {
+  --initiative-token-color: #596477;
+  border-style: dashed;
+}
+
+.init-selected-icon {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid color-mix(in srgb, var(--initiative-token-color) 70%, white 5%);
+  border-radius: 50%;
+  background: rgba(10, 12, 17, .58);
+  font-size: 16px;
+  line-height: 1;
+}
+
+.init-selected-copy {
+  display: grid;
+  gap: 1px;
   min-width: 0;
 }
 
-.init-bar-add input:nth-child(2) {
-  width: 60px;
+.init-selected-copy strong,
+.init-selected-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.init-selected-copy strong { color: var(--text); font-size: 12px; }
+.init-selected-copy small { color: var(--muted); font-size: 9px; }
+.init-selected-token.empty .init-selected-copy strong { color: var(--muted); }
+
+.init-value-field {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.init-value-field input {
+  width: 100%;
+  min-width: 0;
+  height: 29px;
+  box-sizing: border-box;
+}
+
+.init-bar-add > button {
+  min-height: 29px;
+  padding: 5px 8px;
+  white-space: nowrap;
 }
 
 .init-actions {
@@ -2938,6 +2999,11 @@ html.condition-pixels-ready .token-condition-badge[data-condition-icon]::before 
   box-shadow: 0 0 0 1px rgba(224, 179, 76, .35), 0 2px 10px rgba(224, 179, 76, .18);
 }
 
+.init-chip.unlinked {
+  border-left-color: #d87986;
+  background: linear-gradient(180deg, rgba(74, 37, 45, .72), #29232b);
+}
+
 .init-dot {
   width: 9px;
   height: 9px;
@@ -2958,6 +3024,15 @@ html.condition-pixels-ready .token-condition-badge[data-condition-icon]::before 
   min-width: 26px;
   text-align: center;
   font-size: 15px;
+}
+
+.init-chip-warning {
+  padding: 2px 5px;
+  border-radius: 999px;
+  background: rgba(216, 121, 134, .14);
+  color: #efa0ab;
+  font-size: 9px;
+  font-weight: 700;
 }
 
 .init-chip-del {
@@ -3111,6 +3186,7 @@ html.condition-pixels-ready .token-condition-badge[data-condition-icon]::before 
 .init-chip-name { grid-column: 3; }
 .init-chip-val { grid-column: 4; }
 .init-chip-current { grid-column: 5; }
+.init-chip-warning { grid-column: 5; }
 .init-chip-del { grid-column: 6; }
 
 .time-climate-panel {

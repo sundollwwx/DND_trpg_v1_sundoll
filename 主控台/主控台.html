@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>桑哆尔 · 跑团台</title>
   <link rel="preload" as="image" href="../asset/界面/状态图标-v1.png">
-  <link rel="stylesheet" href="style.css?v=20260904-m34-rest-mount-snap">
+  <link rel="stylesheet" href="style.css?v=20260904-m35-initiative-binding">
 </head>
 <body>
 
@@ -326,8 +326,14 @@
           </div>
           <div class="initiative-setup-card">
             <span class="initiative-eyebrow">添加与管理</span>
-            <div class="init-bar-add"><input id="init-name" placeholder="单位名称"><input id="init-value" type="number" placeholder="先攻"></div>
-            <div class="init-actions"><button id="btn-init-add">＋ 手动加入</button></div>
+            <div id="init-selected-token" class="init-selected-token empty" aria-live="polite">
+              <span id="init-selected-icon" class="init-selected-icon" aria-hidden="true">◎</span>
+              <span class="init-selected-copy"><strong id="init-selected-name">未选择棋子</strong><small id="init-selected-meta">请先点击地图上的棋子</small></span>
+            </div>
+            <div class="init-bar-add">
+              <label class="init-value-field" for="init-value"><span>先攻</span><input id="init-value" type="number" min="-999" max="999" step="1" inputmode="numeric" placeholder="数值"></label>
+              <button id="btn-init-add" type="button" disabled>＋ 加入先攻</button>
+            </div>
             <div class="init-actions"><button id="btn-init-reset-round">↺ 重置轮次</button><button id="btn-init-clear" class="init-clear-button" type="button">清空列表</button></div>
           </div>
           <div class="initiative-order-card">
@@ -653,6 +659,6 @@
 <script src="../three.min.js"></script>
 <script src="../骰子动画.js?v=20260904-physics-v7-face-lock-continuous-settle-r6-uv-handedness-r7-result-focus-r8-adaptive20"></script>
 <script src="../asset/地图/tile-renderer.js?v=20260902-explicit-variants"></script>
-  <script src="app.js?v=20260904-m34-rest-mount-snap"></script>
+  <script src="app.js?v=20260904-m36-player-conditions"></script>
 </body>
 </html>

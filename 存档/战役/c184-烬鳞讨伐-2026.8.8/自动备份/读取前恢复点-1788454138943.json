@@ -1,7 +1,7 @@
 {
   "format": "sangduoer-campaign",
   "schemaVersion": 4,
-  "savedAt": 1788496108165,
+  "savedAt": 1788454138943,
   "campaignId": "c184",
   "campaignName": "烬鳞讨伐-2026.8.8",
   "state": {
@@ -5759,10 +5759,7 @@
           "21,14": "marked",
           "22,15": "marked",
           "23,15": "marked",
-          "11,13": "marked",
-          "12,11": "marked",
-          "16,12": "marked",
-          "14,19": "marked"
+          "11,13": "marked"
         },
         "cellVariants": {},
         "baseCells": [
@@ -7076,9 +7073,9 @@
           }
         ],
         "cam": {
-          "x": -2273.2721021190655,
-          "y": -1751.7363417339325,
-          "zoom": 2.8756949337277167
+          "x": -732.8577254596889,
+          "y": -631.907415086893,
+          "zoom": 1.3182358443007587
         }
       },
       {
@@ -8869,41 +8866,32 @@
       }
     ],
     "sharedNotes": "",
-    "selectedId": "t278",
+    "selectedId": null,
     "encounter": {
       "collapsed": false,
       "panel": "initiative",
-      "playMode": "turn",
+      "playMode": "free",
       "round": 1,
-      "currentEntryId": "i282",
-      "turnSerial": 202,
+      "currentEntryId": null,
+      "turnSerial": 199,
       "secondsPerRound": 6,
-      "entries": [
-        {
-          "id": "i282",
-          "name": "潘塞尔",
-          "value": 10,
-          "color": "#5b8cff",
-          "tokenId": "t281",
-          "order": 1788495957884
-        }
-      ],
+      "entries": [],
       "worldTime": {
-        "totalSeconds": 118920,
+        "totalSeconds": 28920,
         "runningSince": null,
         "rate": 1,
         "resumeAfterTurn": false
       },
       "weather": {
         "climate": "temperate",
-        "condition": "clear",
-        "temperature": 18,
+        "condition": "rain",
+        "temperature": 12,
         "wind": "breeze",
-        "generatedDay": 1
+        "generatedDay": 0
       },
       "lastEvent": {
-        "label": "战斗开始：潘塞尔 先行动",
-        "at": 1788495958734
+        "label": "已切换为自由模式",
+        "at": 1788412451101
       }
     }
   }

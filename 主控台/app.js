@@ -706,6 +706,180 @@ function scrollCurrentInitiativeIntoView(list, e) {
   });
 }
 
+function mountedInitiativeGroup(token) {
+  const m = activeMap();
+  if (!m || !token) return { mount: null, riders: [], tokens: token ? [token] : [] };
+  const tokens = Array.isArray(m.tokens) ? m.tokens : [];
+  const mount = token.mountId
+    ? tokens.find((candidate) => candidate.id === token.mountId) || null
+    : (tokens.some((candidate) => candidate.mountId === token.id) ? token : null);
+  if (!mount) return { mount: null, riders: [], tokens: [token] };
+  const riders = tokens.filter((candidate) => candidate.mountId === mount.id);
+  return { mount, riders, tokens: [mount, ...riders] };
+}
+
+function initiativeGroupLabel(token, representative = token) {
+  if (!token) return '未命名单位';
+  const group = mountedInitiativeGroup(token);
+  if (!group.mount || !group.riders.length) return token.name || '未命名单位';
+  const lead = representative && representative.id !== group.mount.id
+    ? representative : group.riders[0];
+  const riderLabel = group.riders.length > 1
+    ? `${lead.name || '骑手'} 等 ${group.riders.length} 人`
+    : (lead.name || '骑手');
+  return `${riderLabel} · ${group.mount.name || '坐骑'}`;
+}
+
+function initiativeEntryToken(entry) {
+  return entry?.tokenId ? findToken(String(entry.tokenId)) : null;
+}
+
+function initiativeEntryForToken(e, token) {
+  if (!e || !token) return null;
+  const groupIds = tokenControlGroup(token);
+  return e.entries.find((entry) => entry?.tokenId && groupIds.has(String(entry.tokenId))) || null;
+}
+
+function initiativeRepresentativeForSelection(token, existingEntry = null) {
+  const group = mountedInitiativeGroup(token);
+  if (!group.mount) return { token, label: initiativeGroupLabel(token, token), error: null };
+  // 选中骑手时，以这个骑手作为权限主体；实际移动仍会落到坐骑锚点。
+  if (token.mountId) return { token, label: initiativeGroupLabel(token, token), error: null };
+
+  const existingToken = initiativeEntryToken(existingEntry);
+  if (existingToken && existingToken.id !== group.mount.id
+    && group.tokens.some((candidate) => candidate.id === existingToken.id)) {
+    return { token: existingToken, label: initiativeGroupLabel(existingToken, existingToken), error: null };
+  }
+  if (String(group.mount.owner || '').trim()) {
+    return { token: group.mount, label: initiativeGroupLabel(group.mount, group.mount), error: null };
+  }
+  const ownedRiders = group.riders.filter((rider) => String(rider.owner || '').trim());
+  const owners = new Set(ownedRiders.map((rider) => String(rider.owner).trim()));
+  if (owners.size === 1) {
+    const representative = ownedRiders[0];
+    return { token: representative, label: initiativeGroupLabel(representative, representative), error: null };
+  }
+  if (owners.size > 1) {
+    return {
+      token: null,
+      label: initiativeGroupLabel(group.mount, group.riders[0]),
+      error: '这匹坐骑上有多名不同玩家，请选中本次代表行动的骑手再加入先攻',
+    };
+  }
+  return { token: group.mount, label: initiativeGroupLabel(group.mount, group.mount), error: null };
+}
+
+function reconcileInitiativeEntries({ linkLegacyNames = false } = {}) {
+  const e = encounterState();
+  let linked = 0;
+  let merged = 0;
+  let changed = false;
+  const tokens = activeTokens();
+
+  if (linkLegacyNames) {
+    e.entries.forEach((entry) => {
+      if (!entry || entry.tokenId) return;
+      const name = String(entry.name || '').trim();
+      const matches = tokens.filter((token) => String(token.name || '').trim() === name);
+      if (matches.length !== 1) return;
+      const subject = initiativeRepresentativeForSelection(matches[0]);
+      if (!subject.token || subject.error) return;
+      entry.tokenId = subject.token.id;
+      entry.name = subject.label;
+      entry.color = (TYPE_META[subject.token.type] || TYPE_META.npc).ring;
+      linked += 1;
+      changed = true;
+    });
+  }
+
+  const normalized = [];
+  e.entries.forEach((entry) => {
+    const token = initiativeEntryToken(entry);
+    if (!token) {
+      normalized.push(entry);
+      return;
+    }
+    const label = initiativeGroupLabel(token, token);
+    const color = (TYPE_META[token.type] || TYPE_META.npc).ring;
+    if (entry.name !== label || entry.color !== color) changed = true;
+    entry.name = label;
+    entry.color = color;
+    const groupIds = tokenControlGroup(token);
+    const duplicateIndex = normalized.findIndex((candidate) => {
+      const candidateToken = initiativeEntryToken(candidate);
+      return candidateToken && groupIds.has(candidateToken.id);
+    });
+    if (duplicateIndex < 0) {
+      normalized.push(entry);
+      return;
+    }
+
+    const previous = normalized[duplicateIndex];
+    const keepCurrent = entry.id === e.currentEntryId && previous.id !== e.currentEntryId;
+    const keeper = keepCurrent ? entry : previous;
+    const discarded = keepCurrent ? previous : entry;
+    const keeperToken = initiativeEntryToken(keeper);
+    const discardedToken = initiativeEntryToken(discarded);
+    if ((!keeperToken || !String(keeperToken.owner || '').trim())
+      && discardedToken && String(discardedToken.owner || '').trim()) {
+      keeper.tokenId = discardedToken.id;
+    }
+    const finalToken = initiativeEntryToken(keeper);
+    if (finalToken) {
+      keeper.name = initiativeGroupLabel(finalToken, finalToken);
+      keeper.color = (TYPE_META[finalToken.type] || TYPE_META.npc).ring;
+    }
+    normalized[duplicateIndex] = keeper;
+    if (e.currentEntryId === discarded.id) e.currentEntryId = keeper.id;
+    merged += 1;
+    changed = true;
+  });
+
+  e.entries = normalized;
+  sortInitiativeEntries(e);
+  if (e.playMode === 'turn' && !e.entries.some((entry) => entry.id === e.currentEntryId)) {
+    e.currentEntryId = e.entries[0]?.id || null;
+    changed = true;
+  } else if (e.playMode !== 'turn' && e.currentEntryId !== null) {
+    e.currentEntryId = null;
+    changed = true;
+  }
+  return { linked, merged, changed };
+}
+
+function renderInitiativeSelection() {
+  const card = $('#init-selected-token');
+  const button = $('#btn-init-add');
+  if (!card || !button) return;
+  const icon = $('#init-selected-icon');
+  const name = $('#init-selected-name');
+  const meta = $('#init-selected-meta');
+  const token = state.selectedId ? findToken(state.selectedId) : null;
+  if (!token) {
+    card.classList.add('empty');
+    card.style.setProperty('--initiative-token-color', '#596477');
+    icon.textContent = '◎';
+    name.textContent = '未选择棋子';
+    meta.textContent = '请先点击地图上的棋子';
+    button.disabled = true;
+    button.textContent = '＋ 加入先攻';
+    return;
+  }
+  const type = TYPE_META[token.type] || TYPE_META.npc;
+  const group = mountedInitiativeGroup(token);
+  const existing = initiativeEntryForToken(encounterState(), token);
+  card.classList.remove('empty');
+  card.style.setProperty('--initiative-token-color', type.ring);
+  icon.textContent = token.icon || type.defaultIcon;
+  name.textContent = initiativeGroupLabel(token, token);
+  meta.textContent = existing
+    ? `${group.mount ? '骑乘组 · ' : ''}已在先攻（${existing.value}）`
+    : `${type.label}${group.mount ? ' · 骑手与坐骑共用一项' : ''}`;
+  button.disabled = false;
+  button.textContent = existing ? '↻ 更新先攻' : '＋ 加入先攻';
+}
+
 function addInitiativeEntry(e, { name, value, color = '#e0b34c', tokenId = null }) {
   const entry = {
     id: `i${uid++}`,
@@ -719,6 +893,42 @@ function addInitiativeEntry(e, { name, value, color = '#e0b34c', tokenId = null 
   sortInitiativeEntries(e);
   if (e.playMode === 'turn' && !e.currentEntryId) e.currentEntryId = entry.id;
   return entry;
+}
+
+function upsertSelectedInitiativeEntry() {
+  const token = state.selectedId ? findToken(state.selectedId) : null;
+  if (!token) { toast('请先在地图上选择一个棋子'); return; }
+  const input = $('#init-value');
+  const rawValue = String(input.value || '').trim();
+  const numericValue = Number(rawValue);
+  if (!rawValue || !Number.isFinite(numericValue)) { toast('请输入先攻值'); input.focus(); return; }
+  const e = encounterState();
+  const existing = initiativeEntryForToken(e, token);
+  const subject = initiativeRepresentativeForSelection(token, existing);
+  if (!subject.token || subject.error) { toast(subject.error || '无法关联这个棋子'); return; }
+  const value = clamp(Math.trunc(numericValue), -999, 999);
+  let entry = existing;
+  let verb = '加入';
+  if (entry) {
+    entry.name = subject.label;
+    entry.value = value;
+    entry.color = (TYPE_META[subject.token.type] || TYPE_META.npc).ring;
+    entry.tokenId = subject.token.id;
+    sortInitiativeEntries(e);
+    verb = '更新';
+  } else {
+    entry = addInitiativeEntry(e, {
+      name: subject.label,
+      value,
+      color: (TYPE_META[subject.token.type] || TYPE_META.npc).ring,
+      tokenId: subject.token.id,
+    });
+  }
+  if (e.playMode !== 'free') bumpEncounterTurn(e);
+  input.value = '';
+  setEncounterEvent(e, `${verb}先攻单位：${subject.label}（${entry.value}）`);
+  renderEncounter();
+  scheduleAutosave();
 }
 
 function pruneInitiativeTokenRefs(tokenIds) {
@@ -743,7 +953,7 @@ function pruneInitiativeTokenRefs(tokenIds) {
 function initiativeEntryLabel(entry) {
   if (entry && entry.tokenId) {
     const token = activeTokens().find((candidate) => candidate.id === entry.tokenId);
-    if (token && token.name) return token.name;
+    if (token) return initiativeGroupLabel(token, token);
   }
   return entry?.name || '未命名单位';
 }
@@ -861,13 +1071,21 @@ function renderEncounter() {
     list.innerHTML = '<span class="init-empty">添加单位后开始回合</span>';
   } else {
     e.entries.forEach((entry, index) => {
+      const linkedToken = initiativeEntryToken(entry);
+      const unlinked = !linkedToken;
       const chip = document.createElement('div');
       const currentClass = inTurn && entry.id === e.currentEntryId ? ' current' : '';
-      chip.className = `init-chip${currentClass}`;
+      chip.className = `init-chip${currentClass}${unlinked ? ' unlinked' : ''}`;
       chip.dataset.entryId = entry.id;
-      chip.innerHTML = `<span class="init-chip-order">${index + 1}</span><span class="init-dot" style="background:${entry.color || '#e0b34c'}"></span><span class="init-chip-name">${esc(initiativeEntryLabel(entry))}</span><span class="init-chip-val">${entry.value}</span>${currentClass ? '<span class="init-chip-current">行动中</span>' : ''}`;
-      chip.title = inTurn ? '设为当前行动单位' : (preparing ? '战斗准备中' : '进入战斗后可指定当前行动单位');
+      const status = unlinked
+        ? '<span class="init-chip-warning">未关联</span>'
+        : (currentClass ? '<span class="init-chip-current">行动中</span>' : '');
+      chip.innerHTML = `<span class="init-chip-order">${index + 1}</span><span class="init-dot" style="background:${entry.color || '#e0b34c'}"></span><span class="init-chip-name">${esc(initiativeEntryLabel(entry))}</span><span class="init-chip-val">${entry.value}</span>${status}`;
+      chip.title = unlinked
+        ? '旧先攻项没有关联地图棋子，请移除后重新通过选中棋子加入'
+        : (inTurn ? '设为当前行动单位' : (preparing ? '战斗准备中' : '进入战斗后可指定当前行动单位'));
       chip.addEventListener('click', () => {
+        if (unlinked) { toast('这个先攻项没有关联棋子，请移除后重新加入'); return; }
         if (e.playMode !== 'turn') { toast('切换到回合制后才能指定当前行动单位'); return; }
         if (e.currentEntryId === entry.id) return;
         e.currentEntryId = entry.id;
@@ -896,6 +1114,7 @@ function renderEncounter() {
   list.scrollTop = previousScrollTop;
   scrollCurrentInitiativeIntoView(list, e);
   renderTurnPath();
+  renderInitiativeSelection();
   const selected = state.selectedId ? findToken(state.selectedId) : null;
   if (selected) updateDetailContext(selected);
 }
@@ -964,6 +1183,13 @@ function startCombat() {
   const e = encounterState();
   if (e.playMode !== 'prepare') return;
   if (!e.entries.length) { toast('请先把单位加入先攻列表'); return; }
+  reconcileInitiativeEntries({ linkLegacyNames: true });
+  const unlinked = e.entries.filter((entry) => !initiativeEntryToken(entry));
+  if (unlinked.length) {
+    renderEncounter();
+    toast(`有 ${unlinked.length} 个先攻项未关联棋子，请移除后重新加入`);
+    return;
+  }
   sortInitiativeEntries(e);
   const wasRunning = Boolean(e.worldTime.runningSince);
   materializeWorldTime(e);
@@ -1196,6 +1422,7 @@ function switchMap(id) {
   syncBoardTools();
   syncMapSelect();
   applyActiveMap();
+  renderEncounter();
   scheduleAutosave();
 }
 
@@ -3202,6 +3429,25 @@ function normalizeCondition(condition) {
   };
 }
 
+function mergePlayerPublicConditions(localConditions, remoteConditions) {
+  // 玩家端从未收到 GM 私密状态；合并时必须先保住它们，再替换公开部分。
+  const privateConditions = (Array.isArray(localConditions) ? localConditions : [])
+    .filter((condition) => condition && condition.visibility === 'gm')
+    .slice(0, 20)
+    .map((condition) => normalizeCondition({ ...condition, visibility: 'gm' }));
+  const remainingSlots = Math.max(0, 20 - privateConditions.length);
+  const usedIds = new Set(privateConditions.map((condition) => condition.id));
+  const publicConditions = (Array.isArray(remoteConditions) ? remoteConditions : [])
+    .slice(0, remainingSlots)
+    .map((condition) => normalizeCondition({ ...condition, visibility: 'public' }))
+    .map((condition) => {
+      if (usedIds.has(condition.id)) condition.id = `cond${uid++}`;
+      usedIds.add(condition.id);
+      return condition;
+    });
+  return [...privateConditions, ...publicConditions];
+}
+
 function normalizeSpellRange(raw) {
   const source = raw && typeof raw === 'object' ? raw : {};
   const shape = source.shape === 'radius' || source.shape === 'cone' ? source.shape : 'off';
@@ -3375,6 +3621,7 @@ function renderTokens() {
   renderNamesLayer();
   renderSpellRanges();
   refreshAvatarLOD();
+  renderInitiativeSelection();
 }
 
 function drawTurnPath(ctx, points, color, dashed) {
@@ -3657,7 +3904,9 @@ function mountRider(riderId, mountId) {
   rider.mountId = mount.id;
   rider.x = mount.x;
   rider.y = mount.y;
-  if (encounterState().playMode === 'turn' && invalidatesTurn) bumpEncounterTurn(encounterState());
+  const e = encounterState();
+  const repaired = reconcileInitiativeEntries();
+  if (e.playMode !== 'free' && (invalidatesTurn || repaired.changed)) bumpEncounterTurn(e);
   renderTokens();
   renderEncounter();
   updateDetail();
@@ -3671,7 +3920,9 @@ function dismountRider(riderId) {
   const mount = findToken(rider.mountId);
   const invalidatesTurn = currentTurnIncludesToken(rider.id) || (mount && currentTurnIncludesToken(mount.id));
   rider.mountId = null;
-  if (encounterState().playMode === 'turn' && invalidatesTurn) bumpEncounterTurn(encounterState());
+  const e = encounterState();
+  reconcileInitiativeEntries();
+  if (e.playMode !== 'free' && invalidatesTurn) bumpEncounterTurn(e);
   renderTokens();
   renderEncounter();
   updateDetail();
@@ -4869,6 +5120,16 @@ function applySavedState(s) {
       state.activeMapId = legacy.id;
     }
     state.showGrid = mapGridVisible(mapById(state.activeMapId));
+    // 旧版手动先攻只有名字；仅在当前地图存在唯一同名棋子时自动补上关联。
+    // 骑手和坐骑若曾分别存在，也会在这里安全合并为同一个先攻项。
+    reconcileInitiativeEntries({ linkLegacyNames: true });
+    const unlinkedInitiativeEntries = state.encounter.entries.filter((entry) => !initiativeEntryToken(entry));
+    if (state.encounter.playMode === 'turn' && unlinkedInitiativeEntries.length) {
+      state.encounter.playMode = 'prepare';
+      state.encounter.currentEntryId = null;
+      bumpEncounterTurn(state.encounter);
+      setEncounterEvent(state.encounter, `旧先攻中有 ${unlinkedInitiativeEntries.length} 项未关联棋子，请重新加入后开始战斗`);
+    }
 
     const ids = state.maps.flatMap((m) => [m.id, ...m.tokens.map((t) => t.id)])
       .map((id) => parseInt(String(id).replace(/\D/g, ''), 10) || 0)
@@ -5829,18 +6090,7 @@ function bindEvents() {
     });
   });
   $('#btn-combat-start').addEventListener('click', startCombat);
-  $('#btn-init-add').addEventListener('click', () => {
-    const name = $('#init-name').value.trim();
-    if (!name) { toast('请输入单位名称'); return; }
-    const e = encounterState();
-    const entry = addInitiativeEntry(e, { name, value: parseInt($('#init-value').value, 10) || 0 });
-    if (e.playMode === 'turn' && !e.currentEntryId) e.currentEntryId = entry.id;
-    if (e.playMode !== 'free') bumpEncounterTurn(e);
-    $('#init-name').value = ''; $('#init-value').value = '';
-    setEncounterEvent(e, `加入先攻单位：${entry.name}`);
-    renderEncounter(); scheduleAutosave();
-  });
-  $('#init-name').addEventListener('keydown', (event) => { if (event.key === 'Enter') $('#btn-init-add').click(); });
+  $('#btn-init-add').addEventListener('click', upsertSelectedInitiativeEntry);
   $('#init-value').addEventListener('keydown', (event) => { if (event.key === 'Enter') $('#btn-init-add').click(); });
   $('#btn-init-next').addEventListener('click', advanceEncounter);
   $('#btn-init-reset-round').addEventListener('click', resetEncounterRound);
@@ -6503,9 +6753,18 @@ function applyRemoteAction(a) {
     const p = a.patch || {};
     const allowed = ['hp', 'hpMax', 'ac', 'spellRange'];
     allowed.forEach((k) => { if (k in p) t[k] = p[k]; });
+    const playerUpdatedConditions = Object.prototype.hasOwnProperty.call(p, 'conditions');
+    if (playerUpdatedConditions) t.conditions = mergePlayerPublicConditions(t.conditions, p.conditions);
     normalizeSheet(t);
     renderTokens();
     if (state.selectedId === t.id) updateDetail();
+    if (playerUpdatedConditions) {
+      const actor = String(a.actor || '玩家').slice(0, 24);
+      const publicCount = (t.conditions || []).filter((condition) => condition.visibility !== 'gm').length;
+      setEncounterEvent(encounter, `${actor} 更新了「${t.name}」的状态效果`);
+      renderEncounter();
+      toast(`🩺 ${actor} 更新了「${t.name}」的状态效果（${publicCount} 项）`);
+    }
   }
   scheduleAutosave(false);
 }
@@ -6563,6 +6822,7 @@ async function mergePlayerStateFromServer() {
         ['hp', 'hpMax', 'ac', 'spellRange'].forEach((k) => {
           if (k in rs) t[k] = rs[k];
         });
+        if ('conditions' in rs) t.conditions = mergePlayerPublicConditions(t.conditions, rs.conditions);
         t.spellRange = normalizeSpellRange(t.spellRange);
         if (t.size >= 2) syncRiderData(t);
         changed = true;

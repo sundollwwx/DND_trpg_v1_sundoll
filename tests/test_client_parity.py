@@ -63,6 +63,54 @@ class ClientParityTests(unittest.TestCase):
         self.assertIn("condition.visibility === 'gm' ? ' · 仅 GM' : ''", HOST_JS)
         self.assertIn("filter(condition=>condition.visibility!=='gm')", PLAYER_HTML)
 
+    def test_player_sidebars_use_clear_workspace_and_detail_categories(self):
+        self.assertEqual(attribute_values(PLAYER_HTML, 'data-player-workspace-tab'), {
+            'room', 'tools', 'draw', 'resources',
+        })
+        self.assertEqual(attribute_values(PLAYER_HTML, 'data-player-workspace'), {
+            'room', 'tools', 'draw', 'resources',
+        })
+        self.assertEqual(attribute_values(PLAYER_HTML, 'data-player-detail-tab'), {
+            'status', 'tactics', 'notes',
+        })
+        self.assertEqual(attribute_values(PLAYER_HTML, 'data-player-detail-panel'), {
+            'status', 'tactics', 'notes',
+        })
+        self.assertIn('function activatePlayerWorkspace(', PLAYER_HTML)
+        self.assertIn('function activatePlayerDetailTab(', PLAYER_HTML)
+
+    def test_player_can_edit_only_public_conditions_and_host_is_notified(self):
+        for element_id in (
+            'player-condition-open',
+            'player-condition-editor',
+            'player-condition-select',
+            'player-condition-custom-name',
+            'player-condition-turns',
+            'player-condition-save',
+        ):
+            self.assertIn(f'id="{element_id}"', PLAYER_HTML)
+        self.assertNotIn('data-player-condition-visibility', PLAYER_HTML)
+        self.assertIn("visibility:'public'", PLAYER_HTML)
+
+        apply_conditions = function_body(
+            PLAYER_HTML, 'applyPlayerConditions', 'savePlayerCondition'
+        )
+        self.assertIn('ownedToken(t)', apply_conditions)
+        self.assertIn('canActWithToken(t)', apply_conditions)
+        self.assertIn('sendPatch(t.id,{conditions:', apply_conditions)
+        self.assertIn('dispatchPendingPatch().then', apply_conditions)
+
+        merge = function_body(
+            HOST_JS, 'mergePlayerPublicConditions', 'normalizeSpellRange'
+        )
+        self.assertIn("condition.visibility === 'gm'", merge)
+        self.assertIn("visibility: 'public'", merge)
+        self.assertIn('return [...privateConditions, ...publicConditions]', merge)
+        self.assertIn("Object.prototype.hasOwnProperty.call(p, 'conditions')", HOST_JS)
+        self.assertIn('mergePlayerPublicConditions(t.conditions, p.conditions)', HOST_JS)
+        self.assertIn("a.actor || '玩家'", HOST_JS)
+        self.assertIn('状态效果（${publicCount} 项）', HOST_JS)
+
     def test_cone_aim_is_a_pointer_drag_and_player_sends_once_on_release(self):
         for hook in ('beginSelectedSpellAim', 'previewSelectedSpellAimAt', 'finishSelectedSpellAim'):
             self.assertIn(f'function {hook}(', HOST_JS)
@@ -186,6 +234,45 @@ class ClientParityTests(unittest.TestCase):
         self.assertIn('function mountedDetailPair(', PLAYER_HTML)
         self.assertIn("mountedDetailUnitButton(pair.rider,'玩家')", PLAYER_HTML)
         self.assertIn("mountedDetailUnitButton(pair.mount,'坐骑')", PLAYER_HTML)
+
+    def test_manual_initiative_binds_the_selected_token_and_deduplicates_mounts(self):
+        self.assertNotIn('id="init-name"', HOST_HTML)
+        for element_id in (
+            'init-selected-token',
+            'init-selected-icon',
+            'init-selected-name',
+            'init-selected-meta',
+            'init-value',
+            'btn-init-add',
+        ):
+            self.assertIn(f'id="{element_id}"', HOST_HTML)
+
+        upsert = function_body(HOST_JS, 'upsertSelectedInitiativeEntry', 'pruneInitiativeTokenRefs')
+        self.assertIn('state.selectedId ? findToken(state.selectedId) : null', upsert)
+        self.assertIn('initiativeEntryForToken(e, token)', upsert)
+        self.assertIn('entry.tokenId = subject.token.id', upsert)
+        self.assertIn('tokenId: subject.token.id', upsert)
+
+        representative = function_body(
+            HOST_JS, 'initiativeRepresentativeForSelection', 'reconcileInitiativeEntries'
+        )
+        self.assertIn('if (token.mountId)', representative)
+        self.assertIn('owners.size === 1', representative)
+        self.assertIn('owners.size > 1', representative)
+
+        reconcile = function_body(HOST_JS, 'reconcileInitiativeEntries', 'renderInitiativeSelection')
+        self.assertIn('linkLegacyNames', reconcile)
+        self.assertIn('groupIds.has(candidateToken.id)', reconcile)
+        self.assertIn('normalized[duplicateIndex] = keeper', reconcile)
+        self.assertIn('未关联棋子', HOST_JS)
+        self.assertIn("state.encounter.playMode = 'prepare'", HOST_JS)
+        self.assertIn('unlinkedInitiativeEntries', HOST_JS)
+
+    def test_player_turn_permission_uses_the_same_mounted_control_group(self):
+        body = function_body(PLAYER_HTML, 'canActWithToken', 'canMoveToken')
+        self.assertIn('currentTurnToken()', body)
+        self.assertIn('controlsCurrentTurn(current)', body)
+        self.assertIn('tokenControlGroup(token).has(current.id)', body)
 
     def test_player_measurement_snaps_to_intersections_or_centers(self):
         body = function_body(PLAYER_HTML, 'snapMeasurePoint', 'snap')

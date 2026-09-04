@@ -61,6 +61,36 @@ class TurnPermissionTests(unittest.TestCase):
         self.assertEqual(SERVER.can_act_with_token(state, co_rider, 'Alice', {'turnSerial': 7})[0], False)
         self.assertEqual(SERVER.can_act_with_token(state, other, 'Bob', {'turnSerial': 7})[0], False)
 
+    def test_mount_and_single_rider_can_share_one_mount_bound_turn(self):
+        state = make_state()
+        state['maps'][0]['tokens'] = [
+            token for token in state['maps'][0]['tokens'] if token['id'] != 'co-rider'
+        ]
+        state['encounter']['entries'][0]['tokenId'] = 'mount'
+        rider = SERVER.find_token(state, 'rider')[1]
+        mount = SERVER.find_token(state, 'mount')[1]
+        other = SERVER.find_token(state, 'other')[1]
+        self.assertEqual(SERVER.can_act_with_token(state, rider, 'Alice', {'turnSerial': 7}), (True, None))
+        self.assertEqual(SERVER.can_act_with_token(state, mount, 'Alice', {'turnSerial': 7}), (True, None))
+        self.assertFalse(SERVER.can_act_with_token(state, mount, 'Bob', {'turnSerial': 7})[0])
+        self.assertFalse(SERVER.can_act_with_token(state, other, 'Bob', {'turnSerial': 7})[0])
+
+    def test_unlinked_current_initiative_never_grants_movement(self):
+        state = make_state()
+        state['encounter']['entries'][0]['tokenId'] = None
+        rider = SERVER.find_token(state, 'rider')[1]
+        allowed, reason = SERVER.can_act_with_token(state, rider, 'Alice', {'turnSerial': 7})
+        self.assertFalse(allowed)
+        self.assertEqual(reason, '当前先攻尚未关联棋子，暂时不能操作')
+
+    def test_normal_player_token_moves_only_on_its_own_turn(self):
+        state = make_state()
+        state['encounter']['currentEntryId'] = 'init-other'
+        other = SERVER.find_token(state, 'other')[1]
+        rider = SERVER.find_token(state, 'rider')[1]
+        self.assertEqual(SERVER.can_act_with_token(state, other, 'Bob', {'turnSerial': 7}), (True, None))
+        self.assertFalse(SERVER.can_act_with_token(state, rider, 'Alice', {'turnSerial': 7})[0])
+
     def test_control_group_does_not_grant_access_to_another_rider(self):
         state = make_state(play_mode='free')
         rider = SERVER.find_token(state, 'rider')[1]
@@ -126,6 +156,88 @@ class TurnPermissionTests(unittest.TestCase):
         self.assertEqual(state['encounter']['turnSerial'], 8)
         self.assertEqual(state['encounter']['turnPath']['points'], [])
         self.assertEqual(SERVER.find_token(state, 'rider')[1]['conditions'][0]['remainingTurns'], 1)
+
+
+class PlayerConditionPatchTests(unittest.TestCase):
+    def test_owner_can_replace_public_conditions_with_sanitized_data(self):
+        state = make_state(play_mode='free')
+        requested = [
+            {
+                'id': 'player-cond-1', 'key': 'custom', 'label': '  被祝福  ', 'icon': '✨',
+                'color': '#12abEF', 'remainingTurns': 2000, 'visibility': 'gm',
+                'privateNote': '不应广播',
+            },
+            {
+                'id': 'player-cond-2', 'key': 'poisoned', 'label': '伪造名称', 'icon': 'X',
+                'color': '#000000', 'remainingTurns': '', 'visibility': 'gm',
+            },
+            'invalid item',
+        ]
+        action = {
+            'op': 'patchToken', 'tokenId': 'rider', 'actor': 'Alice', 'playMode': 'free',
+            'patch': {'conditions': requested},
+        }
+
+        self.assertTrue(SERVER.apply_action(state, action))
+        conditions = SERVER.find_token(state, 'rider')[1]['conditions']
+        self.assertEqual(action['patch']['conditions'], conditions)
+        self.assertEqual(len(conditions), 2)
+        self.assertEqual(conditions[0], {
+            'id': 'player-cond-1', 'key': 'custom', 'label': '被祝福', 'icon': '✨',
+            'color': '#12abEF', 'remainingTurns': 999, 'visibility': 'public',
+        })
+        self.assertEqual(conditions[1]['label'], '中毒')
+        self.assertEqual(conditions[1]['icon'], '☠️')
+        self.assertEqual(conditions[1]['color'], '#79c267')
+        self.assertIsNone(conditions[1]['remainingTurns'])
+        self.assertEqual(set(conditions[1]), {
+            'id', 'key', 'label', 'icon', 'color', 'remainingTurns', 'visibility',
+        })
+
+    def test_condition_patch_is_limited_to_twenty_unique_public_items(self):
+        state = make_state(play_mode='free')
+        requested = [
+            {'id': 'duplicate', 'key': 'custom', 'label': '状态%d' % index, 'visibility': 'gm'}
+            for index in range(25)
+        ]
+        action = {
+            'op': 'patchToken', 'tokenId': 'rider', 'actor': 'Alice', 'playMode': 'free',
+            'patch': {'conditions': requested},
+        }
+
+        self.assertTrue(SERVER.apply_action(state, action))
+        conditions = SERVER.find_token(state, 'rider')[1]['conditions']
+        self.assertEqual(len(conditions), 20)
+        self.assertEqual(len({condition['id'] for condition in conditions}), 20)
+        self.assertTrue(all(condition['visibility'] == 'public' for condition in conditions))
+
+    def test_condition_patch_obeys_owner_and_turn_permissions(self):
+        state = make_state()
+        original = copy.deepcopy(SERVER.find_token(state, 'rider')[1]['conditions'])
+        state['encounter']['currentEntryId'] = 'init-other'
+        locked = {
+            'op': 'patchToken', 'tokenId': 'rider', 'actor': 'Alice', 'playMode': 'turn',
+            'turnSerial': 7, 'patch': {'conditions': []},
+        }
+        self.assertFalse(SERVER.apply_action(state, locked))
+        self.assertEqual(SERVER.find_token(state, 'rider')[1]['conditions'], original)
+
+        state = make_state(play_mode='free')
+        wrong_owner = {
+            'op': 'patchToken', 'tokenId': 'rider', 'actor': 'Bob', 'playMode': 'free',
+            'patch': {'conditions': []},
+        }
+        self.assertFalse(SERVER.apply_action(state, wrong_owner))
+
+    def test_non_array_condition_patch_is_rejected_without_erasing_state(self):
+        state = make_state(play_mode='free')
+        original = copy.deepcopy(SERVER.find_token(state, 'rider')[1]['conditions'])
+        action = {
+            'op': 'patchToken', 'tokenId': 'rider', 'actor': 'Alice', 'playMode': 'free',
+            'patch': {'conditions': {'label': '错误格式'}},
+        }
+        self.assertFalse(SERVER.apply_action(state, action))
+        self.assertEqual(SERVER.find_token(state, 'rider')[1]['conditions'], original)
 
 
 class InitiativePreparationTests(unittest.TestCase):

@@ -25,9 +25,31 @@
     #layout { display:grid; grid-template-columns:250px minmax(0,1fr) 270px; height:calc(100vh - 52px); }
     .panel { overflow:auto; background:var(--panel); border-right:1px solid var(--line); padding:10px; }
     #right-panel { border-left:1px solid var(--line); border-right:0; }
+    .card.player-detail-card { min-height:calc(100% - 2px); margin:0; overflow:hidden; padding:0; background:linear-gradient(180deg,#202633,#171b24); }
+    .player-detail-heading { display:flex; align-items:center; justify-content:space-between; padding:10px 11px 8px; border-bottom:1px solid var(--line); }
+    .player-detail-heading > div { display:grid; gap:1px; }
+    .player-detail-heading span { color:#778399; font-size:9px; font-weight:700; letter-spacing:.12em; }
+    .player-detail-heading h2 { margin:0; }
+    .player-detail-tabs { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:4px; padding:7px 9px; border-bottom:1px solid var(--line); }
+    .player-detail-tabs button { padding:5px 3px; border-color:transparent; background:transparent; color:var(--muted); font-size:11px; }
+    .player-detail-tabs button.active { border-color:#5b4922; background:#302a22; color:#f1cb70; }
+    #detail { padding:10px; }
+    #detail-empty { padding:12px; margin:0; text-align:center; }
+    .player-detail-tab-panel { animation:player-panel-in .14s ease-out; }
+    .player-notes-panel { padding:10px; }
+    .player-notes-panel textarea { min-height:210px; }
+    #right-panel.notes-active #detail,#right-panel.notes-active #detail-empty { display:none !important; }
+    @keyframes player-panel-in { from { opacity:.35; transform:translateY(3px); } to { opacity:1; transform:none; } }
     .card { background:#202633; border:1px solid var(--line); border-radius:10px; padding:10px; margin-bottom:10px; }
+    .card[hidden],.player-detail-tab-panel[hidden],.player-condition-editor[hidden],.player-condition-custom-fields[hidden] { display:none !important; }
     .card h2 { font-size:14px; margin:0 0 8px; color:#f3f5f8; }
     .hint { color:var(--muted); font-size:12px; margin:6px 0 0; }
+    .player-workspace-tabs { position:sticky; top:-10px; z-index:5; display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:4px; margin-bottom:10px; padding:4px; border:1px solid var(--line); border-radius:10px; background:#10141ce8; box-shadow:0 8px 18px #0004; backdrop-filter:blur(10px); }
+    .player-workspace-tab { display:flex; min-width:0; min-height:43px; flex-direction:column; align-items:center; justify-content:center; gap:1px; padding:4px 1px; border-color:transparent; background:transparent; color:var(--muted); font-size:15px; }
+    .player-workspace-tab span { font-size:10px; }
+    .player-workspace-tab.active { border-color:#5b4922; background:#302a22; color:#f1cb70; }
+    .room-ready-row { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:9px; padding-top:8px; border-top:1px solid var(--line); color:var(--muted); font-size:11px; }
+    .room-ready-row button { flex:0 0 auto; }
     #center { min-width:0; min-height:0; position:relative; display:flex; flex-direction:column; }
     #board { position:relative; width:100%; flex:1; min-height:0; overflow:hidden; touch-action:none; user-select:none; -webkit-user-select:none; background:#0b0d12; }
     #world { position:absolute; transform-origin:0 0; background-color:#ddd6c2; box-shadow:0 0 40px #0008; }
@@ -96,6 +118,7 @@
     .shared-note-view { min-height:42px; max-height:220px; overflow:auto; padding:8px; border:1px solid var(--line); border-radius:7px; background:#171c27; color:var(--text); white-space:pre-wrap; word-break:break-word; }
     #detail[hidden] { display:none; }
     .token-head { display:flex; align-items:center; gap:9px; margin-bottom:10px; }
+    .token-head-copy { min-width:0; flex:1; }
     #detail-icon { width:42px; height:42px; border:3px solid #5b8cff; border-radius:50%; display:grid; place-items:center; background:#fff; color:#19222f; background-size:cover; background-position:center; font-size:20px; }
     #detail-name { font-weight:700; flex:1; }
     #detail-type { color:var(--muted); font-size:12px; }
@@ -172,6 +195,29 @@
     #flow-weather-meta { overflow:hidden; color:var(--muted); font-size:11px; text-overflow:ellipsis; white-space:nowrap; }
     .condition-list { display:flex; flex-wrap:wrap; gap:5px; margin-top:8px; }
     .condition-chip { padding:4px 6px; border:1px solid var(--condition-color,#a8b3c7); border-radius:7px; background:#171c27; color:var(--text); font-size:11px; }
+    .condition-list.interactive { display:grid; grid-template-columns:minmax(0,1fr); }
+    .condition-list.interactive .condition-chip { display:grid; grid-template-columns:minmax(0,1fr) 25px; gap:3px; padding:2px; }
+    .condition-main,.condition-remove { min-width:0; border-color:transparent; background:transparent; }
+    .condition-main { overflow:hidden; padding:4px 5px; color:var(--text); text-align:left; text-overflow:ellipsis; white-space:nowrap; }
+    .condition-remove { padding:2px; color:#db95a0; font-size:16px; }
+    .condition-main:disabled,.condition-remove:disabled,#player-condition-open:disabled { opacity:.42; cursor:not-allowed; }
+    .player-condition-section { margin-top:12px; padding:9px; border:1px solid #48546a; border-radius:10px; background:#151a24; }
+    .player-condition-heading { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+    .player-condition-heading > div { display:grid; min-width:0; }
+    .player-condition-heading strong { font-size:12px; }
+    .player-condition-heading span { color:var(--muted); font-size:9px; }
+    .player-condition-heading button { flex:0 0 auto; padding:4px 7px; font-size:10px; }
+    .player-condition-editor { display:grid; gap:7px; margin-top:8px; padding:8px; border:1px solid #5b6a82; border-radius:9px; background:#10141c; box-shadow:0 9px 24px #0005; }
+    .player-condition-editor-head { display:flex; align-items:center; justify-content:space-between; }
+    .player-condition-editor-head strong { font-size:11px; }
+    .player-condition-editor-head button { border:0; padding:0 4px; background:transparent; color:var(--muted); font-size:17px; }
+    .player-condition-editor select,.player-condition-editor input { width:100%; border:1px solid var(--line); border-radius:6px; background:#0b0f16; color:var(--text); padding:6px 7px; }
+    .player-condition-custom-fields { display:grid; grid-template-columns:64px minmax(0,1fr); gap:5px; }
+    .player-condition-duration { display:grid; gap:5px; color:var(--muted); font-size:10px; }
+    .player-condition-presets { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:4px; }
+    .player-condition-presets button { min-width:0; padding:4px 2px; font-size:9px; }
+    .player-condition-presets button.active { border-color:#6fa4ed; background:#284c7c; color:#e5f1ff; }
+    .player-condition-actions { display:grid; grid-template-columns:1fr 1fr; gap:5px; }
     .public-note { margin-top:8px; padding:7px; border-radius:7px; background:#171c27; color:var(--muted); font-size:12px; white-space:pre-wrap; }
     #token-peek { position:fixed; z-index:35; width:min(300px,calc(100vw - 24px)); padding:11px; border:1px solid #596982; border-radius:12px; background:linear-gradient(145deg,#252c3aee,#151a24f5); box-shadow:0 16px 42px #000b,0 0 0 1px #ffffff0b; backdrop-filter:blur(10px); animation:token-peek-in .14s ease-out; }
     #token-peek[hidden] { display:none; }
@@ -300,7 +346,7 @@
     @media (max-width:900px) { #flowbar { --flow-open-height:315px; } .flow-head .flow-date { max-width:42vw; } .flow-weather-summary { display:none; } #flow-panel-initiative:not([hidden]) { grid-template-columns:minmax(150px,190px) minmax(0,1fr); } #flow-panel-time:not([hidden]) { grid-template-columns:1fr; } }
     #toast { position:fixed; z-index:20; left:50%; bottom:18px; transform:translateX(-50%); padding:8px 12px; border-radius:8px; background:#10141de8; border:1px solid #4c5870; opacity:0; pointer-events:none; transition:opacity .18s; }
     #toast.show { opacity:1; }
-    @media (max-width:900px) { #layout { grid-template-columns:1fr; } .panel { display:none; } #right-panel { display:block; position:absolute; z-index:4; right:0; top:0; width:min(290px,86vw); height:100%; background:#1b202bf2; } #right-panel:has(#detail[hidden]) { display:none; } }
+    @media (max-width:900px) { #layout { grid-template-columns:1fr; } .panel { display:none; } #right-panel { display:block; position:absolute; z-index:7; right:0; top:0; width:min(300px,88vw); height:100%; background:#1b202bf7; box-shadow:-12px 0 28px #0008; } #right-panel:has(#detail[hidden]):not(.mobile-open) { display:none; } }
   </style>
 </head>
 <body>
@@ -315,9 +361,15 @@
   </header>
   <main id="layout">
     <aside class="panel" id="left-panel">
-      <section class="card"><h2>👥 在线玩家</h2><div id="player-list"><span class="hint">正在连接房间…</span></div></section>
-      <section class="card"><h2>🧭 玩家工具</h2><div class="player-tool-actions"><button id="btn-measure">📏 测距</button><button id="btn-reaction">😊 地图表情</button><button id="btn-ready">✓ 准备</button></div><p class="hint">测距只在本地显示；靠近方格交点或格心时会自动吸附，1 格＝5 尺。表情不占用角色行动。</p></section>
-      <section class="card" id="player-doodle-card">
+      <nav id="player-workspace-tabs" class="player-workspace-tabs" role="tablist" aria-label="玩家工具分类">
+        <button class="player-workspace-tab active" type="button" role="tab" data-player-workspace-tab="room" aria-selected="true">●<span>房间</span></button>
+        <button class="player-workspace-tab" type="button" role="tab" data-player-workspace-tab="tools" aria-selected="false">⌖<span>工具</span></button>
+        <button class="player-workspace-tab" type="button" role="tab" data-player-workspace-tab="draw" aria-selected="false">✎<span>绘制</span></button>
+        <button class="player-workspace-tab" type="button" role="tab" data-player-workspace-tab="resources" aria-selected="false">◈<span>资源</span></button>
+      </nav>
+      <section class="card" data-player-workspace="room"><h2>👥 房间成员</h2><div id="player-list"><span class="hint">正在连接房间…</span></div><div class="room-ready-row"><span>进入游戏前确认状态</span><button id="btn-ready">✓ 准备</button></div></section>
+      <section class="card" data-player-workspace="tools"><h2>🧭 地图工具</h2><div class="player-tool-actions"><button id="btn-measure">📏 测距</button><button id="btn-reaction">😊 地图表情</button></div><p class="hint">测距吸附方格交点或格心，1 格＝5 尺。</p></section>
+      <section class="card" id="player-doodle-card" data-player-workspace="draw">
         <h2>🖍️ 共享标注 <span id="player-doodle-count">0 条</span></h2>
         <div class="doodle-tool-grid">
           <button type="button" data-doodle-tool="pen">✏️ 画笔</button>
@@ -339,7 +391,7 @@
         <div class="player-doodle-actions"><button type="button" id="player-doodle-undo">↩ 撤销</button><button type="button" id="player-doodle-clear">🗑 一键清空</button></div>
         <p class="hint">标注会实时同步给主控台和所有玩家；测距仍只在本地显示。</p>
       </section>
-      <section class="card">
+      <section class="card" data-player-workspace="tools">
         <h2>🎲 掷骰</h2>
         <div class="dice-grid">
           <button data-die="d4">d4</button><button data-die="d6">d6</button><button data-die="d8">d8</button><button data-die="d10">d10</button>
@@ -349,8 +401,8 @@
         <div class="custom-roll"><input id="dice-expr" placeholder="如 2d6+3"><button id="dice-roll">掷</button></div>
         <div id="dice-result"></div><div id="dice-log"></div>
       </section>
-      <section class="card"><h2>📚 常用网站</h2><div id="player-links"></div></section>
-      <section class="card"><h2>📖 GM 公告 / 手册</h2><div id="shared-note" class="shared-note-view"><span class="hint">等待主控台发布内容</span></div></section>
+      <section class="card" data-player-workspace="resources"><h2>📚 常用网站</h2><div id="player-links"></div></section>
+      <section class="card" data-player-workspace="resources"><h2>📖 GM 公告 / 手册</h2><div id="shared-note" class="shared-note-view"><span class="hint">等待主控台发布内容</span></div></section>
     </aside>
     <section id="center">
       <div id="board"><div id="world"><canvas id="spell-range-canvas" class="map-layer"></canvas><canvas id="fog-canvas" class="map-layer"></canvas><canvas id="doodle-canvas" class="map-layer"></canvas><canvas id="turn-path-canvas" class="map-layer"></canvas><div id="tokens"></div><div id="names-layer"></div><div id="reaction-layer" aria-live="polite"></div></div><div id="empty">⏳ 等待主机开团…</div><div id="measure-label" hidden></div><div id="reaction-palette" class="reaction-palette" role="toolbar" aria-label="地图表情" hidden><button type="button" data-map-reaction="👍">👍</button><button type="button" data-map-reaction="❤️">❤️</button><button type="button" data-map-reaction="😂">😂</button><button type="button" data-map-reaction="😮">😮</button><button type="button" data-map-reaction="🔥">🔥</button><button type="button" data-map-reaction="✨">✨</button><button type="button" data-map-reaction="❓">❓</button><button type="button" data-map-reaction="⚔️">⚔️</button><button type="button" data-map-reaction="🎯">🎯</button><button type="button" data-map-reaction="👏">👏</button><span>选中后点击地图</span></div><div id="map-controls"><button id="zoom-out">−</button><button id="zoom-in">＋</button><button id="fit">⛶</button></div></div>
@@ -379,20 +431,41 @@
         </div>
       </section>
     </section>
-    <aside class="panel" id="right-panel">
-      <section class="card"><h2>🧙 我的棋子</h2>
+    <aside class="panel" id="right-panel" data-detail-tab="status">
+      <section class="card player-detail-card" id="player-unit-card">
+        <div class="player-detail-heading"><div><span>角色控制</span><h2>🧙 我的棋子</h2></div></div>
+        <nav class="player-detail-tabs" role="tablist" aria-label="角色信息分类">
+          <button class="active" type="button" role="tab" data-player-detail-tab="status" aria-selected="true">状态</button>
+          <button type="button" role="tab" data-player-detail-tab="tactics" aria-selected="false">战术</button>
+          <button type="button" role="tab" data-player-detail-tab="notes" aria-selected="false">笔记</button>
+        </nav>
         <div id="detail" hidden>
+          <div class="token-head"><div id="detail-icon">🧙</div><div class="token-head-copy"><div id="detail-name"></div><div id="detail-type"></div></div><button id="detail-close" type="button" aria-label="关闭角色详情">✕</button></div>
           <div id="detail-mounted-chain" class="mounted-detail-chain" aria-label="骑乘联动棋子" hidden></div>
-          <div class="token-head"><div id="detail-icon">🧙</div><div><div id="detail-name"></div><div id="detail-type"></div></div><button id="detail-close">✕</button></div>
-          <div class="field"><label>生命值</label><div class="three"><input id="hp" type="number" min="0"><span>/</span><input id="hp-max" type="number" min="1"></div><div class="hp-bar"><i id="hp-bar"></i></div><div class="quick"><button data-hp="-5">−5</button><button data-hp="-1">−1</button><button data-hp="1">＋1</button><button data-hp="5">＋5</button><button data-hp="full">回满</button></div></div>
-          <div class="field"><label>AC</label><div class="ac-row"><input id="ac" type="number" min="0" max="99"><span id="ac-hint" class="hint">由你自己维护</span></div></div>
-          <div class="field player-spell-range"><label>施法范围</label><div class="spell-shape-switch" role="group" aria-label="施法范围形状"><button type="button" data-spell-shape="off" aria-pressed="true">关闭</button><button type="button" data-spell-shape="radius" aria-pressed="false">◉ 环形</button><button type="button" data-spell-shape="cone" aria-pressed="false">◖ 锥形</button></div><div id="spell-controls" class="spell-range-controls" hidden><div class="spell-range-value"><strong id="spell-feet-output">30 尺</strong><span id="spell-grid-output">6 格</span></div><input id="spell-feet" type="range" min="5" max="180" step="5" value="30"><div class="spell-range-presets"><button type="button" data-spell-feet="15">15</button><button type="button" data-spell-feet="30">30</button><button type="button" data-spell-feet="60">60</button><button type="button" data-spell-feet="90">90</button><button type="button" data-spell-feet="120">120</button><button type="button" data-spell-feet="180">180 尺</button></div><div id="spell-direction-row" class="spell-direction-row" hidden><label for="spell-direction">方向 <output id="spell-direction-output">东 · 0°</output></label><input id="spell-direction" type="range" min="0" max="355" step="5" value="0"><button id="spell-aim" type="button">⌖ 在地图上瞄准</button></div></div><p id="spell-lock-hint" class="hint">自由模式下可调整。</p></div>
-          <div id="detail-conditions" class="condition-list"></div>
-          <div id="detail-public-note" class="public-note" hidden></div>
+          <section class="player-detail-tab-panel" data-player-detail-panel="status">
+            <div class="field player-vitals"><label>生命值</label><div class="three"><input id="hp" type="number" min="0"><span>/</span><input id="hp-max" type="number" min="1"></div><div class="hp-bar"><i id="hp-bar"></i></div><div class="quick"><button data-hp="-5">−5</button><button data-hp="-1">−1</button><button data-hp="1">＋1</button><button data-hp="5">＋5</button><button data-hp="full">回满</button></div></div>
+            <div class="field"><label>护甲等级</label><div class="ac-row"><input id="ac" type="number" min="0" max="99"><span id="ac-hint" class="hint">由你自己维护</span></div></div>
+            <section class="player-condition-section">
+              <div class="player-condition-heading"><div><strong>状态效果</strong><span>公开并同步给主控台</span></div><button id="player-condition-open" type="button">＋ 添加</button></div>
+              <div id="detail-conditions" class="condition-list interactive"></div>
+              <div id="player-condition-editor" class="player-condition-editor" hidden>
+                <div class="player-condition-editor-head"><strong id="player-condition-editor-title">添加状态</strong><button id="player-condition-close" type="button" aria-label="关闭状态编辑">×</button></div>
+                <select id="player-condition-select" aria-label="选择状态"></select>
+                <div id="player-condition-custom-fields" class="player-condition-custom-fields" hidden><input id="player-condition-custom-icon" maxlength="4" placeholder="图标，如 ◆" aria-label="自定义状态图标"><input id="player-condition-custom-name" maxlength="24" placeholder="状态名称" aria-label="自定义状态名称"></div>
+                <div class="player-condition-duration"><span>持续时间</span><div class="player-condition-presets" role="group" aria-label="状态持续时间"><button type="button" data-player-condition-duration="1" class="active">1 回合</button><button type="button" data-player-condition-duration="10">10 回合</button><button type="button" data-player-condition-duration="">永久</button></div><input id="player-condition-turns" type="number" min="1" max="999" value="1" placeholder="自定义回合数" aria-label="状态剩余回合数"></div>
+                <div class="player-condition-actions"><button id="player-condition-cancel" type="button">取消</button><button id="player-condition-save" class="primary" type="button">添加状态</button></div>
+              </div>
+              <p id="player-condition-lock-hint" class="hint">修改后会实时通知主控台。</p>
+            </section>
+            <div id="detail-public-note" class="public-note" hidden></div>
+          </section>
+          <section class="player-detail-tab-panel" data-player-detail-panel="tactics" hidden>
+            <div class="field player-spell-range"><label>施法范围</label><div class="spell-shape-switch" role="group" aria-label="施法范围形状"><button type="button" data-spell-shape="off" aria-pressed="true">关闭</button><button type="button" data-spell-shape="radius" aria-pressed="false">◉ 环形</button><button type="button" data-spell-shape="cone" aria-pressed="false">◖ 锥形</button></div><div id="spell-controls" class="spell-range-controls" hidden><div class="spell-range-value"><strong id="spell-feet-output">30 尺</strong><span id="spell-grid-output">6 格</span></div><input id="spell-feet" type="range" min="5" max="180" step="5" value="30"><div class="spell-range-presets"><button type="button" data-spell-feet="15">15</button><button type="button" data-spell-feet="30">30</button><button type="button" data-spell-feet="60">60</button><button type="button" data-spell-feet="90">90</button><button type="button" data-spell-feet="120">120</button><button type="button" data-spell-feet="180">180 尺</button></div><div id="spell-direction-row" class="spell-direction-row" hidden><label for="spell-direction">方向 <output id="spell-direction-output">东 · 0°</output></label><input id="spell-direction" type="range" min="0" max="355" step="5" value="0"><button id="spell-aim" type="button">⌖ 在地图上瞄准</button></div></div><p id="spell-lock-hint" class="hint">自由模式下可调整。</p></div>
+          </section>
         </div>
-        <p id="detail-empty" class="hint">点击自己的棋子可调整 HP 和 AC。</p>
+        <p id="detail-empty" class="hint">点击自己的棋子查看状态与战术设置。</p>
+        <section id="player-notes-panel" class="player-detail-tab-panel player-notes-panel" data-player-detail-panel="notes" hidden><textarea id="personal-notes" rows="10" placeholder="只保存在这台设备上的线索、想法……"></textarea><p class="hint">本地笔记不会发送给主控台。</p></section>
       </section>
-      <section class="card"><h2>📝 我的笔记</h2><textarea id="personal-notes" rows="5" placeholder="只保存在这台设备上的线索、想法……"></textarea><p class="hint">这是本地笔记，不会发送给主控台。</p></section>
     </aside>
   </main>
   <div id="rest-transition" class="rest-transition" role="status" aria-live="polite" hidden>
@@ -421,8 +494,12 @@
   const MAX_MOVE_POINTS = 60, MAX_TURN_PATH_POINTS = 200, MAX_DOODLE_POINTS = 800, SPELL_RANGE_MIN_FEET = 5, SPELL_RANGE_MAX_FEET = 180, SPELL_CONE_HALF_ANGLE = Math.atan(.5);
   const MAP_REACTION_EMOJIS = new Set(['👍','❤️','😂','😮','🔥','✨','❓','⚔️','🎯','👏']);
   const CONDITION_PIXEL_KEYS = new Set(['prone','unconscious','incapacitated','blinded','deafened','frightened','charmed','poisoned','grappled','restrained','stunned','petrified','invisible','concentrating','burning']);
+  const CONDITION_META = {
+    prone:{label:'倒地',icon:'🛌',color:'#f4a261'},unconscious:{label:'昏迷',icon:'💤',color:'#9b8cff'},incapacitated:{label:'失能',icon:'🚫',color:'#b9c0cc'},blinded:{label:'目盲',icon:'🙈',color:'#c6a97d'},deafened:{label:'耳聋',icon:'🙉',color:'#c6a97d'},frightened:{label:'恐慌',icon:'😨',color:'#d879ff'},charmed:{label:'魅惑',icon:'💗',color:'#ff8fb3'},poisoned:{label:'中毒',icon:'☠️',color:'#79c267'},grappled:{label:'擒抱',icon:'✊',color:'#d99b62'},restrained:{label:'束缚',icon:'⛓️',color:'#d99b62'},stunned:{label:'眩晕',icon:'💫',color:'#ffd166'},petrified:{label:'石化',icon:'🗿',color:'#a9b3bf'},invisible:{label:'隐形',icon:'👻',color:'#8fbaff'},concentrating:{label:'专注',icon:'🎯',color:'#68d9c0'},burning:{label:'燃烧',icon:'🔥',color:'#ef6c45'}
+  };
+  const MAX_TOKEN_CONDITIONS = 20;
   const CONDITION_SPRITE_URL = '../asset/界面/状态图标-v1.png';
-  let state = null, currentMap = null, view = {scale:1,ox:0,oy:0}, myName = '', sessionToken = '', roomCode = '', players = [], presenceStatus = 'online', selectedId = null, drag = null, toastTimer = null, peekTimer = null, restAnimationTimer = null, localRolls = new Set(), lastMapViewKey = '', flowPanel = 'initiative', flowClockAnchor = { localNow: performance.now(), serverNow: Date.now() }, flowTimer = null, measureMode = false, measureDraft = null, doodleTool = null, doodleColor = '#ff4d4f', doodleWidth = 6, doodleDraft = null, presenceTimer = null, streamES = null, streamAppliedSeq = 0, lastStateRevision = 0, spellAimTokenId = null, pendingMapReaction = null, spellRangeRaf = null, initiativePending = false, lastFlowScrollEntryId = null;
+  let state = null, currentMap = null, view = {scale:1,ox:0,oy:0}, myName = '', sessionToken = '', roomCode = '', players = [], presenceStatus = 'online', selectedId = null, drag = null, toastTimer = null, peekTimer = null, restAnimationTimer = null, localRolls = new Set(), lastMapViewKey = '', flowPanel = 'initiative', flowClockAnchor = { localNow: performance.now(), serverNow: Date.now() }, flowTimer = null, measureMode = false, measureDraft = null, doodleTool = null, doodleColor = '#ff4d4f', doodleWidth = 6, doodleDraft = null, presenceTimer = null, streamES = null, streamAppliedSeq = 0, lastStateRevision = 0, spellAimTokenId = null, pendingMapReaction = null, spellRangeRaf = null, initiativePending = false, lastFlowScrollEntryId = null, editingPlayerConditionId = null, activePlayerDetailTab = 'status';
   const localReactionIds = new Set();
   const playedRestTransitions = new Set();
   function preloadConditionPixels(){const image=new Image();image.onload=()=>document.documentElement.classList.add('condition-pixels-ready');image.onerror=()=>document.documentElement.classList.remove('condition-pixels-ready');image.src=CONDITION_SPRITE_URL;}
@@ -453,6 +530,23 @@
     players.forEach(p=>{const row=document.createElement('div');row.className='player-row'+(p.name===myName?' me':'');const dot=document.createElement('i');dot.className='player-dot'+(p.online?' online':'');const name=document.createElement('span');name.className='player-row-name';name.textContent=p.name||'未命名玩家';const status=document.createElement('span');status.className='player-row-status';status.textContent=p.online?(p.status==='ready'?'已准备':'在线'):'离线';row.append(dot,name,status);box.appendChild(row);});
   }
   function updateSessionUi() { $('#session-badge').textContent=sessionToken?(myName+' · 已加入'):'未加入'; $('#player-name').readOnly=!!sessionToken; $('#btn-join').textContent=sessionToken?'切换玩家':'加入房间'; renderPlayers(players); updateEndTurnUi(); }
+  function activatePlayerWorkspace(workspace) {
+    const valid=['room','tools','draw','resources'].includes(workspace)?workspace:'room';
+    document.querySelectorAll('[data-player-workspace-tab]').forEach(tab=>{const active=tab.dataset.playerWorkspaceTab===valid;tab.classList.toggle('active',active);tab.setAttribute('aria-selected',String(active));tab.tabIndex=active?0:-1;});
+    document.querySelectorAll('#left-panel [data-player-workspace]').forEach(card=>{card.hidden=card.dataset.playerWorkspace!==valid;});
+  }
+  function initPlayerWorkspaceTabs() {
+    document.querySelectorAll('[data-player-workspace-tab]').forEach(tab=>tab.addEventListener('click',()=>activatePlayerWorkspace(tab.dataset.playerWorkspaceTab)));
+    activatePlayerWorkspace(document.querySelector('[data-player-workspace-tab].active')?.dataset.playerWorkspaceTab||'room');
+  }
+  function activatePlayerDetailTab(tab, revealMobile=true) {
+    activePlayerDetailTab=['status','tactics','notes'].includes(tab)?tab:'status';
+    document.querySelectorAll('[data-player-detail-tab]').forEach(button=>{const active=button.dataset.playerDetailTab===activePlayerDetailTab;button.classList.toggle('active',active);button.setAttribute('aria-selected',String(active));button.tabIndex=active?0:-1;});
+    document.querySelectorAll('[data-player-detail-panel]').forEach(panel=>{panel.hidden=panel.dataset.playerDetailPanel!==activePlayerDetailTab;});
+    const right=$('#right-panel');right.dataset.detailTab=activePlayerDetailTab;right.classList.toggle('notes-active',activePlayerDetailTab==='notes');
+    if(revealMobile&&(activePlayerDetailTab==='notes'||!$('#detail').hidden))right.classList.add('mobile-open');
+    if(activePlayerDetailTab==='notes')requestAnimationFrame(()=>$('#personal-notes').focus());
+  }
   async function joinSession(nickname, requestedRoom, resume=true) {
     const payload={nickname:String(nickname||'').trim(),roomCode:String(requestedRoom||roomCode||'').trim()}; if(resume&&sessionToken)payload.sessionToken=sessionToken;
     const res=await fetch('/api/session',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}); const data=await res.json().catch(()=>({}));
@@ -1078,19 +1172,64 @@
   }
   async function dispatchPendingPatch(){
     clearTimeout(patchTimer);patchTimer=null;const job=pendingPatch;pendingPatch=null;if(!job)return;
-    const action={op:'patchToken',tokenId:job.id,patch:job.patch,playMode:job.playMode};if(job.turnSerial!=null)action.turnSerial=job.turnSerial;
+    const action={op:'patchToken',tokenId:job.id,mapId:job.mapId,patch:job.patch,playMode:job.playMode};if(job.turnSerial!=null)action.turnSerial=job.turnSerial;
     try{const r=await requestAction(action),d=r.data||{};if(!r.ok||d.ok===false){restoreRejectedPatch(job);toast('⚠ '+(d.error||'同步失败'));return false;}return true;}
     catch(error){restoreRejectedPatch(job);toast('⚠ 修改未送达');return false;}
   }
   function sendPatch(id, patch, before) {
     if (!sessionToken || !myName || !id) return;
-    const e=encounter(), playMode=e.playMode==='turn'?'turn':'free', turnSerial=playMode==='turn'?(Number(e.turnSerial)||1):null;
-    if(pendingPatch&&(pendingPatch.id!==id||pendingPatch.playMode!==playMode||pendingPatch.turnSerial!==turnSerial))dispatchPendingPatch();
-    if(!pendingPatch)pendingPatch={id,playMode,turnSerial,patch:{},before:{}};
+    const e=encounter(),mapId=currentMap?.id||null,playMode=e.playMode==='turn'?'turn':'free', turnSerial=playMode==='turn'?(Number(e.turnSerial)||1):null;
+    if(pendingPatch&&(pendingPatch.id!==id||pendingPatch.mapId!==mapId||pendingPatch.playMode!==playMode||pendingPatch.turnSerial!==turnSerial))dispatchPendingPatch();
+    if(!pendingPatch)pendingPatch={id,mapId,playMode,turnSerial,patch:{},before:{}};
     Object.keys(patch).forEach(key=>{if(!(key in pendingPatch.before))pendingPatch.before[key]=clonePatchValue(before[key]);pendingPatch.patch[key]=clonePatchValue(patch[key]);});
     clearTimeout(patchTimer);patchTimer=setTimeout(dispatchPendingPatch,180);
   }
-  function closeDetail() { selectedId=null;cancelSpellAim(); $('#detail').hidden=true; $('#detail-empty').hidden=false;const chain=$('#detail-mounted-chain');chain.hidden=true;chain.innerHTML='';requestSpellRangeRender(); }
+  function makePlayerConditionId(){return window.crypto&&typeof window.crypto.randomUUID==='function'?'cond-'+window.crypto.randomUUID():'cond-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,10);}
+  function normalizePlayerCondition(raw){
+    const source=raw&&typeof raw==='object'?raw:{},requestedKey=String(source.key||'custom').slice(0,32),key=CONDITION_META[requestedKey]?requestedKey:'custom',meta=CONDITION_META[key]||{},rawTurns=Number(source.remainingTurns),rawId=String(source.id||'').replace(/[^A-Za-z0-9_.:-]/g,'').slice(0,96);
+    const label=String(meta.label||(source.label||'')).trim().slice(0,24),icon=String(meta.icon||(source.icon||'◆')).trim().slice(0,4)||'◆',rawColor=String(meta.color||source.color||'#a8b3c7');
+    return{id:rawId||makePlayerConditionId(),key,label:label||'自定义状态',icon,color:/^#[0-9a-f]{6}$/i.test(rawColor)?rawColor:'#a8b3c7',remainingTurns:Number.isFinite(rawTurns)&&rawTurns>0?clamp(Math.trunc(rawTurns),1,999):null,visibility:'public'};
+  }
+  function playerPublicConditions(t){return(Array.isArray(t&&t.conditions)?t.conditions:[]).filter(condition=>condition&&condition.visibility!=='gm').slice(0,MAX_TOKEN_CONDITIONS).map(normalizePlayerCondition);}
+  function populatePlayerConditionSelect(){
+    const select=$('#player-condition-select');if(!select||select.options.length)return;select.innerHTML='<option value="">选择状态…</option>';
+    Object.entries(CONDITION_META).forEach(([key,meta])=>{const option=document.createElement('option');option.value=key;option.textContent=meta.icon+' '+meta.label;select.appendChild(option);});
+    const custom=document.createElement('option');custom.value='custom';custom.textContent='◆ 自定义状态…';select.appendChild(custom);
+  }
+  function syncPlayerConditionCustomFields(){const custom=$('#player-condition-custom-fields');if(custom)custom.hidden=$('#player-condition-select').value!=='custom';}
+  function setPlayerConditionDuration(value){const normalized=value==null?'':String(value);$('#player-condition-turns').value=normalized;document.querySelectorAll('[data-player-condition-duration]').forEach(button=>button.classList.toggle('active',button.dataset.playerConditionDuration===normalized));}
+  function syncPlayerConditionDuration(){const value=String($('#player-condition-turns').value||'');document.querySelectorAll('[data-player-condition-duration]').forEach(button=>button.classList.toggle('active',button.dataset.playerConditionDuration===value));}
+  function closePlayerConditionEditor(){editingPlayerConditionId=null;$('#player-condition-editor').hidden=true;}
+  function openPlayerConditionEditor(conditionId=null){
+    const t=currentMap&&(currentMap.tokens||[]).find(token=>token.id===selectedId);if(!t||!ownedToken(t))return;
+    if(!canActWithToken(t)){toast('🔒 只有轮到该角色时才能修改状态');renderPlayerConditions(t,false);return;}
+    populatePlayerConditionSelect();const condition=conditionId?playerPublicConditions(t).find(item=>item.id===conditionId):null,select=$('#player-condition-select');editingPlayerConditionId=condition?.id||null;
+    $('#player-condition-editor').hidden=false;$('#player-condition-editor-title').textContent=condition?'编辑状态':'添加状态';$('#player-condition-save').textContent=condition?'保存状态':'添加状态';
+    const knownKey=condition&&CONDITION_META[condition.key]?condition.key:'custom';select.value=condition?knownKey:'';$('#player-condition-custom-name').value=condition&&knownKey==='custom'?condition.label:'';$('#player-condition-custom-icon').value=condition&&knownKey==='custom'?(condition.icon||'◆'):'◆';syncPlayerConditionCustomFields();setPlayerConditionDuration(condition?(condition.remainingTurns??''):'1');
+    requestAnimationFrame(()=>select.focus());
+  }
+  function renderPlayerConditions(t,editable=canActWithToken(t)){
+    const box=$('#detail-conditions');box.innerHTML='';const conditions=playerPublicConditions(t);$('#player-condition-open').disabled=!editable;
+    $('#player-condition-lock-hint').textContent=editable?'修改后会实时同步，并通知主控台。':(encounter().playMode==='turn'?'🔒 等到该棋子的回合才能修改状态。':'请先加入房间。');
+    conditions.forEach(condition=>{const chip=document.createElement('div'),edit=document.createElement('button'),remove=document.createElement('button');chip.className='condition-chip';chip.style.setProperty('--condition-color',condition.color);edit.type='button';edit.className='condition-main';edit.textContent=condition.icon+' '+condition.label+' · '+(condition.remainingTurns?condition.remainingTurns+' 回合':'永久');edit.title='编辑状态';edit.disabled=!editable;edit.addEventListener('click',()=>openPlayerConditionEditor(condition.id));remove.type='button';remove.className='condition-remove';remove.textContent='×';remove.title='移除状态';remove.setAttribute('aria-label','移除'+condition.label);remove.disabled=!editable;remove.addEventListener('click',()=>applyPlayerConditions(t,conditions.filter(item=>item.id!==condition.id),'已移除状态：'+condition.label));chip.append(edit,remove);box.appendChild(chip);});
+    if(!conditions.length)box.innerHTML='<span class="hint">暂无公开状态</span>';
+    if(!editable)closePlayerConditionEditor();
+  }
+  function applyPlayerConditions(t,nextConditions,successMessage){
+    if(!t||!ownedToken(t)||!canActWithToken(t)){if(t)renderPlayerConditions(t,false);toast('🔒 只有轮到该角色时才能修改状态');return;}
+    const previous=playerPublicConditions(t).map(condition=>({...condition})),next=(Array.isArray(nextConditions)?nextConditions:[]).slice(0,MAX_TOKEN_CONDITIONS).map(normalizePlayerCondition);t.conditions=next;closePlayerConditionEditor();renderTokens(currentMap);openDetail(t.id);sendPatch(t.id,{conditions:next.map(condition=>({...condition}))},{conditions:previous});dispatchPendingPatch().then(ok=>{if(ok)toast((successMessage||'状态已更新')+' · 已通知主控台');});
+  }
+  function savePlayerCondition(){
+    const t=currentMap&&(currentMap.tokens||[]).find(token=>token.id===selectedId),select=$('#player-condition-select');if(!t||!select||!select.value)return;
+    const key=select.value,meta=CONDITION_META[key]||{};let label=meta.label||'',icon=meta.icon||'◆';
+    if(key==='custom'){label=$('#player-condition-custom-name').value.trim().slice(0,24);icon=$('#player-condition-custom-icon').value.trim().slice(0,4)||'◆';if(!label){toast('请输入自定义状态名称');$('#player-condition-custom-name').focus();return;}}
+    const rawText=$('#player-condition-turns').value.trim(),rawTurns=rawText===''?null:Number(rawText);if(rawTurns!==null&&(!Number.isFinite(rawTurns)||rawTurns<1||rawTurns>999)){toast('持续回合数必须是 1–999，留空表示永久');return;}
+    const conditions=playerPublicConditions(t),editingIndex=editingPlayerConditionId?conditions.findIndex(item=>item.id===editingPlayerConditionId):-1,duplicateIndex=editingIndex<0?conditions.findIndex(item=>item.key===key&&item.label===label):-1,targetIndex=editingIndex>=0?editingIndex:duplicateIndex;
+    if(targetIndex<0&&conditions.length>=MAX_TOKEN_CONDITIONS){toast('每个棋子最多记录 20 个状态');return;}
+    const existing=targetIndex>=0?conditions[targetIndex]:null,condition=normalizePlayerCondition({...existing,key,label,icon,color:meta.color||existing?.color,remainingTurns:rawTurns});if(targetIndex>=0)conditions[targetIndex]=condition;else conditions.push(condition);
+    applyPlayerConditions(t,conditions,(existing?'已更新状态：':'已添加状态：')+condition.label);
+  }
+  function closeDetail() { selectedId=null;cancelSpellAim();closePlayerConditionEditor(); $('#detail').hidden=true; $('#detail-empty').hidden=false;const chain=$('#detail-mounted-chain');chain.hidden=true;chain.innerHTML='';if(activePlayerDetailTab!=='notes')$('#right-panel').classList.remove('mobile-open');requestSpellRangeRender(); }
   function mountedDetailPair(token) {
     if(!currentMap||!token)return null;
     const mount=movementAnchor(token,currentMap);
@@ -1103,7 +1242,7 @@
     button.type='button';button.className='mounted-detail-unit'+(unit.id===selectedId?' active':'');button.dataset.tokenId=unit.id;button.setAttribute('aria-pressed',unit.id===selectedId?'true':'false');button.title='切换到'+(unit.name||role)+'的完整信息';
     avatar.className='mounted-detail-avatar';avatar.style.setProperty('--unit-ring',meta.ring);if(!applyPlayerPortrait(avatar,unit))avatar.textContent=unit.icon||'?';
     copy.className='mounted-detail-copy';roleEl.className='mounted-detail-role';roleEl.textContent=role;name.className='mounted-detail-name';name.textContent=unit.name||'未命名';stats.className='mounted-detail-stats';stats.textContent=Number.isFinite(Number(unit.hp))?'HP '+unit.hp+'/'+unit.hpMax+' · AC '+unit.ac:'HP / AC 未公开';
-    copy.append(roleEl,name,stats);button.append(avatar,copy);button.addEventListener('click',()=>openDetail(unit.id));return button;
+    copy.append(roleEl,name,stats);button.append(avatar,copy);button.addEventListener('click',()=>{activatePlayerDetailTab('status');openDetail(unit.id);});return button;
   }
   function renderMountedDetail(token) {
     const container=$('#detail-mounted-chain'),pair=mountedDetailPair(token);container.innerHTML='';container.hidden=!pair;if(!pair)return;
@@ -1134,7 +1273,7 @@
     const t=currentMap && currentMap.tokens.find(x=>x.id===id);
     if (!t || !ownedToken(t) || !Number.isFinite(Number(t.hp))) { closeDetail(); return; }
     hideTokenPeek();
-    selectedId=id; $('#detail').hidden=false; $('#detail-empty').hidden=true;
+    selectedId=id; $('#detail').hidden=false; $('#detail-empty').hidden=true;$('#right-panel').classList.add('mobile-open');
     renderMountedDetail(t);
     $('#detail-name').textContent=t.name; $('#detail-type').textContent=(TYPE[t.type]||TYPE.npc).label;
     const icon=$('#detail-icon'), hasPortrait=applyPlayerPortrait(icon,t); icon.textContent=hasPortrait?'':(t.icon||'?'); if(!hasPortrait)icon.style.backgroundImage='none';
@@ -1145,8 +1284,7 @@
     $('#ac-hint').textContent=editable?(e.playMode==='turn'?'✓ 当前回合可修改':e.playMode==='prepare'?'战斗准备阶段可修改':'自由模式可修改'):(e.playMode==='turn'?'🔒 等待你的回合':'请先加入房间');
     syncSpellRangeUi(t,editable);requestSpellRangeRender();
     const pct=clamp((t.hp/Math.max(1,t.hpMax))*100,0,100); $('#hp-bar').style.width=pct+'%'; $('#hp-bar').style.background=pct>50?'#4cc38a':pct>25?'#f4a261':'#e74c5e';
-    const conditions=$('#detail-conditions'); conditions.innerHTML=''; (t.conditions||[]).filter(c=>c.visibility!=='gm').forEach(c=>{const el=document.createElement('span');el.className='condition-chip';el.style.setProperty('--condition-color',c.color||'#a8b3c7');el.textContent=(c.icon||'◆')+' '+(c.label||'状态')+(c.remainingTurns?' · '+c.remainingTurns+'回合':'');conditions.appendChild(el);});
-    if(!conditions.children.length)conditions.innerHTML='<span class="hint">暂无公开状态</span>';
+    renderPlayerConditions(t,editable);
     const note=$('#detail-public-note'); note.hidden=!t.publicNote; note.textContent=t.publicNote||'';
   }
   function updateOwned(field,value) { const t=currentMap && currentMap.tokens.find(x=>x.id===selectedId); if (!t || !ownedToken(t)) return; if(!canActWithToken(t)){openDetail(t.id);toast('🔒 只有轮到该角色时才能修改');return;} const previous=t[field];t[field]=value;sendPatch(t.id,{[field]:value},{[field]:previous});renderNamesLayer(currentMap);openDetail(t.id); }
@@ -1228,7 +1366,11 @@
       if(e.playMode==='turn'&&Number(a.turnSerial)===Number(e.turnSerial)&&Array.isArray(a.path)) appendTurnPath(m.id,t.id,a.path);
       renderTurnPath();
     }
-    if (a.op==='patchToken') { ['hp','hpMax','ac'].forEach(k=>{if(a.patch && k in a.patch)t[k]=a.patch[k];});if(a.patch&&'spellRange' in a.patch)t.spellRange=normalizeSpellRange(a.patch.spellRange); if(m===currentMap){renderNamesLayer(currentMap);requestSpellRangeRender();} const selected=currentMap&&selectedId&&(currentMap.tokens||[]).find(token=>token.id===selectedId);if(selected&&tokenControlGroup(selected).has(t.id))openDetail(selected.id); refreshTokenPeek(t); }
+    if (a.op==='patchToken') {
+      const patch=a.patch||{},conditionsChanged=Array.isArray(patch.conditions);['hp','hpMax','ac'].forEach(k=>{if(k in patch)t[k]=patch[k];});if('spellRange' in patch)t.spellRange=normalizeSpellRange(patch.spellRange);if(conditionsChanged)t.conditions=patch.conditions.slice(0,MAX_TOKEN_CONDITIONS).map(normalizePlayerCondition);
+      if(m===currentMap){if(conditionsChanged)renderTokens(currentMap);else renderNamesLayer(currentMap);requestSpellRangeRender();}
+      const selected=currentMap&&selectedId&&(currentMap.tokens||[]).find(token=>token.id===selectedId);if(selected&&tokenControlGroup(selected).has(t.id))openDetail(selected.id);refreshTokenPeek(t);
+    }
   }
 
   board.addEventListener('pointerdown',e=>{
@@ -1247,7 +1389,7 @@
       const selected=currentMap && currentMap.tokens.find(x=>x.id===(riderEl?riderEl.dataset.id:token.dataset.id));
       if(!selected)return;
       const mover=movementAnchor(selected,currentMap);
-      if(ownedToken(selected)&&Number.isFinite(Number(selected.hp)))openDetail(selected.id);
+      if(ownedToken(selected)&&Number.isFinite(Number(selected.hp))){activatePlayerDetailTab('status');openDetail(selected.id);}
       else if(friendly(selected)&&Number.isFinite(Number(selected.hp)))showTokenPeek(selected,e.clientX,e.clientY);
       else hideTokenPeek();
       if(!canMoveToken(mover)){
@@ -1299,6 +1441,7 @@
   $('#zoom-in').onclick=()=>{view.scale=clamp(view.scale*1.25,.2,4);applyView();}; $('#zoom-out').onclick=()=>{view.scale=clamp(view.scale/1.25,.2,4);applyView();}; $('#fit').onclick=fit;
   $('#player-name').addEventListener('input',()=>{myName=$('#player-name').value.trim();try{localStorage.setItem('sangduoer-watch-name',myName);}catch(e){}if(currentMap)renderTokens(currentMap);if(selectedId)openDetail(selectedId);});
   $('#detail-close').onclick=closeDetail;
+  document.querySelectorAll('[data-player-detail-tab]').forEach(button=>button.addEventListener('click',()=>activatePlayerDetailTab(button.dataset.playerDetailTab)));
   $('#hp').addEventListener('input',()=>updateOwned('hp',clamp(parseInt($('#hp').value,10)||0,0,99999)));
   $('#hp-max').addEventListener('input',()=>updateOwned('hpMax',clamp(parseInt($('#hp-max').value,10)||1,1,99999)));
   $('#ac').addEventListener('input',()=>updateOwned('ac',clamp(parseInt($('#ac').value,10)||0,0,99)));
@@ -1315,6 +1458,11 @@
   document.querySelectorAll('[data-spell-feet]').forEach(button=>button.addEventListener('click',()=>updateOwnedSpellRange({feet:Number(button.dataset.spellFeet)})));
   $('#spell-direction').addEventListener('input',event=>updateOwnedSpellRange({direction:Number(event.target.value)}));
   $('#spell-aim').addEventListener('click',toggleSpellAim);
+  $('#player-condition-open').addEventListener('click',()=>openPlayerConditionEditor());
+  $('#player-condition-close').addEventListener('click',closePlayerConditionEditor);$('#player-condition-cancel').addEventListener('click',closePlayerConditionEditor);$('#player-condition-save').addEventListener('click',savePlayerCondition);
+  $('#player-condition-select').addEventListener('change',syncPlayerConditionCustomFields);$('#player-condition-turns').addEventListener('input',syncPlayerConditionDuration);
+  document.querySelectorAll('[data-player-condition-duration]').forEach(button=>button.addEventListener('click',()=>setPlayerConditionDuration(button.dataset.playerConditionDuration)));
+  $('#player-condition-custom-name').addEventListener('keydown',event=>{if(event.key==='Enter')savePlayerCondition();});$('#player-condition-turns').addEventListener('keydown',event=>{if(event.key==='Enter')savePlayerCondition();});
   document.querySelectorAll('[data-doodle-tool]').forEach(button=>button.addEventListener('click',()=>toggleDoodleTool(button.dataset.doodleTool)));
   document.querySelectorAll('[data-doodle-color]').forEach(button=>button.addEventListener('click',()=>{doodleColor=button.dataset.doodleColor;document.querySelectorAll('[data-doodle-color]').forEach(item=>item.classList.toggle('active',item===button));}));
   $('#player-doodle-width').addEventListener('change',event=>{doodleWidth=parseInt(event.target.value,10)||6;});
@@ -1330,14 +1478,14 @@
     catch(error){toast('⚠ 结束回合未送达');await syncRoomState();}
     finally{endTurnPending=false;updateEndTurnUi();}
   });
-  bindToolButton('#dock-notes',()=>$('#personal-notes').focus());
+  bindToolButton('#dock-notes',()=>activatePlayerDetailTab('notes'));
   bindToolButton('#btn-left-panel',()=>$('#left-panel').classList.toggle('mobile-open'));
   bindToolButton('#btn-join',leaveSession);
   $('#join-form').addEventListener('submit',async e=>{e.preventDefault();const err=$('#join-error');err.textContent='正在加入…';try{await joinSession($('#join-name').value,$('#join-room').value,false);if(!streamES)connectStream();}catch(error){err.textContent=error.message||'无法加入房间';}});
   try { $('#personal-notes').value=localStorage.getItem('sangduoer-watch-notes')||''; } catch(e) {}
   $('#personal-notes').addEventListener('input',()=>{try{localStorage.setItem('sangduoer-watch-notes',$('#personal-notes').value);}catch(e){}});
   window.addEventListener('keydown',event=>{if(event.key!=='Escape')return;if(pendingMapReaction||!$('#reaction-palette').hidden){cancelMapReaction();toast('已取消地图表情');}if(spellAimTokenId){cancelSpellAim();toast('已取消锥形瞄准');}});
-  updateToolButtons();
+  initPlayerWorkspaceTabs();activatePlayerDetailTab('status',false);populatePlayerConditionSelect();updateToolButtons();
   window.addEventListener('resize',fit);
 
   const playerAudio=new Audio(); let bgmUrl='';
