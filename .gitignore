@@ -21,3 +21,4 @@ __pycache__/
 
 # Regenerable multiplayer map/avatar cache.
 .sundoll-cache/
+音乐缓存/

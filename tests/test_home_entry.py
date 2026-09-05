@@ -9,6 +9,7 @@ HOST_JS = (PROJECT_ROOT / '主控台' / 'app.js').read_text(encoding='utf-8')
 HOST_CSS = (PROJECT_ROOT / '主控台' / 'style.css').read_text(encoding='utf-8')
 PLAYER_HTML = (PROJECT_ROOT / '主控台' / '玩家.html').read_text(encoding='utf-8')
 SERVER_PY = (PROJECT_ROOT / '主控台' / '联机服务器.py').read_text(encoding='utf-8')
+BRAND_LOGO = PROJECT_ROOT / 'asset' / '界面' / '品牌' / '桑多尔之歌-logo.png'
 
 
 def function_body(source, name, next_name):
@@ -22,6 +23,15 @@ def function_body(source, name, next_name):
 
 
 class HomeEntryTests(unittest.TestCase):
+    def test_brand_name_and_logo_are_shared_by_host_and_player(self):
+        self.assertTrue(BRAND_LOGO.is_file())
+        self.assertIn('<title>桑多尔之歌 · 主控台</title>', HOST_HTML)
+        self.assertIn('<title>桑多尔之歌 · 玩家端</title>', PLAYER_HTML)
+        for source in (HOST_HTML, PLAYER_HTML):
+            self.assertGreaterEqual(source.count('../asset/界面/品牌/桑多尔之歌-logo.png'), 2)
+            self.assertNotIn('桑哆尔跑团', source)
+            self.assertNotIn('🐉 桑哆尔', source)
+
     def test_host_home_has_one_clear_campaign_entry_surface(self):
         for element_id in (
             'cover', 'cover-current', 'cover-continue', 'cover-load', 'cover-new',
@@ -64,13 +74,22 @@ class HomeEntryTests(unittest.TestCase):
         for element_id in (
             'join-mask', 'join-server-status', 'join-campaign-name', 'join-room-code',
             'join-map-name', 'join-player-count', 'join-form', 'join-name', 'join-room',
-            'join-submit', 'join-refresh', 'join-session-hint',
+            'join-submit', 'join-refresh', 'join-session-hint', 'join-campaign-card',
+            'join-campaign-cover',
         ):
             self.assertEqual(PLAYER_HTML.count(f'id="{element_id}"'), 1, element_id)
         join_tag = re.search(r'<div id="join-mask"[^>]*>', PLAYER_HTML)
         self.assertIsNotNone(join_tag)
         self.assertNotIn(' hidden', join_tag.group(0))
         self.assertIn('var(--join-background-image)', PLAYER_HTML)
+        self.assertIn('function applyJoinCampaignCover(', PLAYER_HTML)
+        self.assertIn('applyJoinCampaignCover(info.campaignCoverUrl)', PLAYER_HTML)
+        self.assertRegex(
+            PLAYER_HTML,
+            r'\.join-campaign-card\s*\{[^}]*aspect-ratio\s*:\s*16\s*/\s*9',
+        )
+        self.assertIn("'campaignCoverUrl':", SERVER_PY)
+        self.assertIn("state['_campaignCoverUrl'] = campaign_cover_asset_url(state)", SERVER_PY)
         self.assertIn('id="join-theme-picker"', PLAYER_HTML)
         for theme in 'abcd':
             self.assertIn(f'data-join-theme="{theme}"', PLAYER_HTML)

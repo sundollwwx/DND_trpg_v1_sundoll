@@ -3,64 +3,78 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>桑哆尔 · 跑团台</title>
+  <title>桑多尔之歌 · 主控台</title>
+  <link rel="icon" type="image/png" href="../asset/界面/品牌/桑多尔之歌-logo.png">
   <link rel="preload" as="image" href="../asset/界面/状态图标-v1.png">
-  <link rel="stylesheet" href="style.css?v=20260905-m44-campaign-covers">
+  <link rel="stylesheet" href="style.css?v=20260905-m52-always-grid">
+  <link rel="stylesheet" href="../asset/界面/休息动画/休息动画.css?v=20260905-rest-scenes-v2">
 </head>
 <body>
 
 <header id="topbar">
   <div class="brand">
-    <span class="logo">🐉</span>
-    <span>跑团台-<em>桑哆尔</em></span>
+    <span class="logo" aria-hidden="true"><img src="../asset/界面/品牌/桑多尔之歌-logo.png" alt=""></span>
+    <span>桑多尔之歌-<em>主控台</em></span>
   </div>
   <div class="controls">
     <button id="btn-toggle-left-panel" class="topbar-tool-toggle" type="button" title="显示或隐藏工具栏" aria-pressed="false">☰ 工具</button>
-    <div class="dropdown">
-      <button class="dropdown-btn" data-dropdown="net" id="btn-stream-dd">📡 联机 ▾</button>
-      <div class="dropdown-menu" data-menu="net" hidden>
-        <div id="net-info" class="net-info">● 联机未开启</div>
-        <button data-action="stream" id="btn-stream-toggle" class="primary">开启联机</button>
-        <button data-action="stream-copy" id="btn-stream-copy">复制玩家链接</button>
+    <div class="topbar-map-controls" aria-label="地图操作">
+      <span class="map-switch" title="切换地图">
+        <button id="btn-map-prev" type="button" aria-label="上一张地图">‹</button>
+        <select id="map-select" aria-label="当前地图"></select>
+        <button id="btn-map-next" type="button" aria-label="下一张地图">›</button>
+      </span>
+      <div id="map-quick-tools" aria-label="地图快捷工具">
+        <button type="button" data-toggle-target="names-toggle" title="显示单位名称">Aa<span>名字</span></button>
+        <button type="button" data-toggle-target="snap-toggle" title="棋子吸附网格">⌘<span>吸附</span></button>
+        <button type="button" id="btn-map-reaction" title="选择表情后点击地图发送">☺<span>表情</span></button>
       </div>
+      <button id="btn-fit" title="缩放并居中到整张地图">⛶ 适应窗口</button>
     </div>
-    <span id="host-connection" class="host-connection" data-state="off" role="status">未联机</span>
-    <button id="btn-map-browser-top" type="button">🗺️ 地图</button>
-    <div class="dropdown">
-      <button class="dropdown-btn" data-dropdown="save">💾 存档 ▾</button>
-      <div class="dropdown-menu" data-menu="save" hidden>
-        <button data-action="save">💾 存档</button>
-        <button data-action="load">📂 读取存档</button>
-        <button data-action="home">⌂ 返回主页</button>
+    <div class="topbar-session-controls" aria-label="存档与联机状态">
+      <div class="dropdown">
+        <button class="dropdown-btn" data-dropdown="save">💾 存档 ▾</button>
+        <div class="dropdown-menu" data-menu="save" hidden>
+          <button data-action="save">💾 存档</button>
+          <button data-action="load">📂 读取存档</button>
+          <button data-action="home">⌂ 返回主页</button>
+        </div>
       </div>
+      <span id="host-connection" class="host-connection" data-state="off" role="status">未联机</span>
+      <span id="save-status" class="save-status" title="存档状态">未保存</span>
+      <span id="app-version" class="app-version">v1.1</span>
     </div>
-    <span class="map-switch" title="切换地图">
-      <button id="btn-map-prev" type="button" aria-label="上一张地图">‹</button>
-      <select id="map-select" aria-label="当前地图"></select>
-      <button id="btn-map-next" type="button" aria-label="下一张地图">›</button>
-    </span>
     <div id="map-settings">
-      <label class="toggle"><input type="checkbox" id="grid-toggle" checked> 网格</label>
       <label class="toggle"><input type="checkbox" id="names-toggle" checked> 名字</label>
       <label class="toggle" title="高清立绘开关：开启后按棋子屏幕尺寸在 192/512px 间自动切换；关闭后固定使用 192px 流畅档"><input type="checkbox" id="hd-toggle-check"> 高清</label>
-      <label class="toggle" title="打开后点击任意格子可加/去黄色标记框"><input type="checkbox" id="mark-toggle"> 🖍️ 标记</label>
-      <label class="toggle" title="开启迷雾后，未探索的格子会变黑"><input type="checkbox" id="fog-toggle"> 🌫️ 迷雾</label>
       <label class="toggle"><input type="checkbox" id="snap-toggle" checked> 吸附</label>
     </div>
-    <button id="btn-fit" title="缩放并居中到整张地图">⛶ 适应窗口</button>
-    <span id="save-status" class="save-status" title="存档状态">未保存</span>
-    <span id="app-version" class="app-version">v1.1</span>
   </div>
 </header>
 
 <main id="layout">
   <aside id="left-panel" class="panel">
     <nav id="workspace-tabs" aria-label="主控台工具">
-      <button class="workspace-tab active" type="button" data-workspace-tab="units">♟<span>单位</span></button>
+      <button class="workspace-tab" type="button" data-workspace-tab="units">♟<span>单位</span></button>
       <button class="workspace-tab" type="button" data-workspace-tab="map">▦<span>地图</span></button>
       <button class="workspace-tab" type="button" data-workspace-tab="draw">✎<span>绘制</span></button>
       <button class="workspace-tab" type="button" data-workspace-tab="resources">◈<span>资源</span></button>
+      <button class="workspace-tab active" type="button" data-workspace-tab="room">●<span>房间</span></button>
     </nav>
+    <section class="card host-room-card" data-workspace="room" data-no-collapse>
+      <div class="card-head host-room-head">
+        <h2>👥 房间成员</h2>
+        <span id="host-room-code" class="host-room-code">未开启</span>
+      </div>
+      <div id="host-player-list" class="host-player-list" aria-live="polite"><span class="hint">开启联机后可查看房间成员。</span></div>
+      <div class="host-room-footer">
+        <span id="host-room-summary">联机尚未开启</span>
+        <div class="host-room-actions">
+          <button id="btn-host-room-toggle" class="small primary" type="button">开启联机</button>
+          <button id="btn-host-room-copy" class="small" type="button" disabled>复制邀请链接</button>
+        </div>
+      </div>
+    </section>
     <section class="card" data-workspace="units">
       <h2>🎲 骰子</h2>
       <div class="dice-grid">
@@ -217,33 +231,23 @@
       </div>
     </section>
 
-    <section class="card" data-workspace="map">
-      <h2>🌫️ 迷雾</h2>
-      <div class="tool-grid">
-        <button class="board-tool" data-tool="fog-reveal">🔦 揭开</button>
-        <button class="board-tool" data-tool="fog-hide">🌑 遮回</button>
-      </div>
-      <label class="gen-row" style="flex-direction:column;gap:3px;">
-        <span style="font-size:12px;color:var(--muted);">笔刷大小</span>
-        <select id="fog-brush">
-          <option value="1">1×1</option>
-          <option value="3" selected>3×3</option>
-          <option value="5">5×5</option>
-        </select>
-      </label>
-      <div class="btn-row">
-        <button id="btn-fog-hide-all">全部隐藏</button>
-        <button id="btn-fog-show-all">全部显示</button>
-      </div>
+    <section class="card map-browser-card" data-workspace="map" data-no-collapse>
+      <h2>🗺️ 地图管理</h2>
+      <button id="btn-map-browser-open" class="primary" type="button">打开地图列表</button>
     </section>
 
     <section class="card" id="bgm-card" data-workspace="resources">
-      <h2>🎵 BGM</h2>
+      <div class="card-head bgm-head">
+        <h2>🎵 音乐</h2>
+        <button id="btn-bgm-refresh" class="small" type="button" title="重新扫描项目曲库">↻ 刷新</button>
+      </div>
+      <div class="bgm-now" id="bgm-now" data-state="stopped">
+        <span class="bgm-now-icon">♪</span>
+        <span><strong id="bgm-now-title">尚未播放</strong><small id="bgm-status">正在读取项目曲库…</small></span>
+      </div>
       <div class="bgm-tools">
-        <button id="btn-bgm-bind" class="small">📂 绑定音乐文件夹</button>
-        <button id="btn-bgm-pick" class="small">🎵 选择音乐文件</button>
+        <button id="btn-bgm-pick" class="small" type="button">＋ 临时音乐</button>
         <input type="file" id="file-bgm" accept="audio/*" multiple hidden>
-        <span id="bgm-status" class="hint">未绑定 · 可临时选择音乐</span>
       </div>
       <div class="bgm-controls">
         <button id="btn-bgm-prev" class="small" title="上一首">⏮</button>
@@ -253,6 +257,11 @@
         <input type="range" id="bgm-volume" min="0" max="100" value="70" title="音量">
       </div>
       <div id="bgm-list"></div>
+      <div class="bgm-live">
+        <div class="bgm-live-copy"><strong>浏览器标签页声音</strong><span id="bgm-live-status">未广播</span></div>
+        <button id="btn-bgm-live" class="small" type="button">📡 广播标签页</button>
+      </div>
+      <p class="bgm-live-hint">在 Chrome / Edge 的分享窗口选择 B 站标签页并勾选“共享标签页音频”。只广播声音，不传画面。</p>
     </section>
 
     <section class="card" id="links-card" data-workspace="resources">
@@ -278,21 +287,11 @@
         <div id="world">
           <div id="names-layer"></div>
           <canvas id="spell-range-canvas" class="map-layer"></canvas>
-          <canvas id="fog-canvas" class="map-layer"></canvas>
           <canvas id="doodle-canvas" class="map-layer"></canvas>
           <canvas id="turn-path-canvas" class="map-layer"></canvas>
           <div id="reaction-layer" aria-live="polite"></div>
         </div>
         <div id="drop-hint"><div class="drop-icon">🗺️</div></div>
-        <div id="map-quick-tools" aria-label="地图快捷工具">
-          <div id="map-quick-drag" title="拖动工具栏" aria-label="拖动工具栏">⠿</div>
-          <button type="button" data-toggle-target="grid-toggle" title="显示网格">#<span>网格</span></button>
-          <button type="button" data-toggle-target="names-toggle" title="显示单位名称">Aa<span>名字</span></button>
-          <button type="button" data-toggle-target="snap-toggle" title="棋子吸附网格">⌘<span>吸附</span></button>
-          <button type="button" data-toggle-target="mark-toggle" title="标记格子">✦<span>标记</span></button>
-          <button type="button" data-toggle-target="fog-toggle" title="开启迷雾">◌<span>迷雾</span></button>
-          <button type="button" id="btn-map-reaction" title="选择表情后点击地图发送">☺<span>表情</span></button>
-        </div>
         <div id="map-reaction-palette" class="reaction-palette" role="toolbar" aria-label="地图表情" hidden>
           <button type="button" data-map-reaction="👍" title="赞">👍</button>
           <button type="button" data-map-reaction="❤️" title="喜欢">❤️</button>
@@ -340,10 +339,14 @@
             <div class="initiative-focus-meta"><span id="init-focus-round">自由模式</span><span id="init-focus-next">切换到回合制后锁定行动顺序</span></div>
             <button id="btn-combat-start" class="primary combat-start-button" type="button" hidden>⚔ 开始战斗</button>
             <div id="host-turn-path-actions" class="host-turn-path-actions" role="group" aria-label="当前回合路径操作" hidden>
-              <button id="btn-turn-path-undo" type="button" disabled>↶ 回退一步</button>
-              <button id="btn-turn-path-reset" type="button" disabled>⟲ 重置路径</button>
+              <button id="btn-turn-path-toggle" class="turn-path-recording-toggle active" type="button" aria-pressed="true">路径</button>
+              <button id="btn-turn-path-undo" type="button" disabled>回退</button>
+              <button id="btn-turn-path-reset" type="button" disabled>重置</button>
             </div>
-            <button id="btn-init-next" class="primary" type="button" hidden>结束当前回合</button>
+            <div id="initiative-turn-actions" class="initiative-turn-actions" hidden>
+              <button id="btn-init-next" class="primary" type="button">结束回合</button>
+              <button id="btn-combat-end" class="danger" type="button">结束战斗</button>
+            </div>
           </div>
           <div class="initiative-setup-card">
             <span class="initiative-eyebrow">添加与管理</span>
@@ -601,7 +604,7 @@
         <button id="btn-map-browser-close" type="button" aria-label="关闭地图浏览">✕</button>
       </div>
     </div>
-    <div class="map-browser-summary"><span id="map-browser-count">0 张地图</span><span>顺序与网格设置会随存档保存</span></div>
+    <div class="map-browser-summary"><span id="map-browser-count">0 张地图</span><span>顺序与战术格距会随存档保存</span></div>
     <div class="map-browser-rail">
       <button id="btn-map-scroll-left" class="map-browser-scroll" type="button" aria-label="向左浏览地图">‹</button>
       <div id="map-thumbnail-strip" class="map-thumbnail-strip" tabindex="0" aria-label="地图缩略图列表"></div>
@@ -615,7 +618,7 @@
     <div class="map-browser-head">
       <div>
         <h2 id="map-image-import-title">📥 导入地图图片</h2>
-        <p class="hint">每张图片会独立成为一张地图；可先设定名称、是否显示网格和每格大小。</p>
+        <p class="hint">每张图片会独立成为一张地图；可先设定名称和战术格距。</p>
       </div>
       <button id="btn-map-image-import-more" type="button">＋ 继续选择</button>
     </div>
@@ -651,6 +654,22 @@
   </div>
 </div>
 
+<div id="rest-scene-modal" class="modal-mask" hidden>
+  <div class="modal rest-scene-picker" role="dialog" aria-modal="true" aria-labelledby="rest-scene-picker-title">
+    <div class="rest-scene-picker-head">
+      <div>
+        <h2 id="rest-scene-picker-title">选择休息场景</h2>
+        <p id="rest-scene-picker-hint" class="hint">选择一个场景后开始休息。</p>
+      </div>
+    </div>
+    <div id="rest-scene-options" class="rest-scene-options" role="group" aria-label="休息场景"></div>
+    <div class="modal-actions">
+      <button id="btn-rest-scene-cancel" type="button">取消</button>
+      <button id="btn-rest-scene-confirm" class="primary" type="button">开始休息</button>
+    </div>
+  </div>
+</div>
+
 <input type="file" id="file-map-load" accept="image/png,image/jpeg,image/webp,image/gif,.json,application/json" multiple hidden>
 <div id="toast" hidden></div>
 
@@ -667,7 +686,7 @@
 <div id="cover" class="cover" role="dialog" aria-modal="true" aria-labelledby="cover-title">
   <div class="cover-shell">
     <header class="cover-global-bar">
-      <div class="cover-brand"><span class="cover-brand-mark" aria-hidden="true">🐉</span><strong>桑哆尔跑团</strong><span>主控台</span></div>
+      <div class="cover-brand"><span class="cover-brand-mark" aria-hidden="true"><img src="../asset/界面/品牌/桑多尔之歌-logo.png" alt=""></span><strong>桑多尔之歌</strong><span>主控台</span></div>
       <div class="cover-global-actions">
         <div id="cover-theme-picker" class="home-theme-picker" role="group" aria-label="切换主页背景">
           <span class="home-theme-caption">背景</span>
@@ -681,7 +700,7 @@
     </header>
 
     <section class="cover-project-head" aria-label="当前战役">
-      <div class="cover-project-title"><span class="cover-project-icon" aria-hidden="true">◈</span><h1 id="cover-title">桑哆尔 <span>/</span> <strong id="cover-project-name">战役总览</strong></h1><span class="cover-project-badge">本机</span></div>
+      <div class="cover-project-title"><span class="cover-project-icon" aria-hidden="true">◈</span><h1 id="cover-title">桑多尔之歌 <span>/</span> <strong id="cover-project-name">战役总览</strong></h1><span class="cover-project-badge">本机</span></div>
     </section>
 
     <div class="cover-dashboard">
@@ -715,9 +734,10 @@
 </div>
 
 <script src="../asset/棋子库/默认预设.js?v=20260902-library-cleanup-v3"></script>
+<script src="../asset/界面/休息动画/休息场景.js?v=20260905-rest-scenes-v2"></script>
 <script src="../three.min.js"></script>
 <script src="../骰子动画.js?v=20260904-physics-v7-face-lock-continuous-settle-r6-uv-handedness-r7-result-focus-r8-public-skin-r9-d20-tilt-r10"></script>
 <script src="../asset/地图/tile-renderer.js?v=20260902-explicit-variants"></script>
-  <script src="app.js?v=20260905-m44-campaign-covers"></script>
+  <script src="app.js?v=20260905-m52-always-grid"></script>
 </body>
 </html>

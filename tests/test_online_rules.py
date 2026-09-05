@@ -2,6 +2,7 @@ import copy
 import base64
 import importlib.util
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -554,6 +555,104 @@ class PlayerDeleteTokenTests(unittest.TestCase):
         self.assertIsNotNone(SERVER.find_token(state, token['id'])[1])
 
 
+class PlayerMountTests(unittest.TestCase):
+    def normalize(self, state, player='Alice', **updates):
+        request = {
+            'op': 'mountToken', 'mapId': 'map-1', 'tokenId': 'rider', 'mountId': 'mount',
+            'playMode': 'turn' if state['encounter']['playMode'] == 'turn' else 'free',
+        }
+        if state['encounter']['playMode'] == 'turn':
+            request['turnSerial'] = state['encounter']['turnSerial']
+        request.update(updates)
+        return SERVER.normalize_player_mount_action(state, request, player)
+
+    def test_owner_can_mount_in_free_mode_and_replay_is_idempotent(self):
+        state = make_state(play_mode='free')
+        rider = SERVER.find_token(state, 'rider')[1]
+        mount = SERVER.find_token(state, 'mount')[1]
+        rider['mountId'] = None
+        rider['x'], rider['y'] = 100, 120
+
+        action, error, status = self.normalize(state)
+        self.assertIsNone(error)
+        self.assertEqual(status, 200)
+        self.assertTrue(SERVER.apply_action(state, action))
+        self.assertEqual(rider['mountId'], mount['id'])
+        self.assertEqual((rider['x'], rider['y']), (mount['x'], mount['y']))
+        self.assertEqual(action['encounterPlayMode'], 'free')
+        self.assertEqual(action['initiativeEntries'], state['encounter']['entries'])
+        self.assertTrue(SERVER.apply_action(state, action))
+
+    def test_player_cannot_mount_another_players_rider_or_mount(self):
+        state = make_state(play_mode='free')
+        SERVER.find_token(state, 'rider')[1]['mountId'] = None
+        action, error, status = self.normalize(state, player='Bob')
+        self.assertIsNone(action)
+        self.assertIn('自己的角色', error)
+        self.assertEqual(status, 403)
+
+        SERVER.find_token(state, 'mount')[1]['owner'] = 'Bob'
+        action, error, status = self.normalize(state)
+        self.assertIsNone(action)
+        self.assertIn('其他玩家', error)
+        self.assertEqual(status, 403)
+
+    def test_hidden_or_small_mount_is_rejected(self):
+        state = make_state(play_mode='free')
+        SERVER.find_token(state, 'rider')[1]['mountId'] = None
+        mount = SERVER.find_token(state, 'mount')[1]
+        mount['hiddenFromPlayers'] = True
+        action, error, status = self.normalize(state)
+        self.assertIsNone(action)
+        self.assertIn('不可见', error)
+        self.assertEqual(status, 403)
+
+        mount['hiddenFromPlayers'] = False
+        mount['size'] = 1
+        action, error, status = self.normalize(state)
+        self.assertIsNone(action)
+        self.assertIn('2x2', error)
+        self.assertEqual(status, 409)
+
+    def test_turn_mode_requires_the_riders_current_turn(self):
+        state = make_state(play_mode='turn')
+        SERVER.find_token(state, 'rider')[1]['mountId'] = None
+        state['encounter']['currentEntryId'] = 'init-other'
+        action, error, status = self.normalize(state)
+        self.assertIsNone(action)
+        self.assertIn('尚未轮到', error)
+        self.assertEqual(status, 403)
+
+    def test_mount_merges_initiative_and_resets_the_current_turn_path(self):
+        state = make_state(play_mode='turn')
+        state['maps'][0]['tokens'] = [
+            token for token in state['maps'][0]['tokens'] if token['id'] != 'co-rider'
+        ]
+        rider = SERVER.find_token(state, 'rider')[1]
+        rider['mountId'] = None
+        state['encounter']['entries'] = [
+            {'id': 'init-rider', 'name': '骑手', 'tokenId': 'rider', 'value': 18, 'order': 0},
+            {'id': 'init-mount', 'name': '坐骑', 'tokenId': 'mount', 'value': 16, 'order': 1},
+            {'id': 'init-other', 'name': '其他角色', 'tokenId': 'other', 'value': 12, 'order': 2},
+        ]
+        state['encounter']['currentEntryId'] = 'init-rider'
+        state['encounter']['turnPath'] = {
+            'mapId': 'map-1', 'tokenId': 'rider',
+            'points': [{'x': 100, 'y': 100}, {'x': 150, 'y': 100}],
+        }
+
+        action, error, status = self.normalize(state)
+        self.assertIsNone(error)
+        self.assertEqual(status, 200)
+        self.assertTrue(SERVER.apply_action(state, action))
+        self.assertEqual([entry['id'] for entry in state['encounter']['entries']], ['init-rider', 'init-other'])
+        self.assertEqual(state['encounter']['entries'][0]['name'], '骑手 · 坐骑')
+        self.assertEqual(state['encounter']['currentEntryId'], 'init-rider')
+        self.assertEqual(state['encounter']['turnSerial'], 8)
+        self.assertEqual(state['encounter']['turnPath']['points'], [])
+        self.assertEqual(action['turnSerial'], 8)
+
+
 class PlayerDismountTests(unittest.TestCase):
     def normalize(self, state, player='Alice', **updates):
         request = {
@@ -799,9 +898,11 @@ class RestTransitionTests(unittest.TestCase):
         self.assertIn('restTransition', SERVER.HOST_ACTIONS)
         action = SERVER.normalize_rest_transition_action({
             'op': 'restTransition', 'restId': 'rest-123-abc', 'kind': 'short', 'duration': 2200,
+            'scene': 'short-indoor',
         })
         self.assertEqual(action['op'], 'restTransition')
         self.assertEqual(action['kind'], 'short')
+        self.assertEqual(action['scene'], 'short-indoor')
         self.assertEqual(action['duration'], 2200)
         self.assertEqual(action['name'], 'GM')
         self.assertIsInstance(action['startedAt'], int)
@@ -813,10 +914,56 @@ class RestTransitionTests(unittest.TestCase):
         self.assertIsNone(SERVER.normalize_rest_transition_action({
             'restId': 'rest-1', 'kind': 'nap', 'duration': 2200,
         }))
+        self.assertIsNone(SERVER.normalize_rest_transition_action({
+            'restId': 'rest-1', 'kind': 'short', 'duration': 2200, 'scene': 'long-indoor',
+        }))
         long_rest = SERVER.normalize_rest_transition_action({
             'restId': 'rest-2', 'kind': 'long', 'duration': 99999,
         })
         self.assertEqual(long_rest['duration'], 8000)
+
+
+class MusicLibraryTests(unittest.TestCase):
+    def test_catalog_combines_general_and_only_the_current_campaign(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / '通用' / '环境').mkdir(parents=True)
+            (root / '战役' / 'c12-潮汐之门' / '战斗').mkdir(parents=True)
+            (root / '战役' / 'c99-其他战役').mkdir(parents=True)
+            (root / '通用' / '环境' / '海风.mp3').write_bytes(b'general')
+            (root / '战役' / 'c12-潮汐之门' / '战斗' / '伏击.ogg').write_bytes(b'campaign')
+            (root / '战役' / 'c99-其他战役' / '秘密.wav').write_bytes(b'other')
+            catalog = SERVER.music_library_catalog(str(root), 'c12', '潮汐之门')
+
+        self.assertEqual([item['title'] for item in catalog['tracks']], ['伏击', '海风'])
+        self.assertEqual([item['collection'] for item in catalog['tracks']], ['当前战役', '通用'])
+        self.assertEqual(catalog['tracks'][0]['category'], '战斗')
+        self.assertRegex(catalog['tracks'][0]['id'], r'^[0-9a-f]{32}$')
+        self.assertNotIn('潮汐之门', catalog['tracks'][0]['url'])
+
+    def test_http_range_supports_seek_and_suffix_requests(self):
+        self.assertEqual(SERVER.parse_http_byte_range('bytes=10-19', 100), (10, 19))
+        self.assertEqual(SERVER.parse_http_byte_range('bytes=90-', 100), (90, 99))
+        self.assertEqual(SERVER.parse_http_byte_range('bytes=-12', 100), (88, 99))
+        with self.assertRaises(ValueError):
+            SERVER.parse_http_byte_range('bytes=100-101', 100)
+        with self.assertRaises(ValueError):
+            SERVER.parse_http_byte_range('bytes=0-1,5-6', 100)
+
+    def test_bgm_anchor_and_webrtc_signals_are_sanitized(self):
+        bgm = SERVER.normalize_bgm_action({
+            'action': 'play', 'mode': 'library', 'trackId': 'abc', 'track': '冒险',
+            'url': '/api/music-stream/abc', 'time': 12.3456, 'loop': True,
+        }, now=123456)
+        self.assertEqual(bgm['time'], 12.346)
+        self.assertEqual(bgm['issuedAt'], 123456)
+        self.assertTrue(bgm['loop'])
+        self.assertIsNone(SERVER.normalize_bgm_action({'action': 'rewind'}))
+        self.assertEqual(SERVER.normalize_webrtc_signal({'type': 'ice', 'candidate': 'candidate:1'}), {
+            'type': 'ice', 'candidate': 'candidate:1',
+        })
+        self.assertEqual(SERVER.normalize_webrtc_signal({'type': 'ready'}), {'type': 'ready'})
+        self.assertIsNone(SERVER.normalize_webrtc_signal({'type': 'offer', 'sdp': ''}))
 
 
 if __name__ == '__main__':

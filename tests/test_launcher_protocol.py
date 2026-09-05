@@ -30,7 +30,7 @@ class FakeResponse:
 
 class LauncherProtocolTests(unittest.TestCase):
     def response(self, protocol=None):
-        payload = {'name': '桑哆尔联机', 'port': 8090}
+        payload = {'name': LAUNCHER.SERVER_NAME, 'port': 8090}
         if protocol is not None:
             payload['protocolVersion'] = protocol
         return FakeResponse(payload)
@@ -43,6 +43,12 @@ class LauncherProtocolTests(unittest.TestCase):
             'urlopen',
             return_value=self.response(LAUNCHER.SERVER_PROTOCOL_VERSION),
         ):
+            self.assertEqual(LAUNCHER.server_info(8090)['protocolVersion'], LAUNCHER.SERVER_PROTOCOL_VERSION)
+
+    def test_previous_brand_name_remains_reusable_during_upgrade(self):
+        response = self.response(LAUNCHER.SERVER_PROTOCOL_VERSION)
+        response.payload['name'] = '桑哆尔联机'
+        with mock.patch.object(LAUNCHER.urllib.request, 'urlopen', return_value=response):
             self.assertEqual(LAUNCHER.server_info(8090)['protocolVersion'], LAUNCHER.SERVER_PROTOCOL_VERSION)
 
     def test_protocol_marker_is_shared_by_server_launcher_and_player(self):

@@ -144,8 +144,10 @@ const WORLD_WEEKS_PER_YEAR = 52;
 const WORLD_MINUTES_PER_YEAR = WORLD_MINUTES_PER_DAY * WORLD_DAYS_PER_WEEK * WORLD_WEEKS_PER_YEAR;
 const MAX_MOVE_POINTS = 60;
 const MAX_TURN_PATH_POINTS = 200;
-const TURN_DIAGONAL_MIN_STEP = 0.68;
-const TURN_DIAGONAL_MAX_STEP = 1.32;
+const TURN_DIAGONAL_MIN_STEP = 0.55;
+const TURN_DIAGONAL_MAX_STEP = 1.45;
+const TURN_DIAGONAL_INTENT_RATIO = 0.35;
+const HOST_TURN_PATH_RECORDING_KEY = 'sundoll-host-turn-path-recording-v1';
 const SPELL_RANGE_MIN_FEET = 5;
 const SPELL_RANGE_MAX_FEET = 180;
 const SPELL_RANGE_STEP_FEET = 5;
@@ -337,10 +339,7 @@ const state = {
   maps: [],
   activeMapId: null,
   snap: true,
-  showGrid: true,
   showNames: true,
-  markMode: false,
-  fogOn: false,
   campaignId: null,
   campaignName: '默认战役',
   library: [],
@@ -352,10 +351,14 @@ const state = {
 
 let uid = 1;
 let drag = null;
+let hostTurnPathRecording = true;
+try { hostTurnPathRecording = localStorage.getItem(HOST_TURN_PATH_RECORDING_KEY) !== '0'; } catch (e) { /* 本机偏好不可用时保持开启 */ }
 let toastTimer = null;
 let autosaveTimer = null;
 let restAnimationTimer = null;
 let restAnimationActive = false;
+let restScenePickerKind = null;
+const restScenePickerSelection = { short: 'short-outdoor', long: 'long-outdoor' };
 let browserStateCacheFailed = false;
 let folderSaveQueue = Promise.resolve();
 let lastFolderSaveAt = 0;
@@ -390,7 +393,6 @@ let doodleColor = '#ff4d4f';
 let doodleWidth = 6;
 let doodleDraft = null;
 let selectedDoodleId = null;
-let fogBrush = 3;
 let lastSelId = null;
 let detailActiveTab = 'status';
 let editingConditionId = null;
@@ -566,7 +568,7 @@ function sameTurnPoint(a, b) {
   return Math.abs(Number(a?.x) - Number(b?.x)) < 0.01 && Math.abs(Number(a?.y) - Number(b?.y)) < 0.01;
 }
 
-function recordTurnDragPoint(move, point, gridSize, snapEnabled = true) {
+function recordTurnDragPoint(move, point, gridSize, snapEnabled = true, rawPoint = point) {
   if (!move || !Array.isArray(move.pathPoints) || !point) return false;
   const x = Number(point.x);
   const y = Number(point.y);
@@ -576,7 +578,22 @@ function recordTurnDragPoint(move, point, gridSize, snapEnabled = true) {
   const last = points[points.length - 1];
   const grid = Math.max(1, Number(gridSize) || 50);
   const threshold = snapEnabled ? 0.01 : Math.max(3, grid * 0.08);
-  if (last && Math.hypot(x - last.x, y - last.y) < threshold) return false;
+  const rawX = Number(rawPoint?.x);
+  const rawY = Number(rawPoint?.y);
+  const diagonalGestureFrom = (origin) => {
+    if (!origin || !Number.isFinite(rawX) || !Number.isFinite(rawY)) return false;
+    const dx = Math.abs(rawX - Number(origin.x));
+    const dy = Math.abs(rawY - Number(origin.y));
+    const major = Math.max(dx, dy);
+    return major >= grid * 0.25 && Math.min(dx, dy) / major >= TURN_DIAGONAL_INTENT_RATIO;
+  };
+  if (last && Math.hypot(x - last.x, y - last.y) < threshold) {
+    const intent = move.diagonalCornerIntent;
+    if (intent && intent.eligible
+      && Math.abs(last.x - intent.cornerX) < 0.01 && Math.abs(last.y - intent.cornerY) < 0.01
+      && !diagonalGestureFrom({ x: intent.startX, y: intent.startY })) intent.eligible = false;
+    return false;
+  }
   if (snapEnabled && points.length >= 2) {
     const start = points[points.length - 2];
     const corner = last;
@@ -592,13 +609,36 @@ function recordTurnDragPoint(move, point, gridSize, snapEnabled = true) {
     const firstVertical = isStep(ay) && isNearlyZero(ax);
     const secondHorizontal = isStep(bx) && isNearlyZero(by);
     const secondVertical = isStep(by) && isNearlyZero(bx);
+    const intent = move.diagonalCornerIntent;
+    const directDiagonal = intent && intent.eligible
+      && Math.abs(start.x - intent.startX) < 0.01 && Math.abs(start.y - intent.startY) < 0.01
+      && Math.abs(corner.x - intent.cornerX) < 0.01 && Math.abs(corner.y - intent.cornerY) < 0.01
+      && diagonalGestureFrom(start);
     if (isStep(dx) && isStep(dy)
+      && directDiagonal
       && ((firstHorizontal && secondVertical) || (firstVertical && secondHorizontal))) {
       points[points.length - 1] = candidate;
+      move.diagonalCornerIntent = null;
       return true;
     }
   }
   points.push(candidate);
+  if (snapEnabled && last) {
+    const sx = Math.abs(candidate.x - last.x) / grid;
+    const sy = Math.abs(candidate.y - last.y) / grid;
+    const isStep = (value) => value >= TURN_DIAGONAL_MIN_STEP && value <= TURN_DIAGONAL_MAX_STEP;
+    const isNearlyZero = (value) => value <= 1 - TURN_DIAGONAL_MIN_STEP;
+    move.diagonalCornerIntent = {
+      startX: last.x,
+      startY: last.y,
+      cornerX: candidate.x,
+      cornerY: candidate.y,
+      eligible: ((isStep(sx) && isNearlyZero(sy)) || (isStep(sy) && isNearlyZero(sx)))
+        && diagonalGestureFrom(last),
+    };
+  } else {
+    move.diagonalCornerIntent = null;
+  }
   if (points.length > MAX_MOVE_POINTS) {
     move.pathPoints = points.slice(0, MAX_MOVE_POINTS - 1).concat(points[points.length - 1]);
   }
@@ -611,7 +651,9 @@ function appendTurnPath(e, mapId, tokenId, points) {
     .slice(0, MAX_MOVE_POINTS).map((point) => ({ x: Number(point.x), y: Number(point.y) }));
   if (!valid.length) return;
   const samePath = e.turnPath && e.turnPath.mapId === String(mapId) && e.turnPath.tokenId === String(tokenId);
-  const combined = samePath && Array.isArray(e.turnPath.points) ? e.turnPath.points.slice() : [];
+  const previous = samePath && Array.isArray(e.turnPath.points) ? e.turnPath.points : [];
+  const continuous = !previous.length || sameTurnPoint(previous[previous.length - 1], valid[0]);
+  const combined = samePath && continuous ? previous.slice() : [];
   valid.forEach((point) => {
     if (!combined.length || !sameTurnPoint(combined[combined.length - 1], point)) combined.push(point);
   });
@@ -636,15 +678,30 @@ function hostTurnPathContext(e = encounterState()) {
   return { map, entry, token, anchor, points: matches ? path.points : [] };
 }
 
+function setHostTurnPathRecording(enabled, persist = true) {
+  hostTurnPathRecording = enabled !== false;
+  if (persist) {
+    try { localStorage.setItem(HOST_TURN_PATH_RECORDING_KEY, hostTurnPathRecording ? '1' : '0'); } catch (e) { /* 忽略本机偏好写入失败 */ }
+  }
+  updateHostTurnPathControls();
+  toast(hostTurnPathRecording ? '◉ 主控台已开启移动路径记录' : '○ 主控台已暂停移动路径记录');
+}
+
 function updateHostTurnPathControls(e = encounterState()) {
   const actions = $('#host-turn-path-actions');
+  const toggle = $('#btn-turn-path-toggle');
   const undo = $('#btn-turn-path-undo');
   const reset = $('#btn-turn-path-reset');
-  if (!actions || !undo || !reset) return;
+  if (!actions || !toggle || !undo || !reset) return;
   const context = hostTurnPathContext(e);
   const inTurn = e.playMode === 'turn';
   const canChange = inTurn && context.points.length > 1;
   actions.hidden = !inTurn;
+  toggle.classList.toggle('active', hostTurnPathRecording);
+  toggle.setAttribute('aria-pressed', String(hostTurnPathRecording));
+  toggle.textContent = '路径';
+  toggle.setAttribute('aria-label', hostTurnPathRecording ? '路径记录已开启' : '路径记录已关闭');
+  toggle.title = hostTurnPathRecording ? '关闭后，主控台拖动棋子不会新增本回合路径' : '开启主控台回合移动路径记录';
   undo.disabled = !canChange;
   reset.disabled = !canChange;
   undo.title = canChange ? `让「${context.entry?.name || context.token?.name || '当前单位'}」回到上一个路径点` : '当前单位移动后可以回退一步';
@@ -1225,15 +1282,17 @@ function renderEncounter() {
   $('#init-panel-time').hidden = e.panel !== 'time';
   $('#btn-combat-start').hidden = !preparing;
   $('#btn-combat-start').disabled = !e.entries.length;
-  $('#btn-init-next').hidden = !inTurn;
+  $('#initiative-turn-actions').hidden = !inTurn;
   $('#btn-init-next').disabled = !inTurn || !e.entries.length;
-  $('#btn-init-next').textContent = inTurn && nextEntry ? `结束当前回合 → ${initiativeEntryLabel(nextEntry)}` : '结束当前回合';
+  $('#btn-init-next').textContent = '结束回合';
+  $('#btn-init-next').title = inTurn && nextEntry ? `下一位：${initiativeEntryLabel(nextEntry)}` : '';
+  $('#btn-combat-end').disabled = !inTurn;
   updateHostTurnPathControls(e);
   $('#btn-init-timer').textContent = inTurn
     ? '⏱ 按战斗轮推进' : (e.worldTime.runningSince ? '❚❚ 暂停时间' : '▶ 开始时间');
   $('#btn-init-timer').disabled = inTurn;
-  $('#btn-time-short-rest').disabled = inTurn || restAnimationActive;
-  $('#btn-time-long-rest').disabled = inTurn || restAnimationActive;
+  $('#btn-time-short-rest').disabled = restAnimationActive;
+  $('#btn-time-long-rest').disabled = restAnimationActive;
   const timeInputs = {
     year: $('#time-year'), week: $('#time-week'), day: $('#time-day'), clock: $('#time-clock'),
     climate: $('#weather-climate'), condition: $('#weather-condition'), temperature: $('#weather-temperature'), wind: $('#weather-wind'),
@@ -1424,6 +1483,13 @@ function leaveCombatForFreeMode() {
   renderEncounter(); renderTokens(); scheduleAutosave();
 }
 
+function endCombatFromButton() {
+  const e = encounterState();
+  if (e.playMode !== 'turn') return;
+  leaveCombatForFreeMode();
+  toast('战斗结束，已切换到自由模式');
+}
+
 function setWorldClockRunning() {
   const e = encounterState();
   if (e.playMode === 'turn') {
@@ -1460,23 +1526,113 @@ function advanceWorldTime(seconds, label) {
   shiftWorldTime(Math.max(0, Math.trunc(Number(seconds) || 0)), label);
 }
 
-function playRestTransition(kind, requestedDuration = null) {
+function selectRestScene(sceneId) {
+  const kind = restScenePickerKind;
+  const sceneApi = window.SundollRestScenes;
+  const scene = kind && sceneApi?.SCENES?.[sceneId];
+  if (!scene || scene.kind !== kind) return;
+  restScenePickerSelection[kind] = scene.id;
+  document.querySelectorAll('#rest-scene-options [data-rest-scene]').forEach((button) => {
+    const selected = button.dataset.restScene === scene.id;
+    button.classList.toggle('selected', selected);
+    button.setAttribute('aria-pressed', String(selected));
+  });
+  const confirmButton = $('#btn-rest-scene-confirm');
+  confirmButton.textContent = `开始${kind === 'long' ? '长休' : '短休'}`;
+  confirmButton.title = `使用“${scene.label}”场景`;
+}
+
+function openRestScenePicker(kind) {
+  if (restAnimationActive) return;
+  const normalizedKind = kind === 'long' ? 'long' : 'short';
+  const sceneApi = window.SundollRestScenes;
+  const sceneIds = Array.from(sceneApi?.BY_KIND?.[normalizedKind] || []);
+  if (!sceneIds.length) {
+    takeRest(normalizedKind);
+    return;
+  }
+  restScenePickerKind = normalizedKind;
+  if (!sceneIds.includes(restScenePickerSelection[normalizedKind])) {
+    restScenePickerSelection[normalizedKind] = sceneIds[0];
+  }
+  $('#rest-scene-picker-title').textContent = `选择${normalizedKind === 'long' ? '长休' : '短休'}场景`;
+  const hours = normalizedKind === 'long' ? 8 : 1;
+  const exitsCombat = encounterState().playMode !== 'free';
+  $('#rest-scene-picker-hint').textContent = `确认后世界时间推进 ${hours} 小时${exitsCombat ? '，并结束当前战斗' : ''}。`;
+  const options = $('#rest-scene-options');
+  options.replaceChildren();
+  sceneIds.forEach((sceneId) => {
+    const scene = sceneApi.SCENES[sceneId];
+    if (!scene) return;
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'rest-scene-option';
+    button.dataset.restScene = scene.id;
+    button.setAttribute('aria-pressed', 'false');
+    const image = document.createElement('span');
+    image.className = 'rest-scene-option-image';
+    image.style.backgroundImage = `url("${scene.image}")`;
+    image.setAttribute('aria-hidden', 'true');
+    const copy = document.createElement('span');
+    copy.className = 'rest-scene-option-copy';
+    const label = document.createElement('strong');
+    label.textContent = `${scene.icon} ${scene.label}`;
+    const subtitle = document.createElement('small');
+    subtitle.textContent = scene.subtitle;
+    copy.append(label, subtitle);
+    button.append(image, copy);
+    button.addEventListener('click', () => selectRestScene(scene.id));
+    options.appendChild(button);
+  });
+  $('#rest-scene-modal').hidden = false;
+  selectRestScene(restScenePickerSelection[normalizedKind]);
+  requestAnimationFrame(() => options.querySelector('.rest-scene-option.selected')?.focus());
+}
+
+function closeRestScenePicker() {
+  $('#rest-scene-modal').hidden = true;
+  restScenePickerKind = null;
+}
+
+function confirmRestScene() {
+  if (!restScenePickerKind) return;
+  const kind = restScenePickerKind;
+  const sceneId = restScenePickerSelection[kind];
+  if (takeRest(kind, sceneId)) closeRestScenePicker();
+}
+
+function playRestTransition(kind, requestedDuration = null, requestedScene = null) {
   const isLong = kind === 'long';
+  const normalizedKind = isLong ? 'long' : 'short';
+  const sceneApi = window.SundollRestScenes;
+  const scene = sceneApi?.get
+    ? sceneApi.get(requestedScene, normalizedKind)
+    : {
+        id: isLong ? 'long-outdoor' : 'short-outdoor',
+        icon: isLong ? '🌙' : '🔥',
+        subtitle: isLong ? '星夜安营，静候黎明' : '林间停驻，整备再启',
+        effect: isLong ? 'stars' : 'embers',
+        image: new URL(isLong
+          ? '../asset/界面/休息动画/长休-室外星夜.jpg'
+          : '../asset/界面/休息动画/短休-室外林地.jpg', window.location.href).href,
+      };
   const layer = $('#rest-transition');
   const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-  const fallbackDuration = REST_TRANSITION_DURATIONS[isLong ? 'long' : 'short'];
+  const fallbackDuration = REST_TRANSITION_DURATIONS[normalizedKind];
   const networkDuration = clamp(Math.trunc(Number(requestedDuration) || fallbackDuration), 1000, 8000);
   const duration = reducedMotion ? (isLong ? 900 : 600) : networkDuration;
   restAnimationActive = true;
   clearTimeout(restAnimationTimer);
   if (layer) {
     layer.hidden = false;
-    layer.className = `rest-transition ${isLong ? 'is-long' : 'is-short'}`;
+    layer.className = `rest-transition ${isLong ? 'is-long' : 'is-short'} rest-effect-${scene.effect}`;
+    layer.dataset.restScene = scene.id;
+    layer.style.setProperty('--rest-scene-image', `url("${scene.image}")`);
     layer.style.setProperty('--rest-duration', `${duration}ms`);
     layer.setAttribute('aria-label', isLong ? '长休进行中' : '短休进行中');
-    $('#rest-transition-icon').textContent = isLong ? '🌙' : '🔥';
+    $('#rest-transition-icon').textContent = scene.icon;
     $('#rest-transition-title').textContent = isLong ? '长休' : '短休';
-    $('#rest-transition-subtitle').textContent = isLong ? '夜色流转，晨光将至' : '围火喘息，片刻整备';
+    $('#rest-transition-subtitle').textContent = scene.subtitle;
     // 重新触发布局，让连续两次休息都从动画第一帧开始。
     void layer.offsetWidth;
   }
@@ -1486,21 +1642,32 @@ function playRestTransition(kind, requestedDuration = null) {
     if (layer) {
       layer.hidden = true;
       layer.className = 'rest-transition';
+      delete layer.dataset.restScene;
+      layer.style.removeProperty('--rest-scene-image');
       layer.removeAttribute('aria-label');
     }
     renderEncounter();
   }, duration);
 }
 
-function takeRest(kind) {
-  if (restAnimationActive) return;
+function takeRest(kind, requestedScene = null) {
+  if (restAnimationActive) return false;
   const isLong = kind === 'long';
+  const e = encounterState();
+  if (e.playMode !== 'free') {
+    const stage = e.playMode === 'turn' ? '当前战斗' : '战斗准备';
+    if (!confirm(`${isLong ? '长休' : '短休'}会结束${stage}并切换到自由模式，是否继续？`)) return false;
+    leaveCombatForFreeMode();
+  }
   const normalizedKind = isLong ? 'long' : 'short';
   const duration = REST_TRANSITION_DURATIONS[normalizedKind];
+  const scene = window.SundollRestScenes?.get
+    ? window.SundollRestScenes.get(requestedScene || restScenePickerSelection[normalizedKind], normalizedKind)
+    : { id: isLong ? 'long-outdoor' : 'short-outdoor' };
   const restId = `rest-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  playRestTransition(normalizedKind, duration);
+  playRestTransition(normalizedKind, duration, scene.id);
   if (streamOn) {
-    sendHostAction({ op: 'restTransition', restId, kind: normalizedKind, duration })
+    sendHostAction({ op: 'restTransition', restId, kind: normalizedKind, duration, scene: scene.id })
       .then((result) => {
         if (!result.ok || result.data?.ok === false) toast('⚠ 玩家端休息动画未广播');
       })
@@ -1509,6 +1676,7 @@ function takeRest(kind) {
   advanceWorldTime(isLong ? 8 * 60 * 60 : 60 * 60, isLong
     ? '完成长休：世界时间 +8 小时'
     : '完成短休：世界时间 +1 小时');
+  return true;
 }
 
 function applyWeatherFromInputs() {
@@ -1573,18 +1741,13 @@ function mapById(id) {
   return state.maps.find((m) => m.id === id);
 }
 
-function mapGridVisible(map = activeMap()) {
-  return map ? map.gridVisible !== false : state.showGrid !== false;
+function cleanCellStates(cellStates) {
+  if (!cellStates || typeof cellStates !== 'object') return {};
+  return Object.fromEntries(Object.entries(cellStates).filter(([, value]) => value !== 'marked'));
 }
 
-function syncActiveMapGridSetting() {
-  const visible = mapGridVisible();
-  state.showGrid = visible;
-  const toggle = $('#grid-toggle');
-  if (toggle) toggle.checked = visible;
-}
-
-function makeMapEntry(name, dataUrl, w, h, gridSize, cells, cellStates, cellVariants, gridVisible = true) {
+function makeMapEntry(name, dataUrl, w, h, gridSize, cells, cellStates, cellVariants) {
+  const cleanStates = cleanCellStates(cellStates);
   return {
     id: 'm' + (uid++),
     name: name || '未命名地图',
@@ -1592,23 +1755,21 @@ function makeMapEntry(name, dataUrl, w, h, gridSize, cells, cellStates, cellVari
     mapW: w || 1400,
     mapH: h || 900,
     gridSize: gridSize || 50,
-    gridVisible: gridVisible !== false,
     cells: Array.isArray(cells) ? cells.map((r) => r.slice()) : null,
-    cellStates: cellStates && typeof cellStates === 'object' ? { ...cellStates } : {},
+    cellStates: cleanStates,
     cellVariants: cellVariants && typeof cellVariants === 'object' ? { ...cellVariants } : {},
     // 原始底图快照：编辑器橡皮只还原到这份快照，不破坏原地图
     baseCells: Array.isArray(cells) ? cells.map((r) => r.slice()) : null,
-    baseCellStates: cellStates && typeof cellStates === 'object' ? { ...cellStates } : {},
+    baseCellStates: { ...cleanStates },
     baseCellVariants: cellVariants && typeof cellVariants === 'object' ? { ...cellVariants } : {},
     doodles: [],
-    fog: {},
     tokens: [],
     cam: { x: 0, y: 0, zoom: 1 },
   };
 }
 
-function addMap(name, dataUrl, w, h, gridSize, cells, cellStates, cellVariants, gridVisible = true) {
-  const m = makeMapEntry(name, dataUrl, w, h, gridSize, cells, cellStates, cellVariants, gridVisible);
+function addMap(name, dataUrl, w, h, gridSize, cells, cellStates, cellVariants) {
+  const m = makeMapEntry(name, dataUrl, w, h, gridSize, cells, cellStates, cellVariants);
   state.maps.push(m);
   switchMap(m.id);
   fitView();
@@ -1619,7 +1780,6 @@ function switchMap(id) {
   const m = mapById(id);
   if (!m) return;
   state.activeMapId = id;
-  syncActiveMapGridSetting();
   state.selectedId = null;
   spellAimTokenId = null;
   cancelMapReaction();
@@ -1648,7 +1808,6 @@ function deleteMapById(mapId) {
   if (wasActive) {
     state.activeMapId = state.maps[Math.min(mapIndex, state.maps.length - 1)].id;
     state.selectedId = null;
-    syncActiveMapGridSetting();
   }
   syncMapSelect();
   if (wasActive) applyActiveMap();
@@ -1836,22 +1995,12 @@ function renderMapBrowser(focusActive = false) {
     name.title = map.name || '未命名地图';
     const meta = document.createElement('span');
     meta.className = 'map-thumb-meta';
-    meta.textContent = `${map.mapW || 0} × ${map.mapH || 0} · ${mapGridVisible(map) ? `网格 ${map.gridSize || 50}px` : `无网格 · ${map.gridSize || 50}px/5尺`}`;
+    meta.textContent = `${map.mapW || 0} × ${map.mapH || 0} · 格距 ${map.gridSize || 50}px/5尺`;
     copy.append(name, meta);
     open.append(preview, copy);
 
     const management = document.createElement('div');
     management.className = 'map-thumb-management';
-    const gridToggleLabel = document.createElement('label');
-    gridToggleLabel.className = 'map-thumb-grid-toggle';
-    gridToggleLabel.title = '只控制这张地图是否显示网格';
-    const gridToggle = document.createElement('input');
-    gridToggle.type = 'checkbox';
-    gridToggle.checked = mapGridVisible(map);
-    gridToggle.dataset.mapGridVisible = map.id;
-    const gridToggleText = document.createElement('span');
-    gridToggleText.textContent = '显示网格';
-    gridToggleLabel.append(gridToggle, gridToggleText);
     const gridSize = document.createElement('input');
     gridSize.className = 'map-thumb-grid-size';
     gridSize.type = 'number';
@@ -1878,7 +2027,7 @@ function renderMapBrowser(focusActive = false) {
     remove.setAttribute('aria-label', `删除 ${map.name}`);
     remove.textContent = '×';
     remove.disabled = state.maps.length <= 1;
-    management.append(gridToggleLabel, gridSize, rename, remove);
+    management.append(gridSize, rename, remove);
 
     const actions = document.createElement('div');
     actions.className = 'map-thumb-actions';
@@ -1974,18 +2123,6 @@ function renameMapById(mapId) {
   if (name === null || !name.trim()) return;
   map.name = name.trim().slice(0, 60);
   syncMapSelect();
-  scheduleAutosave();
-}
-
-function setMapGridVisibility(mapId, visible) {
-  const map = mapById(mapId);
-  if (!map) return;
-  map.gridVisible = Boolean(visible);
-  if (map.id === state.activeMapId) {
-    syncActiveMapGridSetting();
-    updateWorldBackground();
-  }
-  renderMapBrowser();
   scheduleAutosave();
 }
 
@@ -2868,10 +3005,7 @@ function newCampaignState(name, id) {
     maps: [],
     activeMapId: null,
     snap: true,
-    showGrid: true,
     showNames: true,
-    markMode: false,
-    fogOn: false,
     campaignId: id,
     campaignName: name,
     sharedResources: Array.isArray(state.sharedResources) ? state.sharedResources.map((link) => ({ ...link })) : [],
@@ -3085,8 +3219,7 @@ function importMapFile(f) {
       const cellStates = s.cellStates && typeof s.cellStates === 'object' ? { ...s.cellStates } : {};
       const cellVariants = s.cellVariants && typeof s.cellVariants === 'object' ? { ...s.cellVariants } : {};
       const dataUrl = cells ? renderCellsToDataUrl(cells, cellStates, s.gridSize, cellVariants) : s.mapData;
-      const gridVisible = typeof s.gridVisible === 'boolean' ? s.gridVisible : s.showGrid !== false;
-      const m = addMap(s.mapName || '导入地图', dataUrl, s.mapW, s.mapH, s.gridSize, cells, cellStates, cellVariants, gridVisible);
+      const m = addMap(s.mapName || '导入地图', dataUrl, s.mapW, s.mapH, s.gridSize, cells, cellStates, cellVariants);
       if (m && Array.isArray(s.tokens)) {
         s.tokens.forEach((raw) => {
           if (!raw || typeof raw !== 'object') return;
@@ -3142,7 +3275,6 @@ function inspectDirectMapImage(file) {
         height: img.naturalHeight,
         name: mapNameFromFile(file.name),
         gridSize: clamp(Number(activeMap()?.gridSize) || 50, 10, 300),
-        gridVisible: true,
       });
     };
     img.onerror = () => {
@@ -3196,20 +3328,10 @@ function renderMapImageImportList() {
 
     const gridLabel = document.createElement('div');
     gridLabel.className = 'map-image-import-grid';
-    gridLabel.classList.toggle('no-grid', !item.gridVisible);
-    const gridHead = document.createElement('label');
-    gridHead.className = 'map-image-import-grid-head';
-    const gridToggle = document.createElement('input');
-    gridToggle.type = 'checkbox';
-    gridToggle.checked = item.gridVisible !== false;
-    gridToggle.dataset.mapImportGridVisible = String(index);
-    const gridHeadText = document.createElement('span');
-    gridHeadText.textContent = '显示网格';
-    gridHead.append(gridToggle, gridHeadText);
     const gridSizeWrap = document.createElement('label');
     gridSizeWrap.className = 'map-image-import-grid-size';
     const gridSizeText = document.createElement('span');
-    gridSizeText.textContent = '每格像素';
+    gridSizeText.textContent = '战术格距';
     const gridInput = document.createElement('input');
     gridInput.type = 'number';
     gridInput.min = '10';
@@ -3218,7 +3340,7 @@ function renderMapImageImportList() {
     gridInput.value = String(item.gridSize);
     gridInput.dataset.mapImportGrid = String(index);
     gridSizeWrap.append(gridSizeText, gridInput);
-    gridLabel.append(gridHead, gridSizeWrap);
+    gridLabel.append(gridSizeWrap);
 
     const remove = document.createElement('button');
     remove.type = 'button';
@@ -3294,7 +3416,6 @@ async function confirmDirectMapImport() {
         dataUrl: await readFileAsDataUrl(item.file),
         name: String(item.name || '').trim().slice(0, 60) || mapNameFromFile(item.file.name),
         gridSize: clamp(Math.round(Number(item.gridSize) || 50), 10, 300),
-        gridVisible: item.gridVisible !== false,
       });
     }
     const usedNames = new Set(state.maps.map((map) => String(map.name || '').toLocaleLowerCase('zh-CN')));
@@ -3306,13 +3427,11 @@ async function confirmDirectMapImport() {
       item.gridSize,
       null,
       null,
-      null,
-      item.gridVisible
+      null
     ));
     state.maps.push(...added);
     if (added.length) {
       state.activeMapId = added[0].id;
-      syncActiveMapGridSetting();
       state.selectedId = null;
       boardTool = null;
       syncBoardTools();
@@ -3339,26 +3458,18 @@ function updateWorldBackground() {
   const m = activeMap();
   const g = m ? m.gridSize : 50;
   const hasMap = !!m && !!m.mapData;
-  const showGrid = mapGridVisible(m);
   const gridLayer =
     `repeating-linear-gradient(to right, rgba(255,255,255,.78) 0, rgba(255,255,255,.78) 2px, transparent 2px, transparent ${g}px),` +
     `repeating-linear-gradient(to bottom, rgba(255,255,255,.78) 0, rgba(255,255,255,.78) 2px, transparent 2px, transparent ${g}px),` +
     `repeating-linear-gradient(to right, rgba(0,0,0,.16) 0, rgba(0,0,0,.16) 2px, transparent 2px, transparent ${g}px),` +
     `repeating-linear-gradient(to bottom, rgba(0,0,0,.16) 0, rgba(0,0,0,.16) 2px, transparent 2px, transparent ${g}px)`;
-
-  world.style.backgroundColor = hasMap ? 'transparent' : (showGrid ? '#ddd6c2' : '#0f1116');
-
-  if (hasMap) {
-    world.style.backgroundImage = showGrid
-      ? `${gridLayer}, url("${m.mapData}")`
-      : `url("${m.mapData}")`;
-    world.style.backgroundSize = showGrid
-      ? `${g}px ${g}px, ${g}px ${g}px, ${g}px ${g}px, ${g}px ${g}px, 100% 100%`
-      : '100% 100%';
-  } else {
-    world.style.backgroundImage = showGrid ? gridLayer : 'none';
-    world.style.backgroundSize = showGrid ? `${g}px ${g}px, ${g}px ${g}px, ${g}px ${g}px, ${g}px ${g}px` : '';
-  }
+  world.style.backgroundColor = hasMap ? 'transparent' : '#ddd6c2';
+  world.style.backgroundImage = hasMap ? `${gridLayer}, url("${m.mapData}")` : gridLayer;
+  world.style.backgroundSize = hasMap
+    ? `${g}px ${g}px, ${g}px ${g}px, ${g}px ${g}px, ${g}px ${g}px, 100% 100%`
+    : `${g}px ${g}px, ${g}px ${g}px, ${g}px ${g}px, ${g}px ${g}px`;
+  world.style.backgroundRepeat = hasMap ? 'repeat, repeat, repeat, repeat, no-repeat' : 'repeat';
+  world.style.backgroundPosition = '0 0';
 }
 
 function fitView() {
@@ -3877,13 +3988,6 @@ function drawCell(g, px, py, s, id, state, options = {}) {
       }
       break;
   }
-  if (state === 'marked') {
-    g.fillStyle = 'rgba(255,210,63,.22)';
-    g.fillRect(px, py, s, s);
-    g.strokeStyle = 'rgba(255,210,63,.9)';
-    g.lineWidth = Math.max(2, s * .07);
-    g.strokeRect(px + s * .05, py + s * .05, s * .9, s * .9);
-  }
 }
 
 function renderCellsToDataUrl(cells, cellStates, s, cellVariants = {}) {
@@ -4176,7 +4280,7 @@ function renderTurnPath(draftPoints = null) {
   if (Array.isArray(draftPoints)) drawTurnPath(turnPathCtx, draftPoints, 'rgba(255, 232, 145, .95)', true);
 }
 
-// 名字放在独立图层：永远盖在图标之上，但仍在迷雾之下
+// 名字放在独立图层：盖在棋子图标之上，并禁用文字选取与指针命中。
 function tokenNameGap(size) {
   // 名字底边离圆形图标顶边 3px（圆半径为 0.38 × 格子尺寸）
   return size * 0.38 + 3;
@@ -5272,6 +5376,10 @@ function stateStorageReplacer(key, value) {
   if (key === 'turnPath' && this === state.encounter) return undefined;
   // 棋子库是全局数据，只写入“存档/棋子库/棋子库.json”。
   if (key === 'library' && this === state) return undefined;
+  // 已移除的地图显示功能不再写回新存档；旧存档读取时也会被忽略。
+  if ((key === 'showGrid' || key === 'markMode' || key === 'fogOn') && this === state) return undefined;
+  if ((key === 'gridVisible' || key === 'fog') && this && Array.isArray(this.tokens)) return undefined;
+  if ((key === 'cellStates' || key === 'baseCellStates') && this && Array.isArray(this.tokens)) return cleanCellStates(value);
   if ((key === 'iconImgHd' || key === 'iconImg') && this && this.iconImgPath) return null;
   return value;
 }
@@ -5553,10 +5661,7 @@ function loadSaved() {
 function applySavedState(s) {
   try {
     state.snap = s.snap !== false;
-    state.showGrid = s.showGrid !== false;
     state.showNames = s.showNames !== false;
-    state.markMode = !!s.markMode;
-    state.fogOn = !!s.fogOn;
     state.campaignId = s.campaignId || null;
     state.campaignName = s.campaignName || '默认战役';
     state.sharedResources = Array.isArray(s.sharedResources)
@@ -5601,15 +5706,13 @@ function applySavedState(s) {
         mapW: m.mapW || 1400,
         mapH: m.mapH || 900,
         gridSize: m.gridSize || 50,
-        gridVisible: typeof m.gridVisible === 'boolean' ? m.gridVisible : s.showGrid !== false,
         cells: Array.isArray(m.cells) ? m.cells.map((r) => r.slice()) : null,
-        cellStates: m.cellStates && typeof m.cellStates === 'object' ? { ...m.cellStates } : {},
+        cellStates: cleanCellStates(m.cellStates),
         cellVariants: m.cellVariants && typeof m.cellVariants === 'object' ? { ...m.cellVariants } : {},
         baseCells: Array.isArray(m.baseCells) ? m.baseCells.map((r) => r.slice()) : (Array.isArray(m.cells) ? m.cells.map((r) => r.slice()) : null),
-        baseCellStates: m.baseCellStates && typeof m.baseCellStates === 'object' ? { ...m.baseCellStates } : (m.cellStates && typeof m.cellStates === 'object' ? { ...m.cellStates } : {}),
+        baseCellStates: cleanCellStates(m.baseCellStates || m.cellStates),
         baseCellVariants: m.baseCellVariants && typeof m.baseCellVariants === 'object' ? { ...m.baseCellVariants } : (m.cellVariants && typeof m.cellVariants === 'object' ? { ...m.cellVariants } : {}),
         doodles: Array.isArray(m.doodles) ? m.doodles : [],
-        fog: m.fog && typeof m.fog === 'object' ? { ...m.fog } : {},
         tokens: Array.isArray(m.tokens) ? m.tokens.map(normalizeToken) : [],
         cam: m.cam || { x: 0, y: 0, zoom: 1 },
       }));
@@ -5624,8 +5727,7 @@ function applySavedState(s) {
         s.gridSize || 50,
         null,
         null,
-        null,
-        s.showGrid !== false
+        null
       );
       legacy.tokens = Array.isArray(s.tokens) ? s.tokens.map(normalizeToken) : [];
       legacy.cells = null;
@@ -5635,12 +5737,10 @@ function applySavedState(s) {
       legacy.baseCellStates = {};
       legacy.baseCellVariants = {};
       legacy.doodles = [];
-      legacy.fog = {};
       legacy.cam = s.cam || legacy.cam;
       state.maps = [legacy];
       state.activeMapId = legacy.id;
     }
-    state.showGrid = mapGridVisible(mapById(state.activeMapId));
     // 旧版手动先攻只有名字；仅在当前地图存在唯一同名棋子时自动补上关联。
     // 骑手和坐骑若曾分别存在，也会在这里安全合并为同一个先攻项。
     reconcileInitiativeEntries({ linkLegacyNames: true });
@@ -5667,13 +5767,11 @@ function applySavedState(s) {
 }
 
 function applyAllState() {
-  syncActiveMapGridSetting();
   $('#names-toggle').checked = state.showNames;
-  $('#mark-toggle').checked = state.markMode;
-  $('#fog-toggle').checked = state.fogOn;
   $('#snap-toggle').checked = state.snap;
   renderLibrary();
   renderSharedNotes();
+  ensureBgmLibraryForCampaign();
   syncMapSelect();
   applyActiveMap();
 }
@@ -5687,8 +5785,6 @@ function applyActiveMap() {
     world.style.backgroundImage = 'none';
     world.style.backgroundColor = '#0f1116';
     $('#drop-hint').classList.remove('hidden');
-    $('#fog-canvas').width = 1;
-    $('#fog-canvas').height = 1;
     $('#doodle-canvas').width = 1;
     $('#doodle-canvas').height = 1;
     if (spellRangeCanvas) { spellRangeCanvas.width = 1; spellRangeCanvas.height = 1; }
@@ -5699,11 +5795,8 @@ function applyActiveMap() {
     updateDetail();
     return;
   }
-  syncActiveMapGridSetting();
   world.style.width = m.mapW + 'px';
   world.style.height = m.mapH + 'px';
-  $('#fog-canvas').width = m.mapW;
-  $('#fog-canvas').height = m.mapH;
   $('#doodle-canvas').width = m.mapW;
   $('#doodle-canvas').height = m.mapH;
   if (spellRangeCanvas) {
@@ -5720,7 +5813,6 @@ function applyActiveMap() {
   clampAllTokens();
   renderTokens();
   renderDoodles();
-  renderFog();
   renderTurnPath();
   updateDetail();
 }
@@ -5747,7 +5839,7 @@ function bindEvents() {
   });
 
   // 地图缩略图浏览、横向滑动与排序
-  $('#btn-map-browser-top').addEventListener('click', openMapBrowser);
+  $('#btn-map-browser-open').addEventListener('click', openMapBrowser);
   $('#btn-map-browser-close').addEventListener('click', closeMapBrowser);
   $('#btn-map-browser-load').addEventListener('click', () => $('#file-map-load').click());
   $('#map-browser-modal').addEventListener('click', (e) => {
@@ -5778,11 +5870,6 @@ function bindEvents() {
     }
   });
   mapStrip.addEventListener('change', (e) => {
-    const visibilityMapId = e.target.dataset.mapGridVisible;
-    if (visibilityMapId !== undefined) {
-      setMapGridVisibility(visibilityMapId, e.target.checked);
-      return;
-    }
     const sizeMapId = e.target.dataset.mapGridSize;
     if (sizeMapId !== undefined) setMapGridSize(sizeMapId, e.target.value);
   });
@@ -5868,16 +5955,11 @@ function bindEvents() {
   $('#map-image-import-list').addEventListener('input', (e) => {
     const nameIndex = e.target.dataset.mapImportName;
     const gridIndex = e.target.dataset.mapImportGrid;
-    const visibilityIndex = e.target.dataset.mapImportGridVisible;
     if (nameIndex !== undefined && pendingMapImageImports[Number(nameIndex)]) {
       pendingMapImageImports[Number(nameIndex)].name = e.target.value;
     }
     if (gridIndex !== undefined && pendingMapImageImports[Number(gridIndex)]) {
       pendingMapImageImports[Number(gridIndex)].gridSize = e.target.value;
-    }
-    if (visibilityIndex !== undefined && pendingMapImageImports[Number(visibilityIndex)]) {
-      pendingMapImageImports[Number(visibilityIndex)].gridVisible = e.target.checked;
-      renderMapImageImportList();
     }
   });
   $('#map-image-import-list').addEventListener('click', (e) => {
@@ -5935,10 +6017,7 @@ function bindEvents() {
       state.sharedNotes = snap.sharedNotes;
       state.selectedId = null;
       state.snap = true;
-      state.showGrid = true;
       state.showNames = true;
-      state.markMode = false;
-      state.fogOn = false;
       state.encounter = defaultEncounterState();
       applyAllState();
       try {
@@ -6016,27 +6095,10 @@ function bindEvents() {
     if (item) appendDirectMapImages([item.getAsFile()]);
   });
 
-  // 网格与吸附
-  $('#grid-toggle').addEventListener('change', (e) => {
-    state.showGrid = e.target.checked;
-    const map = activeMap();
-    if (map) map.gridVisible = e.target.checked;
-    updateWorldBackground();
-    if (!$('#map-browser-modal')?.hidden) renderMapBrowser();
-    scheduleAutosave();
-  });
+  // 名字与吸附
   $('#names-toggle').addEventListener('change', (e) => {
     state.showNames = e.target.checked;
     renderTokens();
-    scheduleAutosave();
-  });
-  $('#mark-toggle').addEventListener('change', (e) => {
-    state.markMode = e.target.checked;
-    scheduleAutosave();
-  });
-  $('#fog-toggle').addEventListener('change', (e) => {
-    state.fogOn = e.target.checked;
-    renderFog();
     scheduleAutosave();
   });
   $('#snap-toggle').addEventListener('change', (e) => {
@@ -6084,7 +6146,7 @@ function bindEvents() {
       beginSelectedSpellAim(e);
       return;
     }
-    // 涂鸦 / 迷雾工具
+    // 涂鸦与地图材质工具
     if (boardTool) {
       const m = activeMap();
       if (m) {
@@ -6092,10 +6154,7 @@ function bindEvents() {
         const rect = board.getBoundingClientRect();
         const wx = (e.clientX - rect.left - m.cam.x) / m.cam.zoom;
         const wy = (e.clientY - rect.top - m.cam.y) / m.cam.zoom;
-        if (boardTool === 'fog-reveal' || boardTool === 'fog-hide') {
-          paintFogAt(e);
-          drag = { mode: 'fog' };
-        } else if (boardTool === 'doodle-eraser') {
+        if (boardTool === 'doodle-eraser') {
           drag = { mode: 'doodle-erase', erased: new Set() };
           eraseDoodleAt(wx, wy, drag.erased);
         } else if (boardTool === 'doodle-select') {
@@ -6126,7 +6185,7 @@ function bindEvents() {
         drag = {
           mode: 'token', id: mountId, startX: e.clientX, startY: e.clientY,
           startWorldX: mount.x, startWorldY: mount.y,
-          pathRecording: isCurrentTurnToken(mount), pathPoints: [{ x: mount.x, y: mount.y }],
+          pathRecording: hostTurnPathRecording && isCurrentTurnToken(mount), pathPoints: [{ x: mount.x, y: mount.y }],
         };
       }
       return;
@@ -6140,7 +6199,7 @@ function bindEvents() {
       drag = {
         mode: 'token', id, startX: e.clientX, startY: e.clientY,
         startWorldX: token?.x, startWorldY: token?.y,
-        pathRecording: isCurrentTurnToken(token), pathPoints: token ? [{ x: token.x, y: token.y }] : [],
+        pathRecording: hostTurnPathRecording && isCurrentTurnToken(token), pathPoints: token ? [{ x: token.x, y: token.y }] : [],
       };
     } else {
       const m = activeMap();
@@ -6153,10 +6212,6 @@ function bindEvents() {
     if (!drag) return;
     if (drag.mode === 'spell-aim') {
       previewSelectedSpellAimAt(e.clientX, e.clientY);
-      return;
-    }
-    if (drag.mode === 'fog') {
-      paintFogAt(e);
       return;
     }
     if (drag.mode === 'doodle') {
@@ -6213,7 +6268,7 @@ function bindEvents() {
       moveToken(drag.id, x, y, { persist: false });
       const token = findToken(drag.id);
       if (token && drag.pathRecording) {
-        recordTurnDragPoint(drag, { x: token.x, y: token.y }, m.gridSize, Boolean(state.snap));
+        recordTurnDragPoint(drag, { x: token.x, y: token.y }, m.gridSize, Boolean(state.snap), { x, y });
         renderTurnPath(drag.pathPoints);
       }
     }
@@ -6274,6 +6329,10 @@ function bindEvents() {
       cancelMapReaction();
       cancelSpellAim();
       toast('已取消地图操作');
+      return;
+    }
+    if (e.key === 'Escape' && !$('#rest-scene-modal').hidden) {
+      closeRestScenePicker();
       return;
     }
     if (e.key === 'Escape' && !$('#map-image-import-modal').hidden) {
@@ -6651,7 +6710,7 @@ function bindEvents() {
     $('#lib-search').focus();
   });
 
-  // 涂鸦与迷雾工具
+  // 涂鸦工具
   document.querySelectorAll('.board-tool').forEach((btn) => {
     btn.addEventListener('click', () => {
       const t = btn.dataset.tool;
@@ -6672,9 +6731,6 @@ function bindEvents() {
   $('#doodle-width').addEventListener('change', (e) => { doodleWidth = parseInt(e.target.value, 10) || 6; });
   $('#btn-doodle-undo').addEventListener('click', undoDoodle);
   $('#btn-doodle-clear').addEventListener('click', clearDoodles);
-  $('#fog-brush').addEventListener('change', (e) => { fogBrush = parseInt(e.target.value, 10) || 3; });
-  $('#btn-fog-hide-all').addEventListener('click', () => fogSetAll(true));
-  $('#btn-fog-show-all').addEventListener('click', () => fogSetAll(false));
 
   // 先攻与时间条
   $('#btn-init-collapse').addEventListener('click', () => {
@@ -6697,6 +6753,8 @@ function bindEvents() {
   $('#btn-init-add').addEventListener('click', upsertSelectedInitiativeEntry);
   $('#init-value').addEventListener('keydown', (event) => { if (event.key === 'Enter') $('#btn-init-add').click(); });
   $('#btn-init-next').addEventListener('click', advanceEncounter);
+  $('#btn-combat-end').addEventListener('click', endCombatFromButton);
+  $('#btn-turn-path-toggle').addEventListener('click', () => setHostTurnPathRecording(!hostTurnPathRecording));
   $('#btn-turn-path-undo').addEventListener('click', () => applyHostTurnPathAction('turnPathUndo'));
   $('#btn-turn-path-reset').addEventListener('click', () => applyHostTurnPathAction('turnPathReset'));
   $('#btn-init-reset-round').addEventListener('click', resetEncounterRound);
@@ -6710,8 +6768,13 @@ function bindEvents() {
     renderEncounter(); scheduleAutosave();
   });
   $('#btn-init-timer').addEventListener('click', setWorldClockRunning);
-  $('#btn-time-short-rest').addEventListener('click', () => takeRest('short'));
-  $('#btn-time-long-rest').addEventListener('click', () => takeRest('long'));
+  $('#btn-time-short-rest').addEventListener('click', () => openRestScenePicker('short'));
+  $('#btn-time-long-rest').addEventListener('click', () => openRestScenePicker('long'));
+  $('#btn-rest-scene-cancel').addEventListener('click', closeRestScenePicker);
+  $('#btn-rest-scene-confirm').addEventListener('click', confirmRestScene);
+  $('#rest-scene-modal').addEventListener('click', (event) => {
+    if (event.target === $('#rest-scene-modal')) closeRestScenePicker();
+  });
   document.querySelectorAll('[data-time-shift]').forEach((button) => {
     button.addEventListener('click', () => {
       const seconds = Math.trunc(Number(button.dataset.timeShift) || 0);
@@ -6735,6 +6798,9 @@ function bindEvents() {
     setEncounterEvent(e, '世界时间已重置');
     renderEncounter(); scheduleAutosave();
   });
+
+  $('#btn-host-room-toggle')?.addEventListener('click', toggleStream);
+  $('#btn-host-room-copy')?.addEventListener('click', copyStreamUrl);
 
   // 左侧卡片折叠/展开
   document.querySelectorAll('.card:not([data-no-collapse])').forEach((card) => {
@@ -6769,8 +6835,6 @@ function bindEvents() {
       case 'save': saveNowWithFeedback(); break;
       case 'load': openCampaignModal(); break;
       case 'home': showCover(); break;
-      case 'stream': toggleStream(); break;
-      case 'stream-copy': copyStreamUrl(); break;
     }
   };
   document.querySelectorAll('.dropdown-btn').forEach((btn) => {
@@ -6945,70 +7009,98 @@ function addLink(name, url) {
 
 /* ==================== BGM 音乐 ==================== */
 
-let bgmDirHandle = null;
 let bgmList = [];
 let bgmIndex = -1;
 let bgmServerUrl = null;
 let bgmPlaying = false;
+let bgmCatalogKey = '';
+let bgmCatalogLoading = false;
 const bgmAudio = new Audio();
 bgmAudio.loop = false;
+let liveAudioStream = null;
+let liveAudioActive = false;
+const liveAudioPeers = new Map();
+const LIVE_AUDIO_RTC_CONFIG = { iceServers: [{ urls: ['stun:stun.cloudflare.com:3478', 'stun:stun.l.google.com:19302'] }] };
 
 function bgmAudioExt(name) {
   return /\.(mp3|m4a|wav|ogg|flac|aac|opus|webm)$/i.test(String(name || ''));
 }
 
-async function loadBgmDirHandle() {
-  try { bgmDirHandle = await idbFilesGet('bgm-dir'); } catch (e) { bgmDirHandle = null; }
-  updateBgmStatus();
-  if (bgmDirHandle) scanBgmFolder();
+function currentBgmCatalogKey() {
+  return `${state.campaignId || ''}|${state.campaignName || ''}`;
 }
 
-async function bindBgmFolder() {
-  if (!window.showDirectoryPicker) { toast('当前浏览器不支持文件夹绑定，请用 Chrome / Edge'); return; }
+async function loadProjectMusicLibrary(options = {}) {
+  if (bgmCatalogLoading) return;
+  bgmCatalogLoading = true;
+  const requestedKey = currentBgmCatalogKey();
+  const previous = bgmList[bgmIndex];
+  updateBgmStatus('正在扫描项目曲库…');
   try {
-    const handle = await window.showDirectoryPicker({ mode: 'read' });
-    await idbFilesSet('bgm-dir', handle);
-    bgmDirHandle = handle;
-    await scanBgmFolder();
-    toast('✅ 已绑定音乐文件夹');
-  } catch (e) {
-    if (e && e.name !== 'AbortError') toast('绑定失败：' + (e.message || e));
+    const query = new URLSearchParams({
+      campaignId: state.campaignId || '',
+      campaignName: state.campaignName || '',
+    });
+    const res = await fetch(`${serverApiBase()}/api/music-library?${query}`, { cache: 'no-store' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.ok === false || !Array.isArray(data.tracks)) throw new Error(data.error || '服务器未响应');
+    const temporary = bgmList.filter((item) => item.source === 'temporary');
+    bgmList = data.tracks.map((track) => ({
+      id: track.id,
+      name: track.title || track.fileName || '未命名音乐',
+      fileName: track.fileName || '',
+      url: track.url?.startsWith('/') ? `${serverApiBase()}${track.url}` : track.url,
+      serverUrl: track.url,
+      source: 'library',
+      scope: track.scope === 'campaign' ? 'campaign' : 'general',
+      collection: track.collection || (track.scope === 'campaign' ? '当前战役' : '通用'),
+      category: track.category || '未分类',
+    })).concat(temporary);
+    bgmCatalogKey = requestedKey;
+    bgmIndex = previous ? bgmList.findIndex((item) => (
+      (previous.id && item.id === previous.id) || (previous.source === 'temporary' && item.url === previous.url)
+    )) : -1;
+    renderBgmList();
+    updateBgmStatus();
+    if (!options.silent) toast(`项目曲库已刷新：${data.tracks.length} 首`);
+  } catch (error) {
+    renderBgmList();
+    updateBgmStatus('无法读取项目曲库 · 请先启动联机程序');
+    if (!options.silent) toast('曲库刷新失败：' + (error.message || error));
+  } finally {
+    bgmCatalogLoading = false;
   }
 }
 
-async function scanBgmFolder() {
-  if (!bgmDirHandle) return;
-  stopBgmAudio();
-  bgmList = [];
-  bgmIndex = -1;
-  for await (const entry of bgmDirHandle.values()) {
-    if (entry.kind === 'file' && bgmAudioExt(entry.name)) {
-      bgmList.push({ name: entry.name, handle: entry });
-    }
-  }
-  bgmList.sort((a, b) => a.name.localeCompare(b.name, 'zh'));
-  renderBgmList();
-  updateBgmStatus();
-  toast(`音乐文件夹：找到 ${bgmList.length} 首`);
+function ensureBgmLibraryForCampaign() {
+  if (currentBgmCatalogKey() !== bgmCatalogKey) loadProjectMusicLibrary({ silent: true });
 }
 
 function pickBgmFiles(files) {
-  stopBgmAudio();
-  bgmList = [];
-  bgmIndex = -1;
+  bgmList.filter((item) => item.source === 'temporary' && item.url).forEach((item) => URL.revokeObjectURL(item.url));
+  bgmList = bgmList.filter((item) => item.source !== 'temporary');
   [...files].forEach((f) => {
-    if (bgmAudioExt(f.name)) bgmList.push({ name: f.name, url: URL.createObjectURL(f) });
+    if (bgmAudioExt(f.name)) bgmList.push({
+      name: f.name.replace(/\.[^.]+$/, ''), fileName: f.name, file: f,
+      url: URL.createObjectURL(f), source: 'temporary', collection: '临时音乐', category: '本次会话',
+    });
   });
-  bgmList.sort((a, b) => a.name.localeCompare(b.name, 'zh'));
   renderBgmList();
   updateBgmStatus();
-  toast(`已加载 ${bgmList.length} 首音乐（本次会话有效）`);
+  toast(`已加入 ${bgmList.filter((item) => item.source === 'temporary').length} 首临时音乐`);
 }
 
-function updateBgmStatus() {
+function updateBgmStatus(message = '') {
   const el = $('#bgm-status');
-  if (!el) return;
-  el.textContent = bgmDirHandle ? '已绑定音乐文件夹 · ' + bgmList.length + ' 首' : '未绑定 · 可临时选择音乐';
+  const title = $('#bgm-now-title');
+  const card = $('#bgm-now');
+  if (!el || !title || !card) return;
+  const current = bgmList[bgmIndex];
+  title.textContent = liveAudioActive ? '标签页音频直播' : (current?.name || '尚未播放');
+  if (message) el.textContent = message;
+  else if (liveAudioActive) el.textContent = `${[...liveAudioPeers.values()].filter((entry) => entry.pc.connectionState === 'connected').length} 名玩家正在接收`;
+  else el.textContent = `${bgmList.filter((item) => item.source === 'library').length} 首项目音乐${bgmPlaying ? ' · 正在同步' : ''}`;
+  card.dataset.state = (liveAudioActive || bgmPlaying) ? 'playing' : (current ? 'paused' : 'stopped');
 }
 
 function renderBgmList() {
@@ -7016,13 +7108,30 @@ function renderBgmList() {
   if (!box) return;
   box.innerHTML = '';
   if (!bgmList.length) {
-    box.innerHTML = '<div class="hint" style="font-size:11px;">暂无音乐，绑定「音乐」文件夹或选择音乐文件</div>';
+    box.innerHTML = '<div class="hint" style="font-size:11px;">把音乐放进 asset/音乐，刷新后会自动出现</div>';
     return;
   }
+  let previousGroup = '';
   bgmList.forEach((it, i) => {
+    const collection = it.collection || '通用';
+    const category = String(it.category || '').replace(/^通用\s*\/\s*/, '');
+    const group = !category || category === collection || category === '未分类' ? collection : `${collection} · ${category}`;
+    if (group !== previousGroup) {
+      const label = document.createElement('div');
+      label.className = 'bgm-group-label';
+      label.textContent = group;
+      box.appendChild(label);
+      previousGroup = group;
+    }
     const row = document.createElement('div');
     row.className = 'bgm-item' + (i === bgmIndex ? ' current' : '');
-    row.textContent = (i === bgmIndex ? '♪ ' : '') + it.name;
+    const scope = document.createElement('span');
+    scope.className = 'bgm-item-scope';
+    scope.textContent = i === bgmIndex ? '♪' : (it.source === 'temporary' ? '临时' : '');
+    const name = document.createElement('span');
+    name.className = 'bgm-item-title';
+    name.textContent = it.name;
+    row.append(scope, name);
     row.title = '点击播放：' + it.name;
     row.addEventListener('click', () => playBgm(i));
     box.appendChild(row);
@@ -7031,48 +7140,56 @@ function renderBgmList() {
 
 async function playBgm(i) {
   if (i < 0 || i >= bgmList.length) return;
+  if (liveAudioActive) await stopLiveAudioBroadcast();
   bgmIndex = i;
   try {
     let url = bgmList[i].url;
-    if (!url && bgmList[i].handle) {
-      const file = await bgmList[i].handle.getFile();
-      url = URL.createObjectURL(file);
-      bgmList[i].url = url;
-    }
     if (!url) return;
-    bgmAudio.src = url;
+    if (bgmAudio.src !== new URL(url, location.href).href) bgmAudio.src = url;
     await bgmAudio.play();
+    bgmPlaying = true;
     renderBgmList();
     $('#btn-bgm-play').textContent = '⏸';
+    updateBgmStatus();
     broadcastBgm('play');
   } catch (e) {
     toast('播放失败：' + (e.message || e));
   }
 }
 
-function stopBgmAudio() {
+function stopBgmAudio(shouldBroadcast = true) {
   bgmAudio.pause();
+  bgmAudio.currentTime = 0;
   bgmAudio.removeAttribute('src');
   bgmAudio.load();
+  bgmPlaying = false;
+  bgmServerUrl = null;
   const btn = $('#btn-bgm-play');
   if (btn) btn.textContent = '▶';
-  broadcastBgm('stop');
+  updateBgmStatus();
+  if (shouldBroadcast) broadcastBgm('stop');
 }
 
 function toggleBgm() {
-  if (!bgmList.length) { toast('先选择或绑定音乐'); return; }
+  if (liveAudioActive) { stopLiveAudioBroadcast(); return; }
+  if (!bgmList.length) { toast('项目曲库里还没有音乐'); return; }
   if (bgmAudio.paused) {
     if (!bgmAudio.src) {
       if (bgmIndex < 0) bgmIndex = 0;
       playBgm(bgmIndex);
       return;
     }
-    bgmAudio.play();
-    $('#btn-bgm-play').textContent = '⏸';
-    broadcastBgm('play');
+    bgmAudio.play().then(() => {
+      bgmPlaying = true;
+      $('#btn-bgm-play').textContent = '⏸';
+      updateBgmStatus();
+      broadcastBgm('play');
+    }).catch((error) => toast('播放失败：' + (error.message || error)));
   } else {
     bgmAudio.pause();
+    bgmPlaying = false;
     $('#btn-bgm-play').textContent = '▶';
+    updateBgmStatus();
     broadcastBgm('pause');
   }
 }
@@ -7094,12 +7211,11 @@ async function ensureBgmServerUrl(i) {
   if (!it) return null;
   if (it.serverUrl) return it.serverUrl;
   try {
-    let file = null;
-    if (it.handle) file = await it.handle.getFile();
-    else if (it.url) file = await (await fetch(it.url)).blob();
+    let file = it.file || null;
+    if (!file && it.url) file = await (await fetch(it.url)).blob();
     if (!file) return null;
     const buf = await file.arrayBuffer();
-    const res = await fetch(`${serverApiBase()}/api/music?name=` + encodeURIComponent(it.name), {
+    const res = await fetch(`${serverApiBase()}/api/music?name=` + encodeURIComponent(it.fileName || it.name), {
       method: 'POST',
       headers: { 'Content-Type': 'application/octet-stream' },
       body: buf,
@@ -7112,30 +7228,169 @@ async function ensureBgmServerUrl(i) {
 
 async function broadcastBgm(action) {
   if (!streamOn || bgmIndex < 0 || !bgmList[bgmIndex]) return;
-  const url = await ensureBgmServerUrl(bgmIndex);
-  if (!url) return;
+  const url = action === 'stop' ? (bgmServerUrl || await ensureBgmServerUrl(bgmIndex)) : await ensureBgmServerUrl(bgmIndex);
+  if (!url && action !== 'stop') return;
   bgmServerUrl = url;
-  bgmPlaying = action !== 'pause' && action !== 'stop';
+  bgmPlaying = action === 'play';
   sendHostAction({
     op: 'bgm',
     action,
+    mode: bgmList[bgmIndex].source === 'library' ? 'library' : 'upload',
+    trackId: bgmList[bgmIndex].id || '',
     track: bgmList[bgmIndex].name,
-    url,
-    time: Math.round(bgmAudio.currentTime || 0),
+    url: url || '',
+    time: Number((bgmAudio.currentTime || 0).toFixed(3)),
+    loop: bgmAudio.loop,
   }).then((result) => {
     if (!result.ok || result.data?.ok === false) toast('⚠ BGM 未广播');
   }).catch(() => toast('⚠ BGM 未广播'));
 }
 
-bgmAudio.addEventListener('ended', () => nextBgm());
+function postHostWebRtcSignal(playerId, signal) {
+  return fetch(`${serverApiBase()}/api/webrtc-signal`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ targetPlayerId: playerId, signal }),
+  }).then(async (response) => ({ ok: response.ok, data: await response.json().catch(() => ({})) }));
+}
+
+function closeLiveAudioPeer(playerId, notify = false) {
+  const entry = liveAudioPeers.get(playerId);
+  if (!entry) return;
+  liveAudioPeers.delete(playerId);
+  try { entry.pc.close(); } catch (error) { /* 已关闭 */ }
+  if (notify) postHostWebRtcSignal(playerId, { type: 'stop' }).catch(() => {});
+  updateLiveAudioUi();
+}
+
+async function createLiveAudioPeer(playerId) {
+  if (!liveAudioActive || !liveAudioStream || !playerId || liveAudioPeers.has(playerId)) return;
+  const pc = new RTCPeerConnection(LIVE_AUDIO_RTC_CONFIG);
+  const entry = { pc, pendingIce: [] };
+  liveAudioPeers.set(playerId, entry);
+  liveAudioStream.getAudioTracks().forEach((track) => pc.addTrack(track, liveAudioStream));
+  pc.onicecandidate = (event) => {
+    if (!event.candidate) return;
+    const candidate = event.candidate.toJSON ? event.candidate.toJSON() : event.candidate;
+    postHostWebRtcSignal(playerId, { type: 'ice', ...candidate }).catch(() => {});
+  };
+  pc.onconnectionstatechange = () => {
+    updateLiveAudioUi();
+    if (['failed', 'closed'].includes(pc.connectionState)) closeLiveAudioPeer(playerId);
+  };
+  try {
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    const result = await postHostWebRtcSignal(playerId, { type: 'offer', sdp: pc.localDescription.sdp });
+    if (!result.ok) closeLiveAudioPeer(playerId);
+  } catch (error) {
+    closeLiveAudioPeer(playerId);
+  }
+}
+
+async function applyHostWebRtcSignal(event) {
+  if (!event || event.target !== 'host' || !liveAudioActive) return;
+  const playerId = event.senderPlayerId;
+  const signal = event.signal || {};
+  if (signal.type === 'ready') {
+    closeLiveAudioPeer(playerId);
+    await createLiveAudioPeer(playerId);
+    return;
+  }
+  let entry = liveAudioPeers.get(playerId);
+  if (!entry && signal.type !== 'stop') {
+    await createLiveAudioPeer(playerId);
+    entry = liveAudioPeers.get(playerId);
+  }
+  if (!entry) return;
+  try {
+    if (signal.type === 'answer') {
+      await entry.pc.setRemoteDescription({ type: 'answer', sdp: signal.sdp });
+      for (const candidate of entry.pendingIce.splice(0)) await entry.pc.addIceCandidate(candidate);
+    } else if (signal.type === 'ice') {
+      const candidate = { candidate: signal.candidate, sdpMid: signal.sdpMid ?? null, sdpMLineIndex: signal.sdpMLineIndex ?? null };
+      if (entry.pc.remoteDescription) await entry.pc.addIceCandidate(candidate);
+      else entry.pendingIce.push(candidate);
+    } else if (signal.type === 'stop') closeLiveAudioPeer(playerId);
+  } catch (error) {
+    console.warn('标签页音频信令失败', error);
+  }
+  updateLiveAudioUi();
+}
+
+function syncLiveAudioPeers(nextPlayers = streamPlayers) {
+  const onlineIds = new Set((nextPlayers || []).filter((player) => player.online && player.playerId).map((player) => player.playerId));
+  [...liveAudioPeers.keys()].forEach((playerId) => { if (!onlineIds.has(playerId)) closeLiveAudioPeer(playerId); });
+  if (liveAudioActive) onlineIds.forEach((playerId) => createLiveAudioPeer(playerId));
+  updateLiveAudioUi();
+}
+
+function updateLiveAudioUi() {
+  const button = $('#btn-bgm-live');
+  const status = $('#bgm-live-status');
+  if (!button || !status) return;
+  const connected = [...liveAudioPeers.values()].filter((entry) => entry.pc.connectionState === 'connected').length;
+  button.classList.toggle('active', liveAudioActive);
+  button.textContent = liveAudioActive ? '■ 停止广播' : '📡 广播标签页';
+  status.textContent = liveAudioActive ? `${connected}/${liveAudioPeers.size} 名玩家已连接` : '未广播';
+  updateBgmStatus();
+}
+
+async function startLiveAudioBroadcast() {
+  if (liveAudioActive) { await stopLiveAudioBroadcast(); return; }
+  if (!streamOn) { toast('请先开启联机'); return; }
+  if (!navigator.mediaDevices?.getDisplayMedia || !window.RTCPeerConnection) {
+    toast('当前浏览器不支持标签页声音广播，请使用 Chrome / Edge');
+    return;
+  }
+  try {
+    const captured = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+    if (!captured.getAudioTracks().length) {
+      captured.getTracks().forEach((track) => track.stop());
+      toast('没有捕获到声音：请选择浏览器标签页并勾选共享音频');
+      return;
+    }
+    bgmAudio.pause();
+    bgmPlaying = false;
+    $('#btn-bgm-play').textContent = '▶';
+    liveAudioStream = captured;
+    liveAudioActive = true;
+    captured.getTracks().forEach((track) => { track.onended = () => { if (liveAudioActive) stopLiveAudioBroadcast(); }; });
+    syncLiveAudioPeers();
+    sendHostAction({ op: 'bgm', action: 'play', mode: 'live', track: '标签页音频直播', url: '', time: 0, loop: false });
+    updateLiveAudioUi();
+    toast('📡 标签页声音已开始广播');
+  } catch (error) {
+    if (error?.name !== 'NotAllowedError' && error?.name !== 'AbortError') toast('标签页声音广播失败：' + (error.message || error));
+  }
+}
+
+async function stopLiveAudioBroadcast(options = {}) {
+  if (!liveAudioActive && !liveAudioStream) return;
+  liveAudioActive = false;
+  const playerIds = [...liveAudioPeers.keys()];
+  const captured = liveAudioStream;
+  liveAudioStream = null;
+  if (captured) captured.getTracks().forEach((track) => { track.onended = null; track.stop(); });
+  playerIds.forEach((playerId) => closeLiveAudioPeer(playerId, true));
+  if (options.broadcast !== false && streamOn) {
+    sendHostAction({ op: 'bgm', action: 'stop', mode: 'live', track: '标签页音频直播', url: '', time: 0, loop: false });
+  }
+  updateLiveAudioUi();
+}
+
+bgmAudio.addEventListener('ended', () => { if (!bgmAudio.loop) nextBgm(); });
 try {
-  const v = parseFloat(localStorage.getItem('sangduoer-bgm-volume'));
-  if (!isNaN(v)) { bgmAudio.volume = v; $('#bgm-volume').value = v * 100; }
+  const saved = parseFloat(localStorage.getItem('sangduoer-bgm-volume'));
+  if (!isNaN(saved)) {
+    const normalized = Math.max(0, Math.min(1, saved > 1 ? saved / 100 : saved));
+    bgmAudio.volume = normalized;
+    $('#bgm-volume').value = Math.round(normalized * 100);
+  }
 } catch (e) { /* 忽略 */ }
 try { bgmAudio.loop = localStorage.getItem('sangduoer-bgm-loop') === '1'; } catch (e) { /* 忽略 */ }
 const bgmLoopEl = $('#bgm-loop');
 if (bgmLoopEl) bgmLoopEl.checked = bgmAudio.loop;
-$('#btn-bgm-bind').addEventListener('click', bindBgmFolder);
+$('#btn-bgm-refresh').addEventListener('click', () => loadProjectMusicLibrary());
 $('#btn-bgm-pick').addEventListener('click', () => $('#file-bgm').click());
 $('#file-bgm').addEventListener('change', (e) => {
   pickBgmFiles(e.target.files);
@@ -7144,33 +7399,19 @@ $('#file-bgm').addEventListener('change', (e) => {
 $('#btn-bgm-play').addEventListener('click', toggleBgm);
 $('#btn-bgm-next').addEventListener('click', nextBgm);
 $('#btn-bgm-prev').addEventListener('click', prevBgm);
+$('#btn-bgm-live').addEventListener('click', startLiveAudioBroadcast);
 $('#bgm-loop').addEventListener('change', (e) => {
   bgmAudio.loop = e.target.checked;
   try { localStorage.setItem('sangduoer-bgm-loop', e.target.checked ? '1' : '0'); } catch (err) { /* 忽略 */ }
+  if (bgmIndex >= 0 && bgmAudio.src) broadcastBgm(bgmAudio.paused ? 'pause' : 'play');
   toast(e.target.checked ? '单曲循环：开（当前歌曲无限循环）' : '单曲循环：关（顺序播放，列表循环）');
 });
 $('#bgm-volume').addEventListener('input', (e) => {
   bgmAudio.volume = parseInt(e.target.value, 10) / 100;
-  try { localStorage.setItem('sangduoer-bgm-volume', String(e.target.value)); } catch (err) { /* 忽略 */ }
+  try { localStorage.setItem('sangduoer-bgm-volume', String(bgmAudio.volume)); } catch (err) { /* 忽略 */ }
 });
 
 /* ==================== 简易联机（主机推送观战） ==================== */
-
-function tokenIsFullyFogged(m, token) {
-  if (!state.fogOn || !m || !m.fog || !Object.keys(m.fog).length) return false;
-  const grid = Number(m.gridSize) || 50;
-  const size = token.size >= 2 ? 2 : 1;
-  const col = Math.floor(Number(token.x || 0) / grid);
-  const row = Math.floor(Number(token.y || 0) / grid);
-  const startCol = size >= 2 ? col - 1 : col;
-  const startRow = size >= 2 ? row - 1 : row;
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
-      if (!m.fog[`${startCol + x},${startRow + y}`]) return false;
-    }
-  }
-  return true;
-}
 
 function buildStreamPayload() {
   // 玩家只需要当前地图；其余楼层和棋子库不应占用联机带宽。
@@ -7179,7 +7420,7 @@ function buildStreamPayload() {
   const visibleTokenIds = new Set();
   if (m) {
     (m.tokens || []).forEach((token) => {
-      if (token.hiddenFromPlayers || tokenIsFullyFogged(m, token)) return;
+      if (token.hiddenFromPlayers) return;
       const friendly = token.type === 'pc' || token.type === 'ally';
       const publicToken = {
         id: token.id,
@@ -7220,18 +7461,15 @@ function buildStreamPayload() {
     mapW: m.mapW,
     mapH: m.mapH,
     gridSize: m.gridSize,
-    gridVisible: mapGridVisible(m),
     doodles: ensureDoodleIds(m).map((stroke) => ({ ...stroke })),
-    fog: m.fog && typeof m.fog === 'object' ? { ...m.fog } : {},
     tokens: publicTokenEntries,
   } : null;
   const p = {
     maps: publicMap ? [publicMap] : [],
     activeMapId: state.activeMapId,
     snap: state.snap,
-    showGrid: mapGridVisible(m),
     showNames: state.showNames,
-    fogOn: state.fogOn,
+    campaignId: state.campaignId,
     campaignName: state.campaignName,
     sharedResources: (userLinks || []).map((link) => ({ ...link })),
     sharedNotes: String(state.sharedNotes || '').slice(0, 4000),
@@ -7354,6 +7592,45 @@ function applyRemoteAction(a) {
     renderTurnPath();
     scheduleAutosave(false);
     toast(`♟ ${a.actor || '玩家'} 删除了「${tokenName}」`);
+    return;
+  }
+  if (m && a.op === 'mountToken' && a.tokenId && a.mountId) {
+    const rider = m.tokens.find((candidate) => candidate.id === a.tokenId);
+    const mount = m.tokens.find((candidate) => candidate.id === a.mountId);
+    if (!rider || !mount) return;
+    if (!rider.mountId || rider.mountId === mount.id) rider.mountId = mount.id;
+    rider.x = Number.isFinite(Number(a.x)) ? Number(a.x) : mount.x;
+    rider.y = Number.isFinite(Number(a.y)) ? Number(a.y) : mount.y;
+    m.tokens.forEach((candidate) => {
+      if (candidate.mountId === mount.id) {
+        candidate.x = mount.x;
+        candidate.y = mount.y;
+      }
+    });
+    const e = encounterState();
+    if (Array.isArray(a.initiativeEntries)) e.entries = a.initiativeEntries.map((entry) => ({ ...entry }));
+    if (['free', 'prepare', 'turn'].includes(a.encounterPlayMode)) e.playMode = a.encounterPlayMode;
+    e.currentEntryId = a.currentEntryId || null;
+    e.round = Math.max(1, Number(a.round) || 1);
+    e.turnSerial = Math.max(1, Number(a.turnSerial) || e.turnSerial || 1);
+    if (a.turnPath && typeof a.turnPath === 'object') {
+      e.turnPath = {
+        mapId: a.turnPath.mapId || null,
+        tokenId: a.turnPath.tokenId || null,
+        points: Array.isArray(a.turnPath.points)
+          ? a.turnPath.points.map((point) => ({ x: Number(point.x), y: Number(point.y) }))
+          : [],
+      };
+    }
+    if (m.id === state.activeMapId) {
+      renderTokens();
+      renderTurnPath();
+      requestSpellRangeRender();
+    }
+    renderEncounter();
+    updateDetail();
+    scheduleAutosave(false);
+    toast(`🐎 ${a.actor || '玩家'} 让「${a.riderName || rider.name || '骑手'}」骑上了「${a.mountName || mount.name || '坐骑'}」`);
     return;
   }
   if (m && a.op === 'dismountToken' && a.tokenId) {
@@ -7578,6 +7855,21 @@ async function mergePlayerStateFromServer() {
   } catch (e) { /* 服务器暂不可用，SSE 重连后会自动再拉 */ }
 }
 
+async function refreshStreamInfoFromServer() {
+  if (!streamOn) return;
+  try {
+    const res = await fetch(`${serverApiBase()}/api/info`, { cache: 'no-store' });
+    if (!res.ok) return;
+    const info = await res.json();
+    const ip = (info.ips || []).find((value) => value !== '127.0.0.1') || 'localhost';
+    streamInfo = {
+      ...(streamInfo || {}), ip, port: info.port || 8090,
+      roomCode: info.roomCode || '', playerCount: info.playerCount || 0,
+    };
+    updateStreamUi();
+  } catch (error) { /* 下一次 SSE 重连或成员刷新会重试 */ }
+}
+
 function startStreamClient() {
   if (streamES) {
     try { streamES.close(); } catch (e) { /* 忽略 */ }
@@ -7586,12 +7878,17 @@ function startStreamClient() {
   streamES.onopen = () => {
     streamConnectionState = 'online';
     updateStreamUi();
+    refreshStreamInfoFromServer();
+    ensureBgmLibraryForCampaign();
     mergePlayerStateFromServer();
+    if (bgmIndex >= 0 && bgmAudio.src) broadcastBgm(bgmAudio.paused ? 'pause' : 'play');
   };
   streamES.onmessage = (e) => {
     try {
       const ev = JSON.parse(e.data);
-      if (ev.type === 'action') {
+      if (ev.type === 'webrtcSignal') {
+        applyHostWebRtcSignal(ev);
+      } else if (ev.type === 'action') {
         if (ev.action && (ev.action.op === 'roll' || ev.action.op === 'mapReaction')) {
           applyRemoteAction(ev.action);
           return;
@@ -7610,6 +7907,7 @@ function startStreamClient() {
           readyCount: onlinePlayers.filter((player) => player.status === 'ready').length,
         };
         if (state.selectedId) updateDetail();
+        syncLiveAudioPeers(streamPlayers);
         updateStreamUi();
       }
     } catch (err) { /* 忽略坏数据 */ }
@@ -7643,7 +7941,7 @@ async function streamPush() {
     const now = Date.now();
     if (now - streamFailToastAt > 15000) {
       streamFailToastAt = now;
-      toast('📡 服务器未连接：请双击项目里的「启动桑哆尔」一键启动（会自动重试）');
+      toast('📡 服务器未连接：请双击项目里的「启动桑多尔之歌」一键启动（会自动重试）');
     }
   } finally {
     streamPushing = false;
@@ -7660,29 +7958,79 @@ function streamTick() {
   streamPush();
 }
 
+function renderHostRoom() {
+  const list = $('#host-player-list');
+  const roomCode = $('#host-room-code');
+  const summary = $('#host-room-summary');
+  const toggle = $('#btn-host-room-toggle');
+  const copy = $('#btn-host-room-copy');
+  if (!list || !roomCode || !summary) return;
+
+  if (toggle) {
+    toggle.textContent = streamOn ? '关闭联机' : '开启联机';
+    toggle.classList.toggle('primary', !streamOn);
+    toggle.classList.toggle('danger', streamOn);
+  }
+  if (copy) copy.disabled = !streamOn || !streamInfo;
+
+  list.innerHTML = '';
+  if (!streamOn) {
+    roomCode.textContent = '未开启';
+    summary.textContent = '联机尚未开启';
+    const hint = document.createElement('span');
+    hint.className = 'hint';
+    hint.textContent = '开启联机后可查看房间成员。';
+    list.appendChild(hint);
+    return;
+  }
+
+  roomCode.textContent = streamInfo?.roomCode ? `房间 ${streamInfo.roomCode}` : '连接中';
+  if (streamConnectionState !== 'online') {
+    summary.textContent = '正在连接联机服务器…';
+    const hint = document.createElement('span');
+    hint.className = 'hint';
+    hint.textContent = '服务器连接恢复后会自动刷新成员。';
+    list.appendChild(hint);
+    return;
+  }
+
+  const members = [...streamPlayers].sort((left, right) => {
+    if (!!left.online !== !!right.online) return left.online ? -1 : 1;
+    if ((left.status === 'ready') !== (right.status === 'ready')) return left.status === 'ready' ? -1 : 1;
+    return String(left.name || '').localeCompare(String(right.name || ''), 'zh-CN');
+  });
+  const onlineMembers = members.filter((player) => player.online);
+  const readyCount = onlineMembers.filter((player) => player.status === 'ready').length;
+  summary.textContent = `${onlineMembers.length} 人在线 · ${readyCount} 人已准备`;
+  if (!members.length) {
+    const hint = document.createElement('span');
+    hint.className = 'hint';
+    hint.textContent = '还没有玩家加入房间。';
+    list.appendChild(hint);
+    return;
+  }
+  members.forEach((player) => {
+    const row = document.createElement('div');
+    row.className = `host-player-row${player.online ? '' : ' offline'}`;
+    const dot = document.createElement('i');
+    dot.className = `host-player-dot${player.online ? ' online' : ''}`;
+    const name = document.createElement('span');
+    name.className = 'host-player-name';
+    name.textContent = player.name || '未命名玩家';
+    const status = document.createElement('span');
+    status.className = `host-player-status${player.online && player.status === 'ready' ? ' ready' : ''}`;
+    status.textContent = player.online ? (player.status === 'ready' ? '已准备' : '在线') : '离线';
+    row.append(dot, name, status);
+    list.appendChild(row);
+  });
+}
+
 function updateStreamUi() {
   const knownOnlinePlayers = streamPlayers.filter((player) => player.online);
   const playerCount = streamPlayers.length ? knownOnlinePlayers.length : (streamInfo?.playerCount || 0);
   const readyCount = streamPlayers.length
     ? knownOnlinePlayers.filter((player) => player.status === 'ready').length
     : (streamInfo?.readyCount || 0);
-  const toggleBtn = $('#btn-stream-toggle');
-  if (toggleBtn) {
-    toggleBtn.textContent = streamOn ? '关闭联机' : '开启联机';
-    toggleBtn.classList.toggle('primary', !streamOn);
-    toggleBtn.classList.toggle('danger', streamOn);
-  }
-  const dd = $('#btn-stream-dd');
-  if (dd) dd.textContent = streamOn
-    ? `📡 联机${streamInfo || streamPlayers.length ? ` · ${playerCount}` : '中'} ▾`
-    : '📡 联机 ▾';
-  const netInfo = $('#net-info');
-  if (netInfo) {
-    netInfo.classList.toggle('online', streamOn && streamConnectionState === 'online');
-    if (!streamOn) netInfo.textContent = '● 联机未开启';
-    else if (streamConnectionState !== 'online' || !streamInfo) netInfo.textContent = '○ 正在连接服务器…';
-    else netInfo.textContent = `● 已联机\n房间 ${streamInfo.roomCode || '—'} · ${playerCount} 人在线 · ${readyCount} 人已准备`;
-  }
   const connection = $('#host-connection');
   if (connection) {
     const connectionState = !streamOn ? 'off' : streamConnectionState === 'online' ? 'online' : 'connecting';
@@ -7691,8 +8039,7 @@ function updateStreamUi() {
     else if (connectionState === 'connecting') connection.textContent = '重连中…';
     else connection.textContent = `已联机 · ${playerCount} 人`;
   }
-  const copyButton = $('#btn-stream-copy');
-  if (copyButton) copyButton.disabled = !streamOn || !streamInfo;
+  renderHostRoom();
 }
 
 async function refreshStreamPlayers() {
@@ -7702,6 +8049,7 @@ async function refreshStreamPlayers() {
     if (!res.ok) throw new Error('bad');
     const data = await res.json();
     streamPlayers = Array.isArray(data.players) ? data.players : [];
+    syncLiveAudioPeers(streamPlayers);
     if (state.selectedId) updateDetail();
     const onlinePlayers = (data.players || []).filter((player) => player.online);
     const onlineCount = onlinePlayers.length;
@@ -7731,6 +8079,7 @@ async function copyStreamUrl() {
 
 async function toggleStream() {
   if (streamOn) {
+    if (liveAudioActive) await stopLiveAudioBroadcast();
     streamOn = false;
     streamConnectionState = 'off';
     clearInterval(streamTimer);
@@ -7773,7 +8122,7 @@ async function toggleStream() {
     streamInfo = null;
     streamPlayers = [];
     updateStreamUi();
-    toast('📡 服务器未启动：请双击项目里的「启动桑哆尔」一键启动，再点一次开启');
+    toast('📡 服务器未启动：请双击项目里的「启动桑多尔之歌」一键启动，再点一次开启');
   }
 }
 
@@ -8981,23 +9330,13 @@ function pointerToCell(e) {
   return { col, row };
 }
 
-// 点击格子切换该格子的样子（门：关→开→锁；其他：默认↔标记）
+// 点击可交互格子切换自身状态，例如门的关闭、打开与上锁。
 function cycleCell(col, row, dir = 1) {
   const m = activeMap();
   if (!m || !m.cells) return;
   const tile = m.cells[row] && m.cells[row][col];
   if (!tile) return;
   const key = `${col},${row}`;
-  // 标记模式：任意格子都可加/去黄色框
-  if (state.markMode) {
-    if (m.cellStates[key] === 'marked') delete m.cellStates[key];
-    else m.cellStates[key] = 'marked';
-    m.mapData = renderCellsToDataUrl(m.cells, m.cellStates, m.gridSize, m.cellVariants);
-    updateWorldBackground();
-    scheduleAutosave();
-    toast(m.cellStates[key] === 'marked' ? '已标记该格子' : '已取消标记');
-    return;
-  }
   const defs = cellStateDefs(tile);
   if (!defs || !defs.length) return; // 没有多状态的格子点击不变化
   const cur = m.cellStates[key] || defs[0].key;
@@ -9384,64 +9723,6 @@ function translateDoodle(s, dx, dy) {
   }
 }
 
-/* ==================== 迷雾 ==================== */
-
-function fogCtx() {
-  return $('#fog-canvas').getContext('2d');
-}
-
-function renderFog() {
-  const g = fogCtx();
-  g.clearRect(0, 0, $('#fog-canvas').width, $('#fog-canvas').height);
-  const m = activeMap();
-  if (!m || !state.fogOn) return;
-  const cols = Math.floor(m.mapW / m.gridSize);
-  const rows = Math.floor(m.mapH / m.gridSize);
-  g.fillStyle = 'rgba(8,10,16,.985)';
-  for (const key of Object.keys(m.fog)) {
-    const [x, y] = key.split(',').map(Number);
-    if (x >= 0 && y >= 0 && x < cols && y < rows) {
-      g.fillRect(x * m.gridSize, y * m.gridSize, m.gridSize, m.gridSize);
-    }
-  }
-}
-
-function paintFogAt(e) {
-  const m = activeMap();
-  const cell = pointerToCell(e);
-  if (!m || !cell) return;
-  const r = Math.floor(fogBrush / 2);
-  const cols = Math.floor(m.mapW / m.gridSize);
-  const rows = Math.floor(m.mapH / m.gridSize);
-  for (let dy = -r; dy <= r; dy++) {
-    for (let dx = -r; dx <= r; dx++) {
-      const x = cell.col + dx, y = cell.row + dy;
-      if (x < 0 || y < 0 || x >= cols || y >= rows) continue;
-      const key = `${x},${y}`;
-      if (boardTool === 'fog-hide') m.fog[key] = true;
-      else delete m.fog[key];
-    }
-  }
-  renderFog();
-  scheduleAutosave();
-}
-
-function fogSetAll(hide) {
-  const m = activeMap();
-  if (!m) return;
-  const cols = Math.floor(m.mapW / m.gridSize);
-  const rows = Math.floor(m.mapH / m.gridSize);
-  m.fog = {};
-  if (hide) {
-    for (let y = 0; y < rows; y++) {
-      for (let x = 0; x < cols; x++) m.fog[`${x},${y}`] = true;
-    }
-  }
-  renderFog();
-  scheduleAutosave();
-  toast(hide ? '已全部隐藏，用「揭开」逐步探索' : '已全部显示');
-}
-
 function syncBoardTools() {
   document.querySelectorAll('.board-tool').forEach((b) => {
     b.classList.toggle('active', b.dataset.tool === boardTool);
@@ -9454,7 +9735,7 @@ function syncBoardTools() {
 preloadConditionPixels();
 bindEvents();
 initCoverThemePicker();
-loadBgmDirHandle();
+loadProjectMusicLibrary({ silent: true });
 try {
   const hdMigration = localStorage.getItem('sangduoer-hd-default-v2');
   if (!hdMigration) {
@@ -9560,7 +9841,7 @@ function initWorkspaceTabs() {
   const tabs = [...document.querySelectorAll('[data-workspace-tab]')];
   if (!tabs.length) return;
   tabs.forEach((tab) => tab.addEventListener('click', () => activateWorkspace(tab.dataset.workspaceTab)));
-  activateWorkspace(tabs.find((tab) => tab.classList.contains('active'))?.dataset.workspaceTab || 'units');
+  activateWorkspace(tabs.find((tab) => tab.classList.contains('active'))?.dataset.workspaceTab || 'room');
 }
 
 function initMapQuickTools() {
@@ -9572,36 +9853,6 @@ function initMapQuickTools() {
     target.addEventListener('change', sync);
     sync();
   });
-  const panel = $('#map-quick-tools');
-  const handle = $('#map-quick-drag');
-  if (!panel || !handle) return;
-  try {
-    const saved = JSON.parse(localStorage.getItem('sangduoer-map-quick-pos') || 'null');
-    if (saved && Number.isFinite(saved.x) && Number.isFinite(saved.y)) {
-      panel.style.left = `${saved.x}px`; panel.style.top = `${saved.y}px`;
-    }
-  } catch (e) {}
-  let quickDrag = null;
-  handle.addEventListener('pointerdown', (event) => {
-    event.preventDefault(); event.stopPropagation();
-    const rect = panel.getBoundingClientRect();
-    quickDrag = { dx: event.clientX - rect.left, dy: event.clientY - rect.top };
-    handle.setPointerCapture(event.pointerId);
-  });
-  handle.addEventListener('pointermove', (event) => {
-    if (!quickDrag) return;
-    const parent = panel.parentElement.getBoundingClientRect();
-    const x = clamp(event.clientX - parent.left - quickDrag.dx, 0, Math.max(0, parent.width - panel.offsetWidth));
-    const y = clamp(event.clientY - parent.top - quickDrag.dy, 0, Math.max(0, parent.height - panel.offsetHeight));
-    panel.style.left = `${x}px`; panel.style.top = `${y}px`;
-  });
-  const saveQuickPosition = () => {
-    if (!quickDrag) return;
-    quickDrag = null;
-    try { localStorage.setItem('sangduoer-map-quick-pos', JSON.stringify({ x: parseFloat(panel.style.left) || 14, y: parseFloat(panel.style.top) || 14 })); } catch (e) {}
-  };
-  handle.addEventListener('pointerup', saveQuickPosition);
-  handle.addEventListener('pointercancel', saveQuickPosition);
 }
 
 initWorkspaceTabs();

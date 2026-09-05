@@ -10,6 +10,8 @@ HOST_CSS = (PROJECT_ROOT / '主控台' / 'style.css').read_text(encoding='utf-8'
 PLAYER_HTML = (PROJECT_ROOT / '主控台' / '玩家.html').read_text(encoding='utf-8')
 DICE_JS = (PROJECT_ROOT / '骰子动画.js').read_text(encoding='utf-8')
 SERVER_PY = (PROJECT_ROOT / '主控台' / '联机服务器.py').read_text(encoding='utf-8')
+REST_SCENE_JS = (PROJECT_ROOT / 'asset' / '界面' / '休息动画' / '休息场景.js').read_text(encoding='utf-8')
+REST_SCENE_CSS = (PROJECT_ROOT / 'asset' / '界面' / '休息动画' / '休息动画.css').read_text(encoding='utf-8')
 
 
 def attribute_values(markup, attribute):
@@ -69,7 +71,7 @@ class ClientParityTests(unittest.TestCase):
         self.assertIn('faceTexture(highlighted, faceLength, faceLabel, skin, key)', DICE_JS)
 
     def test_stream_start_button_uses_readable_white_text(self):
-        block = re.search(r'#btn-stream-toggle\.primary\s*\{([^}]+)\}', HOST_CSS)
+        block = re.search(r'\.host-room-actions \.primary\s*\{([^}]+)\}', HOST_CSS)
         self.assertIsNotNone(block)
         css = re.sub(r'\s+', '', block.group(1))
         self.assertIn('color:#fff', css)
@@ -93,6 +95,19 @@ class ClientParityTests(unittest.TestCase):
         self.assertIn("filter(condition=>condition.visibility!=='gm')", PLAYER_HTML)
 
     def test_player_sidebars_use_clear_workspace_and_detail_categories(self):
+        host_tab_order = re.findall(r'data-workspace-tab="([^"]+)"', HOST_HTML)
+        self.assertEqual(host_tab_order, ['units', 'map', 'draw', 'resources', 'room'])
+        self.assertEqual(attribute_values(HOST_HTML, 'data-workspace'), {
+            'room', 'units', 'map', 'draw', 'resources',
+        })
+        self.assertIn('id="host-player-list"', HOST_HTML)
+        self.assertIn('id="host-room-code"', HOST_HTML)
+        self.assertIn('function renderHostRoom(', HOST_JS)
+        self.assertIn('renderHostRoom();', HOST_JS)
+
+        player_tab_order = re.findall(r'data-player-workspace-tab="([^"]+)"', PLAYER_HTML)
+        self.assertEqual(player_tab_order, ['tools', 'units', 'draw', 'resources', 'room'])
+        self.assertLess(PLAYER_HTML.index('<h2>🎲 掷骰</h2>'), PLAYER_HTML.index('<h2>🧭 地图工具</h2>'))
         self.assertEqual(attribute_values(PLAYER_HTML, 'data-player-workspace-tab'), {
             'room', 'units', 'tools', 'draw', 'resources',
         })
@@ -147,6 +162,16 @@ class ClientParityTests(unittest.TestCase):
         self.assertIn('turnPathTransferred', PLAYER_HTML)
         self.assertIn('turnPathTransferred', HOST_JS)
 
+    def test_player_can_mount_an_owned_rider_and_every_surface_applies_it(self):
+        self.assertIn("op:'mountToken'", PLAYER_HTML)
+        self.assertIn("if(a.op==='mountToken')", PLAYER_HTML)
+        self.assertIn("a.op === 'mountToken'", HOST_JS)
+        self.assertIn("PLAYER_MOUNT_ACTION = 'mountToken'", SERVER_PY)
+        self.assertIn('function mountOwnedRider(', PLAYER_HTML)
+        self.assertIn("picker.className='player-mount-picker'", PLAYER_HTML)
+        self.assertIn('initiativeEntries', PLAYER_HTML)
+        self.assertIn('initiativeEntries', HOST_JS)
+
     def test_owned_player_tokens_stay_clickable_when_tokens_overlap(self):
         base = re.search(r'\.token\s*\{([^}]+)\}', PLAYER_HTML)
         owned = re.search(r'\.token\.mine\s*\{([^}]+)\}', PLAYER_HTML)
@@ -165,6 +190,34 @@ class ClientParityTests(unittest.TestCase):
         self.assertIn("ev.type === 'presence'", HOST_JS)
         self.assertIn('已联机 · ${playerCount} 人', HOST_JS)
         self.assertIn('.host-connection[data-state="online"]', HOST_CSS)
+
+    def test_music_library_sync_and_live_tab_audio_are_available_on_both_clients(self):
+        for element_id in (
+            'btn-bgm-refresh', 'btn-bgm-pick', 'btn-bgm-play', 'bgm-list', 'btn-bgm-live',
+        ):
+            self.assertIn(f'id="{element_id}"', HOST_HTML)
+        self.assertNotIn('id="btn-bgm-bind"', HOST_HTML)
+        self.assertIn('function loadProjectMusicLibrary(', HOST_JS)
+        self.assertIn('/api/music-library?', HOST_JS)
+        self.assertIn('function startLiveAudioBroadcast(', HOST_JS)
+        self.assertIn("getDisplayMedia({ video: true, audio: true })", HOST_JS)
+        self.assertIn("ev.type === 'webrtcSignal'", HOST_JS)
+
+        for element_id in (
+            'player-audio-title', 'player-audio-status', 'player-audio-mute',
+            'player-audio-volume', 'player-audio-enable',
+        ):
+            self.assertIn(f'id="{element_id}"', PLAYER_HTML)
+        self.assertIn("fetch('/api/music-state'", PLAYER_HTML)
+        self.assertIn("ev.type==='webrtcSignal'", PLAYER_HTML)
+        self.assertIn('function applyPlayerWebRtcSignal(', PLAYER_HTML)
+        self.assertIn('issuedAt', PLAYER_HTML)
+
+        for marker in (
+            "path == '/api/music-library'", "path.startswith('/api/music-stream/')",
+            "path == '/api/music-state'", "'/api/webrtc-signal'", 'Accept-Ranges',
+        ):
+            self.assertIn(marker, SERVER_PY)
 
     def test_player_can_edit_only_public_conditions_and_host_is_notified(self):
         for element_id in (
@@ -281,21 +334,40 @@ class ClientParityTests(unittest.TestCase):
         self.assertIn('return 5;', DICE_JS)
         self.assertIn('maxAnimatedDice: MAX_ANIMATED_DICE', DICE_JS)
 
-    def test_map_grid_and_visual_layer_order_match(self):
+    def test_map_grid_is_always_visible_without_toggle_or_fog(self):
         for source in (HOST_JS, PLAYER_HTML):
-            self.assertIn('rgba(255,255,255,.78)', source.replace(' ', ''))
-            self.assertIn('rgba(0,0,0,.16)', source.replace(' ', ''))
+            compact = source.replace(' ', '')
+            self.assertIn('rgba(255,255,255,.78)', compact)
+            self.assertIn('rgba(0,0,0,.16)', compact)
+            self.assertNotIn('showGrid?', compact)
         for source in (HOST_CSS, PLAYER_HTML):
             compact = re.sub(r'\s+', '', source)
             self.assertIn('#spell-range-canvas{z-index:1;', compact)
             self.assertIn('#turn-path-canvas{z-index:2;', compact)
             self.assertIn('#doodle-canvas{', compact)
             self.assertIn('z-index:3;', compact)
+            self.assertNotIn('#fog-canvas', compact)
         self.assertIn('${readyCount} 人已准备', HOST_JS)
 
     def test_rest_transition_is_broadcast_and_rendered_on_both_clients(self):
         self.assertIn("Object.freeze({ short: 2200, long: 4400 })", HOST_JS)
         self.assertIn("op: 'restTransition'", HOST_JS)
+        self.assertIn('scene: scene.id', HOST_JS)
+        self.assertIn('SundollRestScenes.get(requestedScene', HOST_JS)
+        self.assertIn("$('#btn-time-short-rest').disabled = restAnimationActive", HOST_JS)
+        self.assertIn("$('#btn-time-long-rest').disabled = restAnimationActive", HOST_JS)
+        take_rest = function_body(HOST_JS, 'takeRest', 'applyWeatherFromInputs')
+        self.assertIn("if (e.playMode !== 'free')", take_rest)
+        self.assertIn('leaveCombatForFreeMode()', take_rest)
+        for element_id in (
+            'rest-scene-modal', 'rest-scene-picker-title', 'rest-scene-options',
+            'btn-rest-scene-cancel', 'btn-rest-scene-confirm',
+        ):
+            self.assertIn(f'id="{element_id}"', HOST_HTML)
+        self.assertIn('function openRestScenePicker(', HOST_JS)
+        self.assertIn("openRestScenePicker('short')", HOST_JS)
+        self.assertIn("openRestScenePicker('long')", HOST_JS)
+        self.assertIn('rest-scene-option-image', HOST_CSS)
         for element_id in (
             'rest-transition',
             'rest-transition-icon',
@@ -306,6 +378,20 @@ class ClientParityTests(unittest.TestCase):
         self.assertIn("if(a.op==='restTransition'){playRestTransition(a);return;}", PLAYER_HTML)
         self.assertIn("'mapReaction','restTransition'", PLAYER_HTML)
         self.assertIn('fallback=isLong?4400:2200', PLAYER_HTML)
+        for markup in (HOST_HTML, PLAYER_HTML):
+            self.assertIn('../asset/界面/休息动画/休息场景.js?v=20260905-rest-scenes-v2', markup)
+            self.assertIn('../asset/界面/休息动画/休息动画.css?v=20260905-rest-scenes-v2', markup)
+        for scene_id in (
+            'short-outdoor', 'short-indoor', 'short-dungeon',
+            'long-outdoor', 'long-indoor', 'long-shelter',
+        ):
+            self.assertIn(scene_id, REST_SCENE_JS)
+        for image_name in (
+            '短休-室外林地.jpg', '短休-室内酒馆.jpg', '短休-地下城.jpg',
+            '长休-室外星夜.jpg', '长休-室内旅店.jpg', '长休-风雪避难.jpg',
+        ):
+            self.assertTrue((PROJECT_ROOT / 'asset' / '界面' / '休息动画' / image_name).is_file())
+        self.assertIn('@media (prefers-reduced-motion: reduce)', REST_SCENE_CSS)
 
     def test_mounted_tokens_skip_map_badges_but_keep_player_pair_details(self):
         self.assertNotIn('mount-chain-badge', HOST_CSS)
@@ -315,6 +401,11 @@ class ClientParityTests(unittest.TestCase):
         self.assertIn('function mountedDetailPair(', PLAYER_HTML)
         self.assertIn("mountedDetailUnitButton(pair.rider,'玩家')", PLAYER_HTML)
         self.assertIn("mountedDetailUnitButton(pair.mount,'坐骑')", PLAYER_HTML)
+        tactics_index = PLAYER_HTML.index('data-player-detail-panel="tactics"')
+        spell_index = PLAYER_HTML.index('class="field player-spell-range"')
+        mount_index = PLAYER_HTML.index('id="detail-mounted-chain"')
+        self.assertLess(tactics_index, spell_index)
+        self.assertLess(spell_index, mount_index)
 
     def test_manual_initiative_binds_the_selected_token_and_deduplicates_mounts(self):
         self.assertNotIn('id="init-name"', HOST_HTML)
@@ -375,7 +466,7 @@ class ClientParityTests(unittest.TestCase):
         self.assertIn("a.op === 'turnPathUndo' || a.op === 'turnPathReset'", HOST_JS)
 
     def test_host_can_undo_or_reset_any_current_turn_path(self):
-        for element_id in ('host-turn-path-actions', 'btn-turn-path-undo', 'btn-turn-path-reset'):
+        for element_id in ('host-turn-path-actions', 'btn-turn-path-toggle', 'btn-turn-path-undo', 'btn-turn-path-reset'):
             self.assertIn(f'id="{element_id}"', HOST_HTML)
         self.assertIn('function hostTurnPathContext(', HOST_JS)
         self.assertIn('function updateHostTurnPathControls(', HOST_JS)
@@ -389,17 +480,53 @@ class ClientParityTests(unittest.TestCase):
         self.assertIn('remoteStreamSeq < latestSeqAtResponse', HOST_JS)
         self.assertIn('remoteStreamSeq > previouslyAppliedSeq && remotePathChanged', HOST_JS)
 
-    def test_drag_path_coalesces_a_tolerant_one_cell_corner_into_a_diagonal(self):
+    def test_host_can_pause_turn_path_recording_without_disabling_turn_movement(self):
+        self.assertIn('style.css?v=20260905-m52-always-grid', HOST_HTML)
+        self.assertIn('app.js?v=20260905-m52-always-grid', HOST_HTML)
+        self.assertIn("HOST_TURN_PATH_RECORDING_KEY = 'sundoll-host-turn-path-recording-v1'", HOST_JS)
+        self.assertIn('function setHostTurnPathRecording(', HOST_JS)
+        controls = HOST_JS[
+            HOST_JS.index('function updateHostTurnPathControls'):
+            HOST_JS.index('function applyHostTurnPathAction')
+        ]
+        self.assertIn("toggle.setAttribute('aria-pressed', String(hostTurnPathRecording))", controls)
+        self.assertIn("toggle.textContent = '路径'", controls)
+        self.assertIn("'路径记录已开启'", controls)
+        self.assertIn('grid-template-columns: repeat(3, minmax(0, 1fr))', HOST_CSS)
+        self.assertIn('>路径</button>', HOST_HTML)
+        self.assertIn('>回退</button>', HOST_HTML)
+        self.assertIn('>重置</button>', HOST_HTML)
+        self.assertIn('hostTurnPathRecording && isCurrentTurnToken(mount)', HOST_JS)
+        self.assertIn('hostTurnPathRecording && isCurrentTurnToken(token)', HOST_JS)
+        self.assertIn("setHostTurnPathRecording(!hostTurnPathRecording)", HOST_JS)
+        append = function_body(HOST_JS, 'appendTurnPath', 'hostTurnPathContext')
+        self.assertIn('const continuous =', append)
+        self.assertIn('sameTurnPoint(previous[previous.length - 1], valid[0])', append)
+
+    def test_turn_actions_are_short_and_share_one_row(self):
+        self.assertIn('id="initiative-turn-actions"', HOST_HTML)
+        self.assertIn('id="btn-init-next" class="primary" type="button">结束回合</button>', HOST_HTML)
+        self.assertIn('id="btn-combat-end" class="danger" type="button">结束战斗</button>', HOST_HTML)
+        self.assertIn("$('#initiative-turn-actions').hidden = !inTurn", HOST_JS)
+        self.assertIn("$('#btn-init-next').textContent = '结束回合'", HOST_JS)
+        self.assertIn("$('#btn-combat-end').addEventListener('click', endCombatFromButton)", HOST_JS)
+        self.assertIn('grid-template-columns: repeat(2, minmax(0, 1fr))', HOST_CSS)
+
+    def test_drag_path_distinguishes_a_direct_diagonal_from_an_intentional_corner(self):
         for source in (HOST_JS, PLAYER_HTML):
             self.assertIn('TURN_DIAGONAL_MIN_STEP', source)
             self.assertIn('TURN_DIAGONAL_MAX_STEP', source)
+            self.assertIn('TURN_DIAGONAL_INTENT_RATIO', source)
             self.assertIn('function recordTurnDragPoint(', source)
             body = function_body(source, 'recordTurnDragPoint', 'appendTurnPath')
             self.assertIn('firstHorizontal', body)
             self.assertIn('secondVertical', body)
+            self.assertIn('rawPoint', body)
+            self.assertIn('diagonalCornerIntent', body)
+            self.assertIn('directDiagonal', body)
             self.assertIn('points[points.length - 1] = candidate', body.replace('points[points.length-1]', 'points[points.length - 1]'))
-        self.assertIn('recordTurnDragPoint(drag,{x:t.x,y:t.y},currentMap.gridSize,state.snap!==false)', PLAYER_HTML)
-        self.assertIn('recordTurnDragPoint(drag, { x: token.x, y: token.y }, m.gridSize, Boolean(state.snap))', HOST_JS)
+        self.assertIn('recordTurnDragPoint(drag,{x:t.x,y:t.y},currentMap.gridSize,state.snap!==false,p)', PLAYER_HTML)
+        self.assertIn('recordTurnDragPoint(drag, { x: token.x, y: token.y }, m.gridSize, Boolean(state.snap), { x, y })', HOST_JS)
 
     def test_mount_group_conditions_decrement_together_on_all_three_surfaces(self):
         host_body = function_body(HOST_JS, 'decrementCurrentTokenConditions', 'returnToCombatPreparationIfEmpty')

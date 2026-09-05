@@ -1,5 +1,5 @@
 #!/bin/bash
-# 桑哆尔 · macOS 双击启动入口
+# 桑多尔之歌 · macOS 双击启动入口
 cd "$(dirname "$0")" || exit 1
 
 PYTHON_BIN="$(command -v python3 2>/dev/null || true)"

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-桑哆尔的世界 · 简易联机服务器（零依赖，Python 3.6+）
+桑多尔之歌 · 简易联机服务器（零依赖，Python 3.6+）
 用法：在项目根目录运行  python3 主控台/联机服务器.py [端口]
       或运行  python3 start_server.py --port 8092 --bind 0.0.0.0
 默认端口 8090。启动后：
@@ -9,7 +9,7 @@
               在「📡 联机 → 开启玩家模式」开启推送。
   玩家：同一 WiFi 下用浏览器打开 http://<本机IP>:端口/主控台/玩家.html
 """
-import os, sys, json, time, socket, threading, re, base64, hashlib, math, random, secrets, shutil
+import os, sys, json, time, socket, threading, re, base64, hashlib, math, random, secrets, shutil, copy
 from urllib.parse import urlparse, parse_qs, unquote_to_bytes
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
@@ -75,6 +75,7 @@ INITIATIVE_ACTIONS = {'initiativeSwap'}
 TURN_PATH_ACTIONS = {'turnPathUndo', 'turnPathReset'}
 PLAYER_SPAWN_ACTION = 'spawnToken'
 PLAYER_DELETE_ACTION = 'deletePlayerToken'
+PLAYER_MOUNT_ACTION = 'mountToken'
 PLAYER_DISMOUNT_ACTION = 'dismountToken'
 MAX_PLAYER_TEMP_TOKENS_PER_MAP = 12
 DOODLE_TOOLS = {'pen', 'line', 'arrow', 'circle'}
@@ -90,7 +91,18 @@ LOCAL_SAVE_HEADER = 'X-Sundoll-Local-Save'
 MAX_LOCAL_SAVE_BODY = 128 * 1024 * 1024
 MAX_CAMPAIGN_COVER_BYTES = 8 * 1024 * 1024
 CAMPAIGN_COVER_EXTENSIONS = ('.png', '.jpg', '.jpeg', '.webp')
+CAMPAIGN_COVER_FILES = ('封面.webp', '封面.jpg', '封面.jpeg', '封面.png')
+CAMPAIGN_COVER_ASSET_CACHE = {}
 MUSIC_EXTS = ('.mp3', '.m4a', '.wav', '.ogg', '.flac', '.aac', '.opus', '.webm')
+MUSIC_LIBRARY_ROOT = os.path.join(ROOT, 'asset', '音乐')
+MUSIC_CACHE_ROOT = os.path.join(ROOT, '音乐缓存')
+MUSIC_LIBRARY_INDEX = {}
+MAX_MUSIC_LIBRARY_FILES = 1000
+MUSIC_MIME_TYPES = {
+    '.mp3': 'audio/mpeg', '.m4a': 'audio/mp4', '.wav': 'audio/wav',
+    '.ogg': 'audio/ogg', '.flac': 'audio/flac', '.aac': 'audio/aac',
+    '.opus': 'audio/ogg', '.webm': 'audio/webm',
+}
 # 地图和头像转换为内容哈希 URL，浏览器可长期缓存；资源同时写入磁盘，
 # 不再把 Base64 地图和头像塞进每一条 SSE 消息。
 ASSETS = {}           # {sha256: (mime, bytes)}
@@ -98,13 +110,18 @@ DATA_URL_RE = re.compile(r'^data:([^;,]+)?(;base64)?,(.*)$', re.S)
 
 SESSION_ID = secrets.token_hex(8)
 ROOM_CODE = secrets.token_hex(3).upper()
-SERVER_PROTOCOL_VERSION = 4
+SERVER_PROTOCOL_VERSION = 7
 STATE_REVISION = 0
 SESSIONS = {}         # {sessionToken: {playerId, name, status, lastSeen}}
 ACTION_IDS = {}       # {actionId: seq}，防止网络重试重复执行
 MAX_ACTION_IDS = 2000
 ACTION_RATE = {}      # {sessionToken: [最近请求时间戳]}
 HOST_ACTIONS = {'roll', 'announce', 'bgm', 'mapReaction', 'restTransition'}
+BGM_STATE = {
+    'op': 'bgm', 'action': 'stop', 'mode': 'library', 'trackId': '',
+    'track': '', 'url': '', 'time': 0.0, 'loop': False, 'issuedAt': 0,
+}
+WEBRTC_SIGNAL_TYPES = {'offer', 'answer', 'ice', 'ready', 'stop'}
 DICE_SKIN_KEYS = {'obsidian', 'dragon', 'arcane', 'jade', 'royal', 'ivory'}
 TOKEN_RING_COLORS = {'pc': '#5b8cff', 'enemy': '#ef476f', 'npc': '#f4a261', 'ally': '#2ecc71'}
 MAP_REACTION_EMOJIS = {'👍', '❤️', '😂', '😮', '🔥', '✨', '❓', '⚔️', '🎯', '👏'}
@@ -112,6 +129,11 @@ REACTION_ID_RE = re.compile(r'^[A-Za-z0-9_.:-]{1,96}$')
 REACTION_RATE = {}
 REACTION_COOLDOWN_MS = 450
 REST_TRANSITION_DURATIONS = {'short': 2200, 'long': 4400}
+REST_TRANSITION_SCENES = {
+    'short-outdoor': 'short', 'short-indoor': 'short', 'short-dungeon': 'short',
+    'long-outdoor': 'long', 'long-indoor': 'long', 'long-shelter': 'long',
+}
+REST_TRANSITION_DEFAULT_SCENES = {'short': 'short-outdoor', 'long': 'long-outdoor'}
 WORLD_SECONDS_PER_DAY = 24 * 60 * 60
 WORLD_DAYS_PER_WEEK = 7
 WORLD_WEEKS_PER_YEAR = 52
@@ -538,6 +560,9 @@ def normalize_rest_transition_action(action):
     rest_id = str(action.get('restId') or '').strip()
     if kind not in REST_TRANSITION_DURATIONS or not REACTION_ID_RE.fullmatch(rest_id):
         return None
+    scene = str(action.get('scene') or REST_TRANSITION_DEFAULT_SCENES[kind]).strip().lower()
+    if REST_TRANSITION_SCENES.get(scene) != kind:
+        return None
     duration = finite_int(
         action.get('duration'),
         1000,
@@ -548,6 +573,7 @@ def normalize_rest_transition_action(action):
         'op': 'restTransition',
         'restId': rest_id,
         'kind': kind,
+        'scene': scene,
         'duration': duration,
         'startedAt': int(time.time() * 1000),
         'name': 'GM',
@@ -651,6 +677,285 @@ def cache_player_portrait(value):
     return '/api/assets/' + key, None, 200
 
 
+def campaign_cover_path(state):
+    """只从当前战役自己的存档根目录解析封面，不对玩家开放存档路径。"""
+    if not isinstance(state, dict):
+        return None
+    campaign_id = str(state.get('campaignId') or '').strip()
+    campaign_name = str(state.get('campaignName') or '').strip()
+    folder_name = ''
+    cover_name = ''
+    try:
+        index_path = os.path.join(LOCAL_SAVE_ROOT, '存档索引.json')
+        with open(index_path, 'r', encoding='utf-8') as handle:
+            entries = (json.load(handle) or {}).get('campaigns') or []
+        match = next((item for item in entries if isinstance(item, dict) and campaign_id and str(item.get('id') or '') == campaign_id), None)
+        if match is None:
+            match = next((item for item in entries if isinstance(item, dict) and campaign_name and str(item.get('name') or '') == campaign_name), None)
+        if match:
+            folder_name = str(match.get('folder') or '')
+            cover_name = str(match.get('cover') or '')
+    except (OSError, ValueError, TypeError):
+        pass
+
+    campaigns_root = os.path.abspath(os.path.join(LOCAL_SAVE_ROOT, '战役'))
+    if not folder_name and campaign_id and os.path.isdir(campaigns_root):
+        prefix = re.sub(r'[^\w\-]', '', campaign_id)[:80] + '-'
+        try:
+            folder_name = next((name for name in os.listdir(campaigns_root) if name.startswith(prefix)), '')
+        except OSError:
+            return None
+    if not folder_name or '/' in folder_name or '\\' in folder_name or folder_name in ('.', '..'):
+        return None
+    campaign_root = os.path.abspath(os.path.join(campaigns_root, folder_name))
+    if os.path.commonpath([campaigns_root, campaign_root]) != campaigns_root or os.path.islink(campaign_root):
+        return None
+    candidates = [cover_name] if cover_name in CAMPAIGN_COVER_FILES else []
+    candidates.extend(name for name in CAMPAIGN_COVER_FILES if name not in candidates)
+    for name in candidates:
+        path = os.path.join(campaign_root, name)
+        if os.path.isfile(path) and not os.path.islink(path):
+            return path
+    return None
+
+
+def campaign_cover_asset_url(state):
+    """把战役封面转为内容哈希资源，玩家只会拿到不可反查存档的 URL。"""
+    path = campaign_cover_path(state)
+    if not path:
+        return ''
+    try:
+        stat = os.stat(path)
+        if stat.st_size <= 0 or stat.st_size > MAX_CAMPAIGN_COVER_BYTES:
+            return ''
+        signature = (stat.st_mtime_ns, stat.st_size)
+        cached = CAMPAIGN_COVER_ASSET_CACHE.get(path)
+        if cached and cached[:2] == signature:
+            return cached[2]
+        with open(path, 'rb') as handle:
+            raw = handle.read()
+        extension = os.path.splitext(path)[1].lower()
+        mime = 'image/png' if extension == '.png' else 'image/webp' if extension == '.webp' else 'image/jpeg'
+        valid = (
+            (mime == 'image/png' and raw.startswith(b'\x89PNG\r\n\x1a\n'))
+            or (mime == 'image/jpeg' and raw.startswith(b'\xff\xd8\xff'))
+            or (mime == 'image/webp' and len(raw) >= 12 and raw.startswith(b'RIFF') and raw[8:12] == b'WEBP')
+        )
+        if not valid:
+            return ''
+        key = hashlib.sha256(raw).hexdigest()
+        ASSETS[key] = (mime, raw)
+        persist_asset(key, mime, raw)
+        url = '/api/assets/' + key
+        CAMPAIGN_COVER_ASSET_CACHE[path] = (signature[0], signature[1], url)
+        return url
+    except OSError:
+        return ''
+
+
+def _music_path_is_safe(root, path):
+    """音乐库不能通过软链接或构造路径越过 ``asset/音乐``。"""
+    root = os.path.abspath(root)
+    path = os.path.abspath(path)
+    try:
+        return os.path.commonpath([root, path]) == root and not os.path.islink(path)
+    except (OSError, ValueError):
+        return False
+
+
+def _walk_music_files(root, start):
+    if not os.path.isdir(start) or not _music_path_is_safe(root, start):
+        return
+    for directory, subdirs, files in os.walk(start):
+        subdirs[:] = [name for name in subdirs
+                      if _music_path_is_safe(root, os.path.join(directory, name))]
+        for name in files:
+            path = os.path.join(directory, name)
+            if (name.lower().endswith(MUSIC_EXTS)
+                    and _music_path_is_safe(root, path)
+                    and os.path.isfile(path)):
+                yield path
+
+
+def _safe_music_campaign_name(value):
+    return re.sub(r'[\\/:*?"<>|]', '_', str(value or '')).strip()
+
+
+def music_library_catalog(root=None, campaign_id='', campaign_name=''):
+    """扫描项目曲库，返回公开目录与只在服务器内使用的 ID->路径索引。"""
+    root = os.path.abspath(root or MUSIC_LIBRARY_ROOT)
+    campaign_id = re.sub(r'[^\w\-]', '', str(campaign_id or ''))[:80]
+    campaign_name = _safe_music_campaign_name(campaign_name)[:120]
+    entries = []
+    index = {}
+
+    def add(path, scope, collection_root, default_category):
+        if len(entries) >= MAX_MUSIC_LIBRARY_FILES:
+            return
+        if not _music_path_is_safe(root, path):
+            return
+        try:
+            relative = os.path.relpath(path, root).replace(os.sep, '/')
+            size = os.path.getsize(path)
+        except OSError:
+            return
+        track_id = hashlib.sha256(relative.encode('utf-8')).hexdigest()[:32]
+        category_relative = os.path.relpath(os.path.dirname(path), collection_root)
+        category = default_category if category_relative == '.' else category_relative.replace(os.sep, ' / ')
+        filename = os.path.basename(path)
+        entries.append({
+            'id': track_id,
+            'title': os.path.splitext(filename)[0],
+            'fileName': filename,
+            'scope': scope,
+            'collection': '当前战役' if scope == 'campaign' else '通用',
+            'category': category,
+            'size': size,
+            'url': '/api/music-stream/' + track_id,
+        })
+        index[track_id] = path
+
+    if os.path.isdir(root):
+        # 根目录里的旧曲目继续作为通用音乐；其余通用分类可直接建子文件夹。
+        try:
+            for name in sorted(os.listdir(root)):
+                path = os.path.join(root, name)
+                if os.path.isfile(path) and name.lower().endswith(MUSIC_EXTS):
+                    add(path, 'general', root, '通用')
+                elif os.path.isdir(path) and name != '战役' and not os.path.islink(path):
+                    for music_path in _walk_music_files(root, path):
+                        add(music_path, 'general', root, '通用')
+        except OSError:
+            pass
+
+    selected_campaign_folder = ''
+    campaigns_root = os.path.join(root, '战役')
+    if os.path.isdir(campaigns_root):
+        try:
+            folder_names = [name for name in os.listdir(campaigns_root)
+                            if os.path.isdir(os.path.join(campaigns_root, name))
+                            and not os.path.islink(os.path.join(campaigns_root, name))]
+        except OSError:
+            folder_names = []
+        expected = ((campaign_id + '-' + campaign_name) if campaign_id and campaign_name else '')
+        candidates = sorted(folder_names, key=lambda name: (
+            0 if expected and name == expected else
+            1 if campaign_id and name == campaign_id else
+            2 if campaign_id and name.startswith(campaign_id + '-') else
+            3 if campaign_name and name == campaign_name else 4,
+            name,
+        ))
+        selected_campaign_folder = next((name for name in candidates if (
+            (expected and name == expected)
+            or (campaign_id and (name == campaign_id or name.startswith(campaign_id + '-')))
+            or (campaign_name and name == campaign_name)
+        )), '')
+        if selected_campaign_folder:
+            campaign_root = os.path.join(campaigns_root, selected_campaign_folder)
+            for music_path in _walk_music_files(root, campaign_root):
+                add(music_path, 'campaign', campaign_root, '未分类')
+
+    entries.sort(key=lambda item: (
+        0 if item['scope'] == 'campaign' else 1,
+        item['category'].lower(), item['title'].lower(),
+    ))
+    return {
+        'ok': True,
+        'campaignId': campaign_id,
+        'campaignName': campaign_name,
+        'campaignFolder': selected_campaign_folder,
+        'tracks': entries,
+        '_index': index,
+    }
+
+
+def refresh_music_library(campaign_id='', campaign_name=''):
+    catalog = music_library_catalog(MUSIC_LIBRARY_ROOT, campaign_id, campaign_name)
+    index = catalog.pop('_index')
+    with LOCK:
+        MUSIC_LIBRARY_INDEX.clear()
+        MUSIC_LIBRARY_INDEX.update(index)
+    return catalog
+
+
+def parse_http_byte_range(header, size):
+    """把单段 HTTP Range 转成闭区间；无 Range 返回 None，坏 Range 抛 ValueError。"""
+    if not header:
+        return None
+    value = str(header).strip()
+    if not value.startswith('bytes=') or ',' in value:
+        raise ValueError('unsupported range')
+    spec = value[6:].strip()
+    if '-' not in spec or size <= 0:
+        raise ValueError('bad range')
+    start_raw, end_raw = spec.split('-', 1)
+    try:
+        if not start_raw:
+            suffix = int(end_raw)
+            if suffix <= 0:
+                raise ValueError('bad suffix')
+            start = max(0, size - suffix)
+            end = size - 1
+        else:
+            start = int(start_raw)
+            end = int(end_raw) if end_raw else size - 1
+            if start < 0 or start >= size or end < start:
+                raise ValueError('bad bounds')
+            end = min(end, size - 1)
+    except (TypeError, ValueError, OverflowError):
+        raise ValueError('bad range')
+    return start, end
+
+
+def normalize_bgm_action(action, now=None):
+    source = action if isinstance(action, dict) else {}
+    command = str(source.get('action') or '').strip().lower()
+    if command not in ('play', 'pause', 'stop'):
+        return None
+    mode = str(source.get('mode') or 'library').strip().lower()
+    if mode not in ('library', 'upload', 'live'):
+        mode = 'library'
+    position = finite_number(source.get('time'))
+    position = max(0.0, min(86400.0, position if position is not None else 0.0))
+    if command == 'stop':
+        position = 0.0
+    return {
+        'op': 'bgm',
+        'action': command,
+        'mode': mode,
+        'trackId': str(source.get('trackId') or '')[:64],
+        'track': str(source.get('track') or '')[:120],
+        'url': str(source.get('url') or '').strip()[:2048],
+        'time': round(position, 3),
+        'loop': bool(source.get('loop')),
+        'issuedAt': int(now if now is not None else time.time() * 1000),
+    }
+
+
+def normalize_webrtc_signal(raw):
+    source = raw if isinstance(raw, dict) else {}
+    signal_type = str(source.get('type') or '').strip().lower()
+    if signal_type not in WEBRTC_SIGNAL_TYPES:
+        return None
+    if signal_type in ('offer', 'answer'):
+        sdp = str(source.get('sdp') or '')
+        if not sdp or len(sdp) > 128 * 1024:
+            return None
+        return {'type': signal_type, 'sdp': sdp}
+    if signal_type == 'ice':
+        candidate = str(source.get('candidate') or '')[:8192]
+        if not candidate:
+            return None
+        result = {'type': 'ice', 'candidate': candidate}
+        if source.get('sdpMid') is not None:
+            result['sdpMid'] = str(source.get('sdpMid'))[:128]
+        line_index = finite_int(source.get('sdpMLineIndex'), 0, 1024, None)
+        if line_index is not None:
+            result['sdpMLineIndex'] = line_index
+        return result
+    return {'type': signal_type}
+
+
 def cache_stream_media(state):
     """就地压缩公开状态中的地图与头像；调用方须持有 LOCK。"""
     for m in (state or {}).get('maps', []) or []:
@@ -661,6 +966,8 @@ def cache_stream_media(state):
                     continue
                 t['iconImg'] = cache_data_url(t.get('iconImg'))
                 t['iconImgHd'] = cache_data_url(t.get('iconImgHd'))
+    if isinstance(state, dict):
+        state['_campaignCoverUrl'] = campaign_cover_asset_url(state)
     return state
 
 
@@ -932,6 +1239,92 @@ def sort_initiative_entries(encounter):
         encounter['entries'] = []
         return
     entries.sort(key=initiative_sort_key)
+
+
+def mounted_group_parts(state, token):
+    """返回棋子所在骑乘组的坐骑与骑手；未骑乘时返回空组。"""
+    if not isinstance(token, dict) or not token.get('id'):
+        return None, []
+    map_obj, located = find_token(state, token.get('id'))
+    if not map_obj or not located:
+        return None, []
+    tokens = map_obj.get('tokens', []) or []
+    mount = None
+    mount_id = located.get('mountId')
+    if mount_id:
+        mount = next((item for item in tokens if isinstance(item, dict) and item.get('id') == mount_id), None)
+    elif any(isinstance(item, dict) and item.get('mountId') == located.get('id') for item in tokens):
+        mount = located
+    if not mount:
+        return None, []
+    riders = [item for item in tokens
+              if isinstance(item, dict) and item.get('mountId') == mount.get('id')]
+    return mount, riders
+
+
+def initiative_group_label(state, token):
+    """生成与主控台一致的骑手 · 坐骑先攻名称。"""
+    if not isinstance(token, dict):
+        return '未命名单位'
+    mount, riders = mounted_group_parts(state, token)
+    if not mount or not riders:
+        return str(token.get('name') or '未命名单位')[:48]
+    lead = token if token.get('id') != mount.get('id') else riders[0]
+    lead_name = str(lead.get('name') or '骑手')
+    rider_label = '%s 等 %d 人' % (lead_name, len(riders)) if len(riders) > 1 else lead_name
+    return ('%s · %s' % (rider_label, str(mount.get('name') or '坐骑')))[:48]
+
+
+def reconcile_mounted_initiative_entries(state):
+    """骑乘关系变化后合并同组先攻项，并保留当前项与玩家归属。"""
+    encounter = encounter_state(state)
+    entries = encounter.get('entries') if isinstance(encounter.get('entries'), list) else []
+    normalized = []
+    changed = False
+    for entry in entries:
+        token = initiative_entry_token(state, entry)
+        if not isinstance(entry, dict) or not token:
+            normalized.append(entry)
+            continue
+        label = initiative_group_label(state, token)
+        color = TOKEN_RING_COLORS.get(token.get('type'), TOKEN_RING_COLORS['npc'])
+        if entry.get('name') != label or entry.get('color') != color:
+            changed = True
+        entry['name'] = label
+        entry['color'] = color
+        group_ids = token_control_group(state, token)
+        duplicate_index = next((index for index, candidate in enumerate(normalized)
+                                if initiative_entry_token(state, candidate)
+                                and initiative_entry_token(state, candidate).get('id') in group_ids), -1)
+        if duplicate_index < 0:
+            normalized.append(entry)
+            continue
+        previous = normalized[duplicate_index]
+        keep_current = entry.get('id') == encounter.get('currentEntryId') and previous.get('id') != encounter.get('currentEntryId')
+        keeper = entry if keep_current else previous
+        discarded = previous if keep_current else entry
+        keeper_token = initiative_entry_token(state, keeper)
+        discarded_token = initiative_entry_token(state, discarded)
+        if (not keeper_token or not str(keeper_token.get('owner') or '').strip()) and discarded_token and str(discarded_token.get('owner') or '').strip():
+            keeper['tokenId'] = discarded_token.get('id')
+        final_token = initiative_entry_token(state, keeper)
+        if final_token:
+            keeper['name'] = initiative_group_label(state, final_token)
+            keeper['color'] = TOKEN_RING_COLORS.get(final_token.get('type'), TOKEN_RING_COLORS['npc'])
+        normalized[duplicate_index] = keeper
+        if encounter.get('currentEntryId') == discarded.get('id'):
+            encounter['currentEntryId'] = keeper.get('id')
+        changed = True
+    encounter['entries'] = normalized
+    sort_initiative_entries(encounter)
+    entry_ids = {entry.get('id') for entry in normalized if isinstance(entry, dict)}
+    if encounter.get('playMode') == 'turn' and encounter.get('currentEntryId') not in entry_ids:
+        encounter['currentEntryId'] = normalized[0].get('id') if normalized and isinstance(normalized[0], dict) else None
+        changed = True
+    elif encounter.get('playMode') != 'turn' and encounter.get('currentEntryId') is not None:
+        encounter['currentEntryId'] = None
+        changed = True
+    return changed
 
 
 def initiative_effective_order(encounter, entry):
@@ -1228,6 +1621,60 @@ def normalize_player_delete_action(state, requested, player):
     }, None, 200
 
 
+def normalize_player_mount_action(state, requested, player):
+    """只允许玩家让自己的 1x1 棋子骑上当前地图内可用的大型坐骑。"""
+    if not isinstance(requested, dict) or requested.get('op') != PLAYER_MOUNT_ACTION:
+        return None, '上骑请求无效', 400
+    map_obj, rider = find_token(state, requested.get('tokenId'))
+    if not map_obj or not rider:
+        return None, '骑手棋子不存在', 404
+    requested_map_id = requested.get('mapId')
+    if requested_map_id is not None and requested_map_id != map_obj.get('id'):
+        return None, '地图与骑手不匹配', 400
+    actor = str(player or '').strip()[:24]
+    if not actor or str(rider.get('owner') or '').strip() != actor:
+        return None, '只能让自己的角色上骑', 403
+    if rider.get('hiddenFromPlayers') is True:
+        return None, '这个角色当前不可见', 403
+    if (finite_number(rider.get('size')) or 1) >= 2:
+        return None, '只有 1x1 棋子可以骑乘', 409
+    if rider.get('mountId'):
+        return None, '这个角色已经在坐骑上', 409
+
+    mount_map, mount = find_token(state, requested.get('mountId'))
+    if not mount_map or not mount:
+        return None, '目标坐骑不存在', 404
+    if mount_map is not map_obj or mount.get('id') == rider.get('id'):
+        return None, '骑手与坐骑必须在同一张地图', 400
+    if mount.get('hiddenFromPlayers') is True:
+        return None, '该坐骑当前不可见', 403
+    if (finite_number(mount.get('size')) or 1) < 2:
+        return None, '只能骑乘 2x2 及以上的大型棋子', 409
+    mount_owner = str(mount.get('owner') or '').strip()
+    if mount_owner and mount_owner != actor:
+        return None, '不能骑乘其他玩家名下的坐骑', 403
+
+    permission_action = dict(requested)
+    allowed, reason = can_act_with_token(state, rider, actor, permission_action)
+    if not allowed:
+        return None, reason or '当前不能上骑', 409 if reason == '回合已经变化，请重新操作' else 403
+    encounter = encounter_state(state)
+    action = {
+        'op': PLAYER_MOUNT_ACTION,
+        'mapId': map_obj.get('id'),
+        'tokenId': rider.get('id'),
+        'mountId': mount.get('id'),
+        'riderName': str(rider.get('name') or '骑手')[:24],
+        'mountName': str(mount.get('name') or '坐骑')[:24],
+        'playMode': permission_action.get('playMode', 'free'),
+        'name': actor,
+        'actor': actor,
+    }
+    if action['playMode'] == 'turn':
+        action['turnSerial'] = encounter_turn_serial(state)
+    return action, None, 200
+
+
 def normalize_player_dismount_action(state, requested, player):
     """只允许玩家让自己名下、当前正在骑乘的骑手下马。"""
     if not isinstance(requested, dict) or requested.get('op') != PLAYER_DISMOUNT_ACTION:
@@ -1464,6 +1911,49 @@ def apply_action(state, action):
         action['playMode'] = encounter.get('playMode')
         action['round'] = max(1, int(finite_number(encounter.get('round')) or 1))
         action['turnSerial'] = encounter_turn_serial(state)
+        return True
+    if op == PLAYER_MOUNT_ACTION:
+        map_obj, rider = find_token(state, action.get('tokenId'))
+        mount_map, mount = find_token(state, action.get('mountId'))
+        actor = str(action.get('actor') or '').strip()
+        if not map_obj or not rider or not mount or mount_map is not map_obj or not actor:
+            return False
+        if action.get('mapId') != map_obj.get('id') or str(rider.get('owner') or '').strip() != actor:
+            return False
+        if rider.get('hiddenFromPlayers') is True or mount.get('hiddenFromPlayers') is True:
+            return False
+        if (finite_number(rider.get('size')) or 1) >= 2 or (finite_number(mount.get('size')) or 1) < 2:
+            return False
+        mount_owner = str(mount.get('owner') or '').strip()
+        if mount_owner and mount_owner != actor:
+            return False
+        if rider.get('mountId'):
+            return rider.get('mountId') == mount.get('id')
+
+        replay_allowed, _ = can_act_with_token(state, rider, actor, action)
+        if not replay_allowed:
+            return False
+        encounter = encounter_state(state)
+        current_token_id = current_turn_token_id(state)
+        affected_before = token_control_group(state, rider) | token_control_group(state, mount)
+        invalidates_turn = encounter.get('playMode') == 'turn' and current_token_id in affected_before
+
+        rider['mountId'] = mount.get('id')
+        rider['x'] = mount.get('x', rider.get('x'))
+        rider['y'] = mount.get('y', rider.get('y'))
+        initiative_changed = reconcile_mounted_initiative_entries(state)
+        if encounter.get('playMode') != 'free' and (invalidates_turn or initiative_changed):
+            encounter['turnSerial'] = encounter_turn_serial(state) + 1
+            encounter['turnPath'] = {'mapId': None, 'tokenId': None, 'points': []}
+
+        action['x'] = rider.get('x')
+        action['y'] = rider.get('y')
+        action['initiativeEntries'] = copy.deepcopy(encounter.get('entries', []) or [])
+        action['currentEntryId'] = encounter.get('currentEntryId')
+        action['encounterPlayMode'] = encounter.get('playMode')
+        action['round'] = max(1, int(finite_number(encounter.get('round')) or 1))
+        action['turnSerial'] = encounter_turn_serial(state)
+        action['turnPath'] = copy.deepcopy(encounter.get('turnPath') or {'mapId': None, 'tokenId': None, 'points': []})
         return True
     if op == PLAYER_DISMOUNT_ACTION:
         map_obj, rider = find_token(state, action.get('tokenId'))
@@ -1806,6 +2296,7 @@ def state_snapshot(now=None):
     snapshot['_roomCode'] = ROOM_CODE
     snapshot['_stateRevision'] = STATE_REVISION
     snapshot['_serverNow'] = int(now or time.time() * 1000)
+    snapshot['_bgm'] = dict(BGM_STATE)
     return snapshot
 
 
@@ -1889,7 +2380,8 @@ class Handler(SimpleHTTPRequestHandler):
     def _cors(self):
         self.send_header('Access-Control-Allow-Origin', '*')
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type, Range, X-Sundoll-Local-Save')
+        self.send_header('Access-Control-Expose-Headers', 'Accept-Ranges, Content-Range, Content-Length')
 
     def _send_json(self, obj, code=200):
         body = json.dumps(obj, ensure_ascii=False).encode('utf-8')
@@ -1900,6 +2392,80 @@ class Handler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _send_music_track(self, track_id):
+        if not re.match(r'^[0-9a-f]{32}$', str(track_id or '')):
+            self._send_json({'ok': False, 'error': 'music not found'}, 404)
+            return
+        with LOCK:
+            path = MUSIC_LIBRARY_INDEX.get(track_id)
+            snapshot = STATE if isinstance(STATE, dict) else {}
+            campaign_id = snapshot.get('campaignId') or ''
+            campaign_name = snapshot.get('campaignName') or ''
+        if not path:
+            refresh_music_library(campaign_id, campaign_name)
+            with LOCK:
+                path = MUSIC_LIBRARY_INDEX.get(track_id)
+        if (not path or not _music_path_is_safe(MUSIC_LIBRARY_ROOT, path)
+                or not os.path.isfile(path)):
+            self._send_json({'ok': False, 'error': 'music not found'}, 404)
+            return
+        self._send_audio_path(path, MUSIC_LIBRARY_ROOT)
+
+    def _send_uploaded_music(self, cache_name):
+        if not re.match(r'^[0-9a-f]{24}\.[a-z0-9]{2,5}$', str(cache_name or '')):
+            self._send_json({'ok': False, 'error': 'music not found'}, 404)
+            return
+        path = os.path.join(MUSIC_CACHE_ROOT, cache_name)
+        if (not _music_path_is_safe(MUSIC_CACHE_ROOT, path) or not os.path.isfile(path)
+                or not path.lower().endswith(MUSIC_EXTS)):
+            self._send_json({'ok': False, 'error': 'music not found'}, 404)
+            return
+        self._send_audio_path(path, MUSIC_CACHE_ROOT)
+
+    def _send_audio_path(self, path, safe_root):
+        if not _music_path_is_safe(safe_root, path):
+            self._send_json({'ok': False, 'error': 'music not found'}, 404)
+            return
+        try:
+            stat = os.stat(path)
+            size = stat.st_size
+            byte_range = parse_http_byte_range(self.headers.get('Range'), size)
+        except ValueError:
+            self.send_response(416)
+            self.send_header('Content-Range', 'bytes */%d' % max(0, size))
+            self.send_header('Accept-Ranges', 'bytes')
+            self._cors()
+            self.end_headers()
+            return
+        except OSError:
+            self._send_json({'ok': False, 'error': 'music not found'}, 404)
+            return
+        start, end = byte_range if byte_range else (0, size - 1)
+        length = max(0, end - start + 1)
+        extension = os.path.splitext(path)[1].lower()
+        self.send_response(206 if byte_range else 200)
+        self.send_header('Content-Type', MUSIC_MIME_TYPES.get(extension, 'application/octet-stream'))
+        self.send_header('Content-Length', str(length))
+        self.send_header('Accept-Ranges', 'bytes')
+        self.send_header('Cache-Control', 'private, max-age=3600')
+        self.send_header('ETag', '"%x-%x"' % (stat.st_mtime_ns, size))
+        if byte_range:
+            self.send_header('Content-Range', 'bytes %d-%d/%d' % (start, end, size))
+        self._cors()
+        self.end_headers()
+        try:
+            with open(path, 'rb') as handle:
+                handle.seek(start)
+                remaining = length
+                while remaining > 0:
+                    chunk = handle.read(min(128 * 1024, remaining))
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+                    remaining -= len(chunk)
+        except (OSError, BrokenPipeError, ConnectionResetError):
+            pass
+
     def do_OPTIONS(self):
         self.send_response(204)
         self._cors()
@@ -1907,7 +2473,25 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         path = urlparse(self.path).path
-        if path.startswith('/api/assets/'):
+        if path == '/api/music-library':
+            if not is_local_request(self):
+                self._send_json({'ok': False, 'error': 'music library is host-only'}, 403)
+                return
+            query = parse_qs(urlparse(self.path).query)
+            with LOCK:
+                snapshot = STATE if isinstance(STATE, dict) else {}
+                campaign_id = (query.get('campaignId') or [snapshot.get('campaignId') or ''])[0]
+                campaign_name = (query.get('campaignName') or [snapshot.get('campaignName') or ''])[0]
+            self._send_json(refresh_music_library(campaign_id, campaign_name))
+        elif path.startswith('/api/music-stream/'):
+            self._send_music_track(path.rsplit('/', 1)[-1])
+        elif path.startswith('/api/music-upload/'):
+            self._send_uploaded_music(path.rsplit('/', 1)[-1])
+        elif path == '/api/music-state':
+            with LOCK:
+                bgm = dict(BGM_STATE)
+            self._send_json({'ok': True, 'bgm': bgm, 'serverNow': int(time.time() * 1000)})
+        elif path.startswith('/api/assets/'):
             key = path.rsplit('/', 1)[-1]
             with LOCK:
                 asset = ASSETS.get(key)
@@ -1954,13 +2538,15 @@ class Handler(SimpleHTTPRequestHandler):
                 'port': PORT,
                 'bind': BIND_HOST,
                 'ips': get_ips(),
-                'name': '桑哆尔联机',
+                'name': '桑多尔之歌联机',
                 'protocolVersion': SERVER_PROTOCOL_VERSION,
                 'sessionId': SESSION_ID,
                 'roomCode': ROOM_CODE,
                 'stateRevision': revision,
                 'playerCount': len([p for p in players if p.get('online')]),
                 'campaignName': snapshot.get('campaignName') or '',
+                'campaignCoverUrl': snapshot.get('_campaignCoverUrl') or campaign_cover_asset_url(snapshot),
+                'bgmState': dict(BGM_STATE),
                 'activeMapName': active_map.get('name') if active_map else '',
                 'mapCount': len(maps),
                 'endpoints': {'host': '/主控台/主控台.html', 'player': '/主控台/玩家.html'},
@@ -1991,9 +2577,9 @@ class Handler(SimpleHTTPRequestHandler):
             host = 'http://localhost:%d/主控台/主控台.html' % PORT
             viewer = 'http://localhost:%d/主控台/玩家.html' % PORT
             self.wfile.write((
-                '<meta charset="utf-8"><title>桑哆尔联机服务器</title>'
+                '<meta charset="utf-8"><title>桑多尔之歌联机服务器</title>'
                 '<body style="background:#101218;color:#e8eaf0;font-family:sans-serif;padding:40px">'
-                '<h2>🖥️ 桑哆尔联机服务器已启动（端口 %d）</h2>'
+                '<h2>🖥️ 桑多尔之歌联机服务器已启动（端口 %d）</h2>'
                 '<p>主机：<a href="%s" style="color:#e0b34c">%s</a></p>'
                 '<p>玩家模式：<a href="%s" style="color:#e0b34c">%s</a></p>'
                 '<p>同一 WiFi 下的玩家，把 localhost 换成下面的 IP：<br>%s</p>'
@@ -2113,6 +2699,47 @@ class Handler(SimpleHTTPRequestHandler):
                 players = online_players()
             broadcast({'type': 'presence', 'players': players})
             self._send_json({'ok': True, 'players': players})
+        elif urlparse(self.path).path == '/api/webrtc-signal':
+            try:
+                data = self._read_json_body(192 * 1024)
+            except OverflowError:
+                self._send_json({'ok': False, 'error': 'signal too large'}, 413)
+                return
+            except (ValueError, TypeError, json.JSONDecodeError):
+                self._send_json({'ok': False, 'error': 'bad signal'}, 400)
+                return
+            signal = normalize_webrtc_signal(data.get('signal') if isinstance(data, dict) else None)
+            if not signal:
+                self._send_json({'ok': False, 'error': 'bad signal'}, 400)
+                return
+            session_token = str(data.get('sessionToken') or '').strip() if isinstance(data, dict) else ''
+            if session_token:
+                with LOCK:
+                    session = touch_session(session_token)
+                    sender_id = session.get('playerId') if session else ''
+                if not session:
+                    self._send_json({'ok': False, 'error': 'session expired'}, 401)
+                    return
+                event = {
+                    'type': 'webrtcSignal', 'target': 'host', 'senderPlayerId': sender_id,
+                    'signal': signal,
+                }
+            else:
+                if not is_local_request(self):
+                    self._send_json({'ok': False, 'error': 'host signal is local-only'}, 403)
+                    return
+                target_id = str(data.get('targetPlayerId') or '').strip()[:64]
+                with LOCK:
+                    target_exists = any(item.get('playerId') == target_id for item in SESSIONS.values())
+                if not target_id or not target_exists:
+                    self._send_json({'ok': False, 'error': 'player not found'}, 404)
+                    return
+                event = {
+                    'type': 'webrtcSignal', 'target': target_id, 'senderPlayerId': 'host',
+                    'signal': signal,
+                }
+            broadcast(event)
+            self._send_json({'ok': True})
         elif self.path == '/api/state':
             # 这是 GM 上传公共快照的入口。玩家端只读，不能借它覆盖房间状态。
             if not is_local_request(self):
@@ -2147,7 +2774,7 @@ class Handler(SimpleHTTPRequestHandler):
                 STATE['_roomCode'] = ROOM_CODE
                 # 玩家端用服务器时钟作为世界时间运行快照的锚点，避免各设备系统时钟不同。
                 STATE['_serverNow'] = int(time.time() * 1000)
-                snapshot = dict(STATE)
+                snapshot = state_snapshot()
             state_event_id = RECENT_ACTIONS[-1].get('seq', 0) if RECENT_ACTIONS else None
             broadcast({'type': 'state', 'state': snapshot}, state_event_id)
             self._send_json({'ok': True, 'stateRevision': STATE_REVISION})
@@ -2172,12 +2799,13 @@ class Handler(SimpleHTTPRequestHandler):
             if not name.lower().endswith(MUSIC_EXTS):
                 self._send_json({'ok': False, 'error': 'unsupported type'}, 400)
                 return
-            d = os.path.join(ROOT, '音乐缓存')
-            os.makedirs(d, exist_ok=True)
-            with open(os.path.join(d, name), 'wb') as f:
+            extension = os.path.splitext(name)[1].lower()
+            cache_name = hashlib.sha256(data).hexdigest()[:24] + extension
+            os.makedirs(MUSIC_CACHE_ROOT, exist_ok=True)
+            with open(os.path.join(MUSIC_CACHE_ROOT, cache_name), 'wb') as f:
                 f.write(data)
-            clean_music_cache(d)
-            self._send_json({'ok': True, 'url': '/音乐缓存/' + name})
+            clean_music_cache(MUSIC_CACHE_ROOT)
+            self._send_json({'ok': True, 'url': '/api/music-upload/' + cache_name})
         elif self.path == '/api/host-action':
             # GM 的公开骰子、公告、BGM 与休息表现只能从主机本机发出。
             if not is_local_request(self):
@@ -2208,20 +2836,17 @@ class Handler(SimpleHTTPRequestHandler):
                     self._send_json({'ok': False, 'error': '表情位置或内容无效'}, 400)
                     return
             elif action.get('op') == 'bgm':
-                bgm_action = str(action.get('action') or '').strip().lower()
-                if bgm_action not in ('play', 'pause', 'stop'):
+                public_action = normalize_bgm_action(action)
+                if not public_action:
                     self._send_json({'ok': False, 'error': 'BGM 动作无效'}, 400)
                     return
-                bgm_url = str(action.get('url') or '').strip()[:2048]
+                bgm_url = public_action['url']
                 if bgm_url and not (bgm_url.startswith('/') or re.match(r'^https?://', bgm_url, re.I)):
                     self._send_json({'ok': False, 'error': 'BGM 地址无效'}, 400)
                     return
-                public_action.update({
-                    'action': bgm_action,
-                    'track': str(action.get('track') or '')[:120],
-                    'url': bgm_url,
-                    'time': finite_int(action.get('time'), 0, 86400, 0),
-                })
+                with LOCK:
+                    BGM_STATE.clear()
+                    BGM_STATE.update(public_action)
             elif action.get('op') == 'restTransition':
                 public_action = normalize_rest_transition_action(action)
                 if not public_action:
@@ -2403,6 +3028,7 @@ class Handler(SimpleHTTPRequestHandler):
                     return
                 is_spawn_action = action.get('op') == PLAYER_SPAWN_ACTION
                 is_delete_action = action.get('op') == PLAYER_DELETE_ACTION
+                is_mount_action = action.get('op') == PLAYER_MOUNT_ACTION
                 is_dismount_action = action.get('op') == PLAYER_DISMOUNT_ACTION
                 is_doodle_action = action.get('op') in DOODLE_ACTIONS
                 if is_spawn_action:
@@ -2419,6 +3045,12 @@ class Handler(SimpleHTTPRequestHandler):
                         self._send_json({'ok': False, 'error': delete_error or '删除请求无效'}, delete_status or 400)
                         return
                     action = normalized_delete
+                elif is_mount_action:
+                    normalized_mount, mount_error, mount_status = normalize_player_mount_action(STATE, action, player)
+                    if not normalized_mount:
+                        self._send_json({'ok': False, 'error': mount_error or '上骑请求无效'}, mount_status or 400)
+                        return
+                    action = normalized_mount
                 elif is_dismount_action:
                     normalized_dismount, dismount_error, dismount_status = normalize_player_dismount_action(
                         STATE, action, player
@@ -2457,6 +3089,8 @@ class Handler(SimpleHTTPRequestHandler):
                         error = '临时棋子放置失败'
                     elif is_delete_action:
                         error = '临时棋子删除失败'
+                    elif is_mount_action:
+                        error = '上骑失败'
                     elif is_dismount_action:
                         error = '解除骑乘失败'
                     else:
@@ -2547,7 +3181,7 @@ if __name__ == '__main__':
     os.chdir(ROOT)
     srv = Server((BIND_HOST, PORT), Handler)
     print('=' * 56)
-    print('桑哆尔联机服务器已启动，端口 %d，监听 %s' % (PORT, BIND_HOST))
+    print('桑多尔之歌联机服务器已启动，端口 %d，监听 %s' % (PORT, BIND_HOST))
     for ip in get_ips():
         if ip != '127.0.0.1':
             print('  玩家请打开:  http://%s:%d/主控台/玩家.html' % (ip, PORT))

@@ -1,5 +1,5 @@
 /*
- * 桑哆尔地图共享材质渲染器
+ * 桑多尔之歌地图共享材质渲染器
  * AI 纹理只作为静态美术资源；格子结构、变体选择与边缘仍由 Canvas 决定。
  */
 (function initSundollTileRenderer(global) {

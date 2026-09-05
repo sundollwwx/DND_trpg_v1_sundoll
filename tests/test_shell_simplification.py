@@ -15,28 +15,64 @@ PORTRAIT_WORKFLOW = (PROJECT_ROOT / 'asset' / '棋子库' / '立绘制作流程.
 
 
 class ShellSimplificationTests(unittest.TestCase):
-    def test_map_has_one_top_level_entry_and_one_file_picker(self):
-        self.assertIn('id="btn-map-browser-top"', HOST_HTML)
+    def test_map_management_lives_in_sidebar_and_has_one_file_picker(self):
+        self.assertNotIn('id="btn-map-browser-top"', HOST_HTML)
+        self.assertIn('id="btn-map-browser-open"', HOST_HTML)
+        map_card = re.search(r'<section class="card map-browser-card"[^>]*data-workspace="map"[\s\S]*?</section>', HOST_HTML)
+        self.assertIsNotNone(map_card)
+        self.assertIn('id="btn-map-browser-open"', map_card.group(0))
         self.assertNotIn('data-dropdown="map"', HOST_HTML)
         self.assertEqual(HOST_HTML.count('id="file-map-load"'), 1)
         self.assertIn('id="btn-map-browser-load"', HOST_HTML)
         for removed in ('stitch-modal', 'file-map-add', 'file-map-import', 'file-map-folder', 'perf-modal'):
             self.assertNotIn(f'id="{removed}"', HOST_HTML)
 
-    def test_map_browser_owns_management_and_per_map_grid(self):
-        for hook in ('dataset.mapDelete', 'dataset.mapRename', 'dataset.mapGridVisible', 'dataset.mapGridSize'):
+    def test_map_browser_keeps_tactical_scale_without_visible_grid_controls(self):
+        for hook in ('dataset.mapDelete', 'dataset.mapRename', 'dataset.mapGridSize'):
             self.assertIn(hook, HOST_JS)
-        self.assertIn('gridVisible: gridVisible !== false', HOST_JS)
-        self.assertIn('gridVisible: mapGridVisible(m)', HOST_JS)
-        self.assertIn("typeof m.gridVisible==='boolean'?m.gridVisible:state.showGrid!==false", PLAYER_HTML)
+        self.assertNotIn('dataset.mapGridVisible', HOST_JS)
+        self.assertNotIn('mapGridVisible(', HOST_JS)
+        self.assertNotIn('gridVisible:', HOST_JS)
+        self.assertNotIn('gridVisible', PLAYER_HTML)
+        self.assertIn("gridSize: m.gridSize", HOST_JS)
 
-    def test_network_menu_only_exposes_core_actions(self):
-        menu = re.search(r'data-menu="net"[\s\S]*?</div>\s*</div>', HOST_HTML)
-        self.assertIsNotNone(menu)
-        actions = re.findall(r'data-action="([^"]+)"', menu.group(0))
-        self.assertEqual(actions, ['stream', 'stream-copy'])
+    def test_grid_marker_and_fog_features_are_removed(self):
+        for element_id in ('grid-toggle', 'mark-toggle', 'fog-toggle', 'fog-canvas', 'fog-brush'):
+            self.assertNotIn(f'id="{element_id}"', HOST_HTML)
+            self.assertNotIn(f'id="{element_id}"', PLAYER_HTML)
+        for removed in ('fog-reveal', 'fog-hide', 'btn-fog-hide-all', 'btn-fog-show-all'):
+            self.assertNotIn(removed, HOST_HTML)
+        self.assertNotIn('state.markMode', HOST_JS)
+        self.assertNotIn('state.fogOn', HOST_JS)
+        self.assertNotIn('function renderFog(', HOST_JS)
+        self.assertNotIn('function renderFog(', PLAYER_HTML)
+        self.assertIn("value !== 'marked'", HOST_JS)
+
+    def test_network_controls_live_only_in_sidebar_room(self):
+        for removed in ('data-menu="net"', 'btn-stream-dd', 'btn-stream-toggle', 'btn-stream-copy', 'net-info'):
+            self.assertNotIn(removed, HOST_HTML)
+        self.assertIn('id="btn-host-room-toggle"', HOST_HTML)
+        self.assertIn('id="btn-host-room-copy"', HOST_HTML)
         for removed in ('server-url-input', 'server-check', 'server-copy', 'stream-push'):
             self.assertNotIn(removed, HOST_HTML)
+
+    def test_map_shortcuts_live_in_the_topbar_in_task_order(self):
+        topbar = re.search(r'<header id="topbar">([\s\S]*?)</header>', HOST_HTML)
+        self.assertIsNotNone(topbar)
+        markup = topbar.group(1)
+        for element_id in (
+            'btn-toggle-left-panel', 'map-select', 'map-quick-tools',
+            'btn-map-reaction', 'btn-fit', 'host-connection', 'save-status',
+        ):
+            self.assertIn(f'id="{element_id}"', markup)
+        self.assertNotIn('id="map-quick-drag"', HOST_HTML)
+        self.assertLess(markup.index('id="btn-toggle-left-panel"'), markup.index('id="map-select"'))
+        self.assertLess(markup.index('id="map-select"'), markup.index('id="map-quick-tools"'))
+        self.assertLess(markup.index('id="map-quick-tools"'), markup.index('id="btn-fit"'))
+        self.assertLess(markup.index('data-dropdown="save"'), markup.index('id="host-connection"'))
+        board = re.search(r'<div id="board"[\s\S]*?</section>\s*</section>', HOST_HTML)
+        self.assertIsNotNone(board)
+        self.assertNotIn('id="map-quick-tools"', board.group(0))
 
     def test_condition_sprite_is_rgba_and_has_emoji_fallbacks(self):
         data = CONDITION_SPRITE.read_bytes()
