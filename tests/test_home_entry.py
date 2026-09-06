@@ -9,7 +9,7 @@ HOST_JS = (PROJECT_ROOT / '主控台' / 'app.js').read_text(encoding='utf-8')
 HOST_CSS = (PROJECT_ROOT / '主控台' / 'style.css').read_text(encoding='utf-8')
 PLAYER_HTML = (PROJECT_ROOT / '主控台' / '玩家.html').read_text(encoding='utf-8')
 SERVER_PY = (PROJECT_ROOT / '主控台' / '联机服务器.py').read_text(encoding='utf-8')
-BRAND_LOGO = PROJECT_ROOT / 'asset' / '界面' / '品牌' / '桑多尔之歌-logo.png'
+BRAND_LOGO = PROJECT_ROOT / 'asset' / '界面' / '品牌' / '桑哆尔之歌-logo.png'
 
 
 def function_body(source, name, next_name):
@@ -25,10 +25,10 @@ def function_body(source, name, next_name):
 class HomeEntryTests(unittest.TestCase):
     def test_brand_name_and_logo_are_shared_by_host_and_player(self):
         self.assertTrue(BRAND_LOGO.is_file())
-        self.assertIn('<title>桑多尔之歌 · 主控台</title>', HOST_HTML)
-        self.assertIn('<title>桑多尔之歌 · 玩家端</title>', PLAYER_HTML)
+        self.assertIn('<title>桑哆尔之歌 · 主控台</title>', HOST_HTML)
+        self.assertIn('<title>桑哆尔之歌 · 玩家端</title>', PLAYER_HTML)
         for source in (HOST_HTML, PLAYER_HTML):
-            self.assertGreaterEqual(source.count('../asset/界面/品牌/桑多尔之歌-logo.png'), 2)
+            self.assertGreaterEqual(source.count('../asset/界面/品牌/桑哆尔之歌-logo.png'), 2)
             self.assertNotIn('桑哆尔跑团', source)
             self.assertNotIn('🐉 桑哆尔', source)
 
@@ -109,7 +109,7 @@ class HomeEntryTests(unittest.TestCase):
             PLAYER_HTML, 'randomizeJoinHomeTheme', 'initJoinHomeThemePicker'
         )
         player_bootstrap = function_body(PLAYER_HTML, 'bootstrapSession', 'sendPresence')
-        player_leave = function_body(PLAYER_HTML, 'leaveSession', 'mine')
+        player_leave = function_body(PLAYER_HTML, 'returnToJoinHome', 'leaveSession')
         self.assertIn('Math.random()', player_random)
         self.assertIn('randomizeJoinHomeTheme()', player_bootstrap)
         self.assertIn('randomizeJoinHomeTheme()', player_leave)
@@ -141,7 +141,7 @@ class HomeEntryTests(unittest.TestCase):
 
     def test_player_enters_then_connects_and_switch_player_closes_stream(self):
         self.assertIn("await joinSession($('#join-name').value,$('#join-room').value,!!sessionToken);connectStream();", PLAYER_HTML)
-        leave = function_body(PLAYER_HTML, 'leaveSession', 'mine')
+        leave = function_body(PLAYER_HTML, 'returnToJoinHome', 'leaveSession')
         self.assertIn('streamES.close()', leave)
         self.assertIn('clearStoredSession()', leave)
         self.assertIn("$('#join-mask').hidden=false", leave)

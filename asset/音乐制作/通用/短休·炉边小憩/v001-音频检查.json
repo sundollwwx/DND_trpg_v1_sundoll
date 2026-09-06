@@ -1,0 +1,26 @@
+{
+  "title": "短休·炉边小憩",
+  "version": "v001",
+  "gainDB": 25.899,
+  "targetRMSDBFS": -23,
+  "master": {
+    "seconds": 2.2,
+    "sampleRate": 44100,
+    "channels": 2,
+    "samplePeakDBFS": -7.954,
+    "rmsDBFS": -23.0,
+    "clippedSamples": 0,
+    "boundaryJump": 0.0
+  },
+  "decodedAAC": {
+    "seconds": 2.2,
+    "sampleRate": 44100,
+    "channels": 2,
+    "samplePeakDBFS": -7.954,
+    "rmsDBFS": -23.003,
+    "clippedSamples": 0,
+    "boundaryJump": 0.0
+  },
+  "finalBytes": 68672,
+  "finalPath": "asset/界面/休息动画/音频/短休·炉边小憩.m4a"
+}

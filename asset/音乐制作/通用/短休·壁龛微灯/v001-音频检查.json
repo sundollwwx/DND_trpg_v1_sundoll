@@ -1,0 +1,26 @@
+{
+  "title": "短休·壁龛微灯",
+  "version": "v001",
+  "gainDB": 26.081,
+  "targetRMSDBFS": -23,
+  "master": {
+    "seconds": 2.2,
+    "sampleRate": 44100,
+    "channels": 2,
+    "samplePeakDBFS": -8.368,
+    "rmsDBFS": -23.0,
+    "clippedSamples": 0,
+    "boundaryJump": 0.0
+  },
+  "decodedAAC": {
+    "seconds": 2.2,
+    "sampleRate": 44100,
+    "channels": 2,
+    "samplePeakDBFS": -8.385,
+    "rmsDBFS": -23.004,
+    "clippedSamples": 0,
+    "boundaryJump": 0.0
+  },
+  "finalBytes": 67890,
+  "finalPath": "asset/界面/休息动画/音频/短休·壁龛微灯.m4a"
+}

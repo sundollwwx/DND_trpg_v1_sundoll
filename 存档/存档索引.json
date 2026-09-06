@@ -1,12 +1,19 @@
 {
   "format": "sangduoer-save-index",
   "schemaVersion": 2,
-  "updatedAt": 1788586804599,
+  "updatedAt": 1788702441771,
   "campaigns": [
+    {
+      "id": "c286",
+      "name": "风骸岛之龙",
+      "savedAt": 1788702441575,
+      "folder": "c286-风骸岛之龙",
+      "cover": "封面.jpg"
+    },
     {
       "id": "c184",
       "name": "烬鳞讨伐-2026.8.8",
-      "savedAt": 1788586804508,
+      "savedAt": 1788681313269,
       "folder": "c184-烬鳞讨伐-2026.8.8",
       "cover": "封面.jpg"
     },

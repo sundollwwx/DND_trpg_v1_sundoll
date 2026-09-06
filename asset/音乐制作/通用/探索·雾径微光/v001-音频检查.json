@@ -1,0 +1,25 @@
+{
+  "title": "探索·雾径微光",
+  "gainDB": 24.069,
+  "targetRMSDBFS": -24.5,
+  "master": {
+    "seconds": 96.0,
+    "sampleRate": 44100,
+    "channels": 2,
+    "samplePeakDBFS": -9.387,
+    "rmsDBFS": -24.5,
+    "clippedSamples": 0,
+    "boundaryJump": 0.0
+  },
+  "decodedAAC": {
+    "seconds": 96.0,
+    "sampleRate": 44100,
+    "channels": 2,
+    "samplePeakDBFS": -9.414,
+    "rmsDBFS": -24.502,
+    "clippedSamples": 0,
+    "boundaryJump": 9.1552734375e-05
+  },
+  "finalBytes": 3051626,
+  "finalPath": "asset/音乐/通用/探索/探索·雾径微光.m4a"
+}

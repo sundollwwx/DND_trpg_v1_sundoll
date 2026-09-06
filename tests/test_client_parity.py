@@ -219,6 +219,15 @@ class ClientParityTests(unittest.TestCase):
         ):
             self.assertIn(marker, SERVER_PY)
 
+    def test_builtin_character_sheet_link_is_merged_and_shared_with_players(self):
+        self.assertIn("id: 'builtin-trpgcard'", HOST_JS)
+        self.assertIn("name: '车卡器'", HOST_JS)
+        self.assertIn("url: 'https://www.trpgcard.com/share/INV-U8NL'", HOST_JS)
+        self.assertIn('function mergeBuiltinLinks(', HOST_JS)
+        self.assertIn('userLinks = mergeBuiltinLinks(loaded)', HOST_JS)
+        self.assertIn('sharedResources: (userLinks || []).map', HOST_JS)
+        self.assertIn('renderLinks(next.sharedResources || next._links)', PLAYER_HTML)
+
     def test_player_can_edit_only_public_conditions_and_host_is_notified(self):
         for element_id in (
             'player-condition-open',
@@ -334,12 +343,18 @@ class ClientParityTests(unittest.TestCase):
         self.assertIn('return 5;', DICE_JS)
         self.assertIn('maxAnimatedDice: MAX_ANIMATED_DICE', DICE_JS)
 
-    def test_map_grid_is_always_visible_without_toggle_or_fog(self):
+    def test_map_grid_visibility_is_saved_per_map_and_shared_with_players(self):
         for source in (HOST_JS, PLAYER_HTML):
             compact = source.replace(' ', '')
             self.assertIn('rgba(255,255,255,.78)', compact)
             self.assertIn('rgba(0,0,0,.16)', compact)
-            self.assertNotIn('showGrid?', compact)
+        self.assertIn('id="grid-toggle"', HOST_HTML)
+        self.assertIn('data-toggle-target="grid-toggle"', HOST_HTML)
+        self.assertIn('function mapGridVisible(', HOST_JS)
+        self.assertIn("gridVisible: typeof m.gridVisible === 'boolean' ? m.gridVisible : s.showGrid !== false", HOST_JS)
+        self.assertIn('gridVisible: mapGridVisible(m)', HOST_JS)
+        self.assertIn('showGrid: mapGridVisible(m)', HOST_JS)
+        self.assertIn("typeof m.gridVisible==='boolean'?m.gridVisible:state?.showGrid!==false", PLAYER_HTML)
         for source in (HOST_CSS, PLAYER_HTML):
             compact = re.sub(r'\s+', '', source)
             self.assertIn('#spell-range-canvas{z-index:1;', compact)
@@ -379,7 +394,8 @@ class ClientParityTests(unittest.TestCase):
         self.assertIn("'mapReaction','restTransition'", PLAYER_HTML)
         self.assertIn('fallback=isLong?4400:2200', PLAYER_HTML)
         for markup in (HOST_HTML, PLAYER_HTML):
-            self.assertIn('../asset/界面/休息动画/休息场景.js?v=20260905-rest-scenes-v2', markup)
+            self.assertIn('../asset/界面/休息动画/休息场景.js?v=20260906-rest-audio-v2-library-cleanup', markup)
+            self.assertIn('../asset/界面/休息动画/休息音频.js?v=20260906-rest-audio-v2-library-cleanup', markup)
             self.assertIn('../asset/界面/休息动画/休息动画.css?v=20260905-rest-scenes-v2', markup)
         for scene_id in (
             'short-outdoor', 'short-indoor', 'short-dungeon',
@@ -391,6 +407,13 @@ class ClientParityTests(unittest.TestCase):
             '长休-室外星夜.jpg', '长休-室内旅店.jpg', '长休-风雪避难.jpg',
         ):
             self.assertTrue((PROJECT_ROOT / 'asset' / '界面' / '休息动画' / image_name).is_file())
+        self.assertIn("new URL('./音频/'", REST_SCENE_JS)
+        for audio_name in (
+            '短休·林间整备.m4a', '短休·炉边小憩.m4a', '短休·壁龛微灯.m4a',
+            '长休·星夜至晨.m4a', '长休·雨窗安眠.m4a', '长休·雪外余温.m4a',
+        ):
+            self.assertTrue((PROJECT_ROOT / 'asset' / '界面' / '休息动画' / '音频' / audio_name).is_file())
+        self.assertFalse((PROJECT_ROOT / 'asset' / '音乐' / '通用' / '休息').exists())
         self.assertIn('@media (prefers-reduced-motion: reduce)', REST_SCENE_CSS)
 
     def test_mounted_tokens_skip_map_badges_but_keep_player_pair_details(self):
@@ -472,7 +495,8 @@ class ClientParityTests(unittest.TestCase):
         self.assertIn('function updateHostTurnPathControls(', HOST_JS)
         host_action = function_body(HOST_JS, 'applyHostTurnPathAction', 'worldTimeNow')
         self.assertIn("op === 'turnPathUndo'", host_action)
-        self.assertIn("points.slice(0, -1)", host_action)
+        self.assertIn('previousSegmentEnd', host_action)
+        self.assertIn('segmentEnds.slice(0, -1)', host_action)
         self.assertIn("points.slice(0, 1)", host_action)
         self.assertIn('moveToken(context.anchor.id', host_action)
         self.assertNotIn('.owner', host_action)
@@ -481,8 +505,8 @@ class ClientParityTests(unittest.TestCase):
         self.assertIn('remoteStreamSeq > previouslyAppliedSeq && remotePathChanged', HOST_JS)
 
     def test_host_can_pause_turn_path_recording_without_disabling_turn_movement(self):
-        self.assertIn('style.css?v=20260905-m52-always-grid', HOST_HTML)
-        self.assertIn('app.js?v=20260905-m52-always-grid', HOST_HTML)
+        self.assertIn('style.css?v=20260906-grid-visibility-v1-m55-music-player-documents-sidebar-v2', HOST_HTML)
+        self.assertIn('app.js?v=20260906-grid-visibility-v1-music-title-sync-v2-campaign-load-cache-v1', HOST_HTML)
         self.assertIn("HOST_TURN_PATH_RECORDING_KEY = 'sundoll-host-turn-path-recording-v1'", HOST_JS)
         self.assertIn('function setHostTurnPathRecording(', HOST_JS)
         controls = HOST_JS[
@@ -502,6 +526,40 @@ class ClientParityTests(unittest.TestCase):
         append = function_body(HOST_JS, 'appendTurnPath', 'hostTurnPathContext')
         self.assertIn('const continuous =', append)
         self.assertIn('sameTurnPoint(previous[previous.length - 1], valid[0])', append)
+
+    def test_turn_path_segments_are_committed_per_drag_and_repeated_edges_thicken(self):
+        for source in (HOST_JS, PLAYER_HTML):
+            record = function_body(source, 'recordTurnDragPoint', 'appendTurnPath')
+            append = function_body(source, 'appendTurnPath', 'hostTurnPathContext' if source is HOST_JS else 'renderMap')
+            self.assertIn('points.splice(', record)
+            self.assertIn('backtrackThreshold', record)
+            self.assertIn('segmentEnds', append)
+            self.assertIn('segmentEnds.push(', append)
+            self.assertIn('normalizeTurnPathSegmentEnds', append)
+            self.assertIn('turnPathEdgeCounts', source)
+            self.assertIn('Math.min(8', source)
+        self.assertIn("segmentEnds: normalizeTurnPathSegmentEnds(a.segmentEnds, points.length)", HOST_JS)
+        self.assertIn('normalizeTurnPathSegmentEnds(a.segmentEnds,points.length)', PLAYER_HTML)
+
+    def test_host_can_revoke_a_player_session_without_deleting_tokens(self):
+        self.assertIn("'/api/players/kick'", SERVER_PY)
+        self.assertIn('def revoke_player_sessions(', SERVER_PY)
+        self.assertIn("'type': 'sessionRevoked'", SERVER_PY)
+        self.assertIn('async function kickHostPlayer(', HOST_JS)
+        self.assertIn("body: JSON.stringify({ playerId })", HOST_JS)
+        self.assertIn("kick.className = 'host-player-kick'", HOST_JS)
+        self.assertIn("ev.type==='sessionRevoked'", PLAYER_HTML)
+        self.assertIn('function handleSessionRevoked(', PLAYER_HTML)
+        self.assertIn('notifyServer:false', PLAYER_HTML)
+
+    def test_player_flow_bar_is_three_compact_scrollable_rows(self):
+        self.assertIn('--flow-list-height:calc(var(--flow-row-height) * 3', PLAYER_HTML)
+        self.assertIn('height:var(--flow-list-height)', PLAYER_HTML)
+        self.assertIn('overflow-y:auto', PLAYER_HTML)
+        self.assertNotIn('--flow-open-height:252px', PLAYER_HTML)
+        self.assertIn('function scrollFlowCurrentIntoView(', PLAYER_HTML)
+        self.assertIn("list.scrollTo({top:Math.max(0,top),behavior:'smooth'})", PLAYER_HTML)
+        self.assertIn("actions.setAttribute('aria-label','同先攻换位')", PLAYER_HTML)
 
     def test_turn_actions_are_short_and_share_one_row(self):
         self.assertIn('id="initiative-turn-actions"', HOST_HTML)

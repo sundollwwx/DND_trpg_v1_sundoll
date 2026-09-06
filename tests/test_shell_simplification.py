@@ -27,17 +27,18 @@ class ShellSimplificationTests(unittest.TestCase):
         for removed in ('stitch-modal', 'file-map-add', 'file-map-import', 'file-map-folder', 'perf-modal'):
             self.assertNotIn(f'id="{removed}"', HOST_HTML)
 
-    def test_map_browser_keeps_tactical_scale_without_visible_grid_controls(self):
-        for hook in ('dataset.mapDelete', 'dataset.mapRename', 'dataset.mapGridSize'):
+    def test_map_browser_keeps_tactical_scale_and_per_map_grid_visibility(self):
+        for hook in ('dataset.mapDelete', 'dataset.mapRename', 'dataset.mapGridSize', 'dataset.mapGridVisible'):
             self.assertIn(hook, HOST_JS)
-        self.assertNotIn('dataset.mapGridVisible', HOST_JS)
-        self.assertNotIn('mapGridVisible(', HOST_JS)
-        self.assertNotIn('gridVisible:', HOST_JS)
-        self.assertNotIn('gridVisible', PLAYER_HTML)
+        self.assertIn('mapGridVisible(', HOST_JS)
+        self.assertIn('gridVisible:', HOST_JS)
+        self.assertIn('gridVisible', PLAYER_HTML)
         self.assertIn("gridSize: m.gridSize", HOST_JS)
 
     def test_grid_marker_and_fog_features_are_removed(self):
-        for element_id in ('grid-toggle', 'mark-toggle', 'fog-toggle', 'fog-canvas', 'fog-brush'):
+        self.assertIn('id="grid-toggle"', HOST_HTML)
+        self.assertNotIn('id="grid-toggle"', PLAYER_HTML)
+        for element_id in ('mark-toggle', 'fog-toggle', 'fog-canvas', 'fog-brush'):
             self.assertNotIn(f'id="{element_id}"', HOST_HTML)
             self.assertNotIn(f'id="{element_id}"', PLAYER_HTML)
         for removed in ('fog-reveal', 'fog-hide', 'btn-fog-hide-all', 'btn-fog-show-all'):
@@ -73,6 +74,41 @@ class ShellSimplificationTests(unittest.TestCase):
         board = re.search(r'<div id="board"[\s\S]*?</section>\s*</section>', HOST_HTML)
         self.assertIsNotNone(board)
         self.assertNotIn('id="map-quick-tools"', board.group(0))
+
+    def test_music_shortcuts_live_in_a_collapsible_resource_card(self):
+        topbar = re.search(r'<header id="topbar">([\s\S]*?)</header>', HOST_HTML)
+        self.assertIsNotNone(topbar)
+        self.assertNotIn('class="bgm-mini"', topbar.group(1))
+        self.assertNotIn('id="btn-bgm-open"', topbar.group(1))
+        music_card = re.search(
+            r'<section class="card" id="bgm-card" data-workspace="resources"([^>]*)>([\s\S]*?)</section>',
+            HOST_HTML,
+        )
+        self.assertIsNotNone(music_card)
+        self.assertNotIn('data-no-collapse', music_card.group(1))
+        for element_id in (
+            'btn-bgm-open', 'bgm-mini-title', 'btn-bgm-mini-play',
+            'btn-bgm-mini-stop', 'btn-bgm-resource-open',
+        ):
+            self.assertIn(f'id="{element_id}"', music_card.group(2))
+        self.assertIn('选择歌单 / 打开完整播放器', music_card.group(2))
+
+    def test_campaign_documents_are_private_collapsible_resources_above_music(self):
+        document_card = re.search(
+            r'<section class="card campaign-documents-card" id="campaign-documents-card" data-workspace="resources"([^>]*)>([\s\S]*?)</section>',
+            HOST_HTML,
+        )
+        self.assertIsNotNone(document_card)
+        self.assertNotIn('data-no-collapse', document_card.group(1))
+        self.assertLess(HOST_HTML.index('id="campaign-documents-card"'), HOST_HTML.index('id="bgm-card"'))
+        for element_id in (
+            'campaign-document-quick-select', 'btn-campaign-documents-refresh',
+            'btn-campaign-document-preview', 'btn-campaign-documents-open',
+            'campaign-documents-dialog', 'campaign-documents-list',
+            'campaign-document-docx', 'campaign-document-pdf',
+        ):
+            self.assertEqual(HOST_HTML.count(f'id="{element_id}"'), 1, element_id)
+            self.assertNotIn(f'id="{element_id}"', PLAYER_HTML)
 
     def test_condition_sprite_is_rgba_and_has_emoji_fallbacks(self):
         data = CONDITION_SPRITE.read_bytes()

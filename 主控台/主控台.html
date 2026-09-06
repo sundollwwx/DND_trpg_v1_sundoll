@@ -3,18 +3,18 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>桑多尔之歌 · 主控台</title>
-  <link rel="icon" type="image/png" href="../asset/界面/品牌/桑多尔之歌-logo.png">
+  <title>桑哆尔之歌 · 主控台</title>
+  <link rel="icon" type="image/png" href="../asset/界面/品牌/桑哆尔之歌-logo.png">
   <link rel="preload" as="image" href="../asset/界面/状态图标-v1.png">
-  <link rel="stylesheet" href="style.css?v=20260905-m52-always-grid">
+  <link rel="stylesheet" href="style.css?v=20260906-grid-visibility-v1-m55-music-player-documents-sidebar-v2">
   <link rel="stylesheet" href="../asset/界面/休息动画/休息动画.css?v=20260905-rest-scenes-v2">
 </head>
 <body>
 
 <header id="topbar">
   <div class="brand">
-    <span class="logo" aria-hidden="true"><img src="../asset/界面/品牌/桑多尔之歌-logo.png" alt=""></span>
-    <span>桑多尔之歌-<em>主控台</em></span>
+    <span class="logo" aria-hidden="true"><img src="../asset/界面/品牌/桑哆尔之歌-logo.png" alt=""></span>
+    <span>桑哆尔之歌-<em>主控台</em></span>
   </div>
   <div class="controls">
     <button id="btn-toggle-left-panel" class="topbar-tool-toggle" type="button" title="显示或隐藏工具栏" aria-pressed="false">☰ 工具</button>
@@ -25,6 +25,7 @@
         <button id="btn-map-next" type="button" aria-label="下一张地图">›</button>
       </span>
       <div id="map-quick-tools" aria-label="地图快捷工具">
+        <button id="btn-grid-toggle" type="button" data-toggle-target="grid-toggle" title="隐藏当前地图网格" aria-label="网格已开启，点击隐藏当前地图网格" aria-pressed="true">▦<span>网格：开</span></button>
         <button type="button" data-toggle-target="names-toggle" title="显示单位名称">Aa<span>名字</span></button>
         <button type="button" data-toggle-target="snap-toggle" title="棋子吸附网格">⌘<span>吸附</span></button>
         <button type="button" id="btn-map-reaction" title="选择表情后点击地图发送">☺<span>表情</span></button>
@@ -45,6 +46,7 @@
       <span id="app-version" class="app-version">v1.1</span>
     </div>
     <div id="map-settings">
+      <label class="toggle"><input type="checkbox" id="grid-toggle" checked> 网格</label>
       <label class="toggle"><input type="checkbox" id="names-toggle" checked> 名字</label>
       <label class="toggle" title="高清立绘开关：开启后按棋子屏幕尺寸在 192/512px 间自动切换；关闭后固定使用 192px 流畅档"><input type="checkbox" id="hd-toggle-check"> 高清</label>
       <label class="toggle"><input type="checkbox" id="snap-toggle" checked> 吸附</label>
@@ -236,32 +238,31 @@
       <button id="btn-map-browser-open" class="primary" type="button">打开地图列表</button>
     </section>
 
+    <section class="card campaign-documents-card" id="campaign-documents-card" data-workspace="resources">
+      <div class="card-head">
+        <h2>📄 战役资料</h2>
+        <span id="campaign-documents-count" class="hint">0 份</span>
+      </div>
+      <p id="campaign-documents-current" class="hint">选择正式战役后读取 Word / PDF 资料。</p>
+      <select id="campaign-document-quick-select" aria-label="选择当前战役资料" disabled>
+        <option value="">暂无资料</option>
+      </select>
+      <div class="campaign-document-quick-actions">
+        <button id="btn-campaign-documents-refresh" type="button" class="small">↻ 刷新</button>
+        <button id="btn-campaign-document-preview" type="button" class="small primary" disabled>预览选中文件</button>
+      </div>
+      <button id="btn-campaign-documents-open" type="button" aria-haspopup="dialog" aria-controls="campaign-documents-dialog">打开资料库</button>
+    </section>
+
     <section class="card" id="bgm-card" data-workspace="resources">
-      <div class="card-head bgm-head">
-        <h2>🎵 音乐</h2>
-        <button id="btn-bgm-refresh" class="small" type="button" title="重新扫描项目曲库">↻ 刷新</button>
+      <h2>♫ 音乐</h2>
+      <p class="hint">按场景分类选曲，收起后继续播放。</p>
+      <div class="bgm-mini" aria-label="音乐播放控制">
+        <button id="btn-bgm-open" type="button" aria-haspopup="dialog" aria-controls="bgm-player" title="打开完整播放器">♫ <span id="bgm-mini-title">音乐</span></button>
+        <button id="btn-bgm-mini-play" type="button" aria-label="继续音乐" hidden>▶</button>
+        <button id="btn-bgm-mini-stop" type="button" aria-label="停止音乐" hidden>■</button>
       </div>
-      <div class="bgm-now" id="bgm-now" data-state="stopped">
-        <span class="bgm-now-icon">♪</span>
-        <span><strong id="bgm-now-title">尚未播放</strong><small id="bgm-status">正在读取项目曲库…</small></span>
-      </div>
-      <div class="bgm-tools">
-        <button id="btn-bgm-pick" class="small" type="button">＋ 临时音乐</button>
-        <input type="file" id="file-bgm" accept="audio/*" multiple hidden>
-      </div>
-      <div class="bgm-controls">
-        <button id="btn-bgm-prev" class="small" title="上一首">⏮</button>
-        <button id="btn-bgm-play" class="small primary" title="播放/暂停">▶</button>
-        <button id="btn-bgm-next" class="small" title="下一首">⏭</button>
-        <label class="chk" title="单曲循环：开＝当前这首无限循环；关＝顺序播放并循环列表"><input type="checkbox" id="bgm-loop"> 🔁 单曲循环</label>
-        <input type="range" id="bgm-volume" min="0" max="100" value="70" title="音量">
-      </div>
-      <div id="bgm-list"></div>
-      <div class="bgm-live">
-        <div class="bgm-live-copy"><strong>浏览器标签页声音</strong><span id="bgm-live-status">未广播</span></div>
-        <button id="btn-bgm-live" class="small" type="button">📡 广播标签页</button>
-      </div>
-      <p class="bgm-live-hint">在 Chrome / Edge 的分享窗口选择 B 站标签页并勾选“共享标签页音频”。只广播声音，不传画面。</p>
+      <button id="btn-bgm-resource-open" type="button" class="primary" aria-haspopup="dialog" aria-controls="bgm-player">选择歌单 / 打开完整播放器</button>
     </section>
 
     <section class="card" id="links-card" data-workspace="resources">
@@ -597,14 +598,14 @@
     <div class="map-browser-head">
       <div>
         <h2 id="map-browser-title">🗺️ 地图</h2>
-        <p class="hint">在这里载入、切换、排序和删除地图；每张图片地图都可单独调整网格。</p>
+        <p class="hint">在这里载入、切换、排序和删除地图；每张地图都可单独显示、隐藏和调整网格。</p>
       </div>
       <div class="map-browser-head-actions">
         <button id="btn-map-browser-load" class="primary" type="button">＋ 载入地图</button>
         <button id="btn-map-browser-close" type="button" aria-label="关闭地图浏览">✕</button>
       </div>
     </div>
-    <div class="map-browser-summary"><span id="map-browser-count">0 张地图</span><span>顺序与战术格距会随存档保存</span></div>
+    <div class="map-browser-summary"><span id="map-browser-count">0 张地图</span><span>顺序、网格显示与战术格距会随存档保存</span></div>
     <div class="map-browser-rail">
       <button id="btn-map-scroll-left" class="map-browser-scroll" type="button" aria-label="向左浏览地图">‹</button>
       <div id="map-thumbnail-strip" class="map-thumbnail-strip" tabindex="0" aria-label="地图缩略图列表"></div>
@@ -618,7 +619,7 @@
     <div class="map-browser-head">
       <div>
         <h2 id="map-image-import-title">📥 导入地图图片</h2>
-        <p class="hint">每张图片会独立成为一张地图；可先设定名称和战术格距。</p>
+        <p class="hint">每张图片会独立成为一张地图；可先设定名称、是否显示网格和战术格距。</p>
       </div>
       <button id="btn-map-image-import-more" type="button">＋ 继续选择</button>
     </div>
@@ -686,7 +687,7 @@
 <div id="cover" class="cover" role="dialog" aria-modal="true" aria-labelledby="cover-title">
   <div class="cover-shell">
     <header class="cover-global-bar">
-      <div class="cover-brand"><span class="cover-brand-mark" aria-hidden="true"><img src="../asset/界面/品牌/桑多尔之歌-logo.png" alt=""></span><strong>桑多尔之歌</strong><span>主控台</span></div>
+      <div class="cover-brand"><span class="cover-brand-mark" aria-hidden="true"><img src="../asset/界面/品牌/桑哆尔之歌-logo.png" alt=""></span><strong>桑哆尔之歌</strong><span>主控台</span></div>
       <div class="cover-global-actions">
         <div id="cover-theme-picker" class="home-theme-picker" role="group" aria-label="切换主页背景">
           <span class="home-theme-caption">背景</span>
@@ -700,7 +701,7 @@
     </header>
 
     <section class="cover-project-head" aria-label="当前战役">
-      <div class="cover-project-title"><span class="cover-project-icon" aria-hidden="true">◈</span><h1 id="cover-title">桑多尔之歌 <span>/</span> <strong id="cover-project-name">战役总览</strong></h1><span class="cover-project-badge">本机</span></div>
+      <div class="cover-project-title"><span class="cover-project-icon" aria-hidden="true">◈</span><h1 id="cover-title">桑哆尔之歌 <span>/</span> <strong id="cover-project-name">战役总览</strong></h1><span class="cover-project-badge">本机</span></div>
     </section>
 
     <div class="cover-dashboard">
@@ -733,11 +734,85 @@
   </div>
 </div>
 
+<dialog id="campaign-documents-dialog" aria-labelledby="campaign-documents-title">
+  <div class="campaign-documents-head">
+    <div><span class="campaign-documents-eyebrow">当前战役 · 主控台私有</span><h2 id="campaign-documents-title">战役资料库</h2></div>
+    <button id="btn-campaign-documents-close" type="button" aria-label="关闭战役资料库">关闭 ×</button>
+  </div>
+  <div class="campaign-documents-body">
+    <aside class="campaign-documents-browser" aria-label="资料列表">
+      <div class="campaign-documents-browser-head">
+        <strong id="campaign-documents-campaign-name">尚未选择战役</strong>
+        <button id="btn-campaign-documents-dialog-refresh" type="button" class="small">↻ 刷新</button>
+      </div>
+      <div id="campaign-documents-list"><p class="campaign-documents-empty">当前战役还没有 Word 或 PDF 资料。</p></div>
+      <p class="campaign-documents-storage hint">文件按战役保存在 <code>asset/文档/战役/</code>。</p>
+    </aside>
+    <section class="campaign-document-viewer" aria-labelledby="campaign-document-viewer-title">
+      <div class="campaign-document-viewer-head">
+        <div><h3 id="campaign-document-viewer-title">选择一份资料</h3><p id="campaign-document-viewer-meta" class="hint">Word 会显示为只读页面，PDF 会在这里打开。</p></div>
+        <a id="campaign-document-original" class="button-link" href="#" target="_blank" rel="noopener noreferrer" hidden>打开原文件</a>
+      </div>
+      <div id="campaign-document-status" class="campaign-document-status" role="status">从左侧选择 Word 或 PDF 文件开始预览。</div>
+      <div id="campaign-document-docx" class="campaign-document-docx" role="document" hidden></div>
+      <iframe id="campaign-document-pdf" title="PDF 资料预览" referrerpolicy="no-referrer" hidden></iframe>
+    </section>
+  </div>
+</dialog>
+
+<dialog id="bgm-player" aria-labelledby="bgm-player-title">
+  <div class="bgm-player-head">
+    <div><span class="bgm-eyebrow">桑哆尔之歌 · 声音</span><h2 id="bgm-player-title">音乐播放器</h2></div>
+    <button id="btn-bgm-close" type="button" aria-label="收起音乐播放器">收起 ×</button>
+  </div>
+  <div class="bgm-player-body">
+    <section class="bgm-playing-panel" aria-label="当前播放">
+      <div class="bgm-now" id="bgm-now" data-state="stopped">
+        <span class="bgm-now-icon" aria-hidden="true">♫</span>
+        <span><strong id="bgm-now-title">尚未播放</strong><small id="bgm-status" role="status">正在读取项目曲库…</small></span>
+      </div>
+      <div class="bgm-controls">
+        <button id="btn-bgm-prev" type="button" aria-label="同场景上一首" title="同场景上一首">⏮</button>
+        <button id="btn-bgm-play" type="button" class="primary">继续</button>
+        <button id="btn-bgm-stop" type="button">停止</button>
+        <button id="btn-bgm-next" type="button" aria-label="同场景下一首" title="同场景下一首">⏭</button>
+        <label class="bgm-mode-label">播放方式<select id="bgm-mode"><option value="loop">单曲循环</option><option value="once">播放一次后停止</option><option value="category">同场景顺序循环</option></select></label>
+      </div>
+      <div class="bgm-progress"><input id="bgm-seek" type="range" min="0" max="100" value="0" step="0.1" aria-label="播放进度" disabled><span id="bgm-time">00:00 / --:--</span></div>
+      <div class="bgm-monitor"><label for="bgm-volume">我的音量 <output id="bgm-volume-value">70%</output></label><input type="range" id="bgm-volume" min="0" max="100" value="70"><span class="hint">仅影响本机</span></div>
+    </section>
+    <div class="bgm-library-head"><h3>场景曲库</h3><div><button id="btn-bgm-refresh" type="button" class="small">↻ 刷新</button><button id="btn-bgm-pick" type="button" class="small">＋ 临时音乐</button><input type="file" id="file-bgm" accept="audio/*" multiple hidden></div></div>
+    <div class="bgm-filters">
+      <label>场景分类<select id="bgm-scene" aria-label="场景分类"></select></label>
+      <label>来源<select id="bgm-scope"><option value="all">全部可用</option><option value="general">通用曲库</option><option value="campaign">当前战役曲库</option><option value="temporary">临时音乐</option></select></label>
+      <label class="bgm-search-label">搜索<input id="bgm-search" type="search" placeholder="搜索曲名…" autocomplete="off"></label>
+    </div>
+    <div class="bgm-library-columns">
+      <section aria-label="曲目列表"><div class="bgm-results"><span id="bgm-results-count">0 首</span><span>播放中点另一首直接切换；停止时点选后试听或播放</span></div><div id="bgm-list"></div></section>
+      <section class="bgm-detail" aria-labelledby="bgm-selected-title">
+        <span class="bgm-eyebrow">选中曲目</span><h3 id="bgm-selected-title">请选择一首音乐</h3>
+        <p id="bgm-selected-meta" class="hint">选择分类，找到此刻想听的音乐。</p>
+        <button id="btn-bgm-preview" type="button" disabled>仅我试听</button>
+        <button id="btn-bgm-selected-play" type="button" class="primary" disabled>播放选中曲目</button>
+        <p id="bgm-preview-status" class="hint" role="status">试听只在本机播放。</p>
+        <p id="bgm-broadcast-hint" class="hint">未开启联机，播放仅在本机。</p>
+      </section>
+    </div>
+    <details class="bgm-other"><summary>其他音源与文件位置</summary>
+      <div class="bgm-live"><div class="bgm-live-copy"><strong>浏览器标签页声音</strong><span id="bgm-live-status">未广播</span></div><button id="btn-bgm-live" type="button">📡 广播标签页</button></div>
+      <p class="bgm-live-hint">Chrome / Edge：选择来源标签页并勾选共享音频。直播期间关闭文件试听；本机直播音量由来源标签页决定。</p>
+      <p class="bgm-storage-hint">成品放在 <code>asset/音乐/通用/场景分类/</code>，然后刷新曲库。制作提示词、候选与母带放在 <code>asset/音乐制作/</code>。</p>
+    </details>
+  </div>
+  <div class="bgm-player-foot">按场景手动选曲 · 收起后继续播放</div>
+</dialog>
+
 <script src="../asset/棋子库/默认预设.js?v=20260902-library-cleanup-v3"></script>
-<script src="../asset/界面/休息动画/休息场景.js?v=20260905-rest-scenes-v2"></script>
+<script src="../asset/界面/休息动画/休息场景.js?v=20260906-rest-audio-v2-library-cleanup"></script>
+<script src="../asset/界面/休息动画/休息音频.js?v=20260906-rest-audio-v2-library-cleanup"></script>
 <script src="../three.min.js"></script>
 <script src="../骰子动画.js?v=20260904-physics-v7-face-lock-continuous-settle-r6-uv-handedness-r7-result-focus-r8-public-skin-r9-d20-tilt-r10"></script>
 <script src="../asset/地图/tile-renderer.js?v=20260902-explicit-variants"></script>
-  <script src="app.js?v=20260905-m52-always-grid"></script>
+  <script src="app.js?v=20260906-grid-visibility-v1-music-title-sync-v2-campaign-load-cache-v1"></script>
 </body>
 </html>

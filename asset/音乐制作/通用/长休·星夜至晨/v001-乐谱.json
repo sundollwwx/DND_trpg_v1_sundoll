@@ -1,0 +1,138 @@
+{
+  "version": "v001",
+  "title": "长休·星夜至晨",
+  "scene": "休息",
+  "restScene": "long-outdoor",
+  "bpm": 60,
+  "meter": 4,
+  "lengthBeats": 4.4,
+  "loop": false,
+  "reverb": 22,
+  "seed": 90633,
+  "fadeInSeconds": 0.035,
+  "fadeOutSeconds": 0.65,
+  "brief": "原创休息转场纯器乐，D 大调缓慢竖琴、柔和长笛与弦乐，从星夜的疏朗和声向清晨落定。实际播放 4.4 秒，与现有长休 4.4 秒动画（世界时间 +8 小时）一致。无歌词、无重鼓、不引用现有旋律；开头轻起，最后预留自然衰减，单次播放。",
+  "instruments": [
+    {
+      "name": "拨奏主奏",
+      "program": 46,
+      "gain": -5,
+      "pan": -15,
+      "percussion": false
+    },
+    {
+      "name": "旋律回应",
+      "program": 73,
+      "gain": -11,
+      "pan": 18,
+      "percussion": false
+    },
+    {
+      "name": "低音与铺底",
+      "program": 48,
+      "gain": -17,
+      "pan": 0,
+      "percussion": false
+    }
+  ],
+  "notes": [
+    {
+      "instrument": 0,
+      "beat": 0.05,
+      "pitch": 62,
+      "duration": 0.9,
+      "velocity": 46
+    },
+    {
+      "instrument": 2,
+      "beat": 0.08,
+      "pitch": 50,
+      "duration": 3.6,
+      "velocity": 32
+    },
+    {
+      "instrument": 2,
+      "beat": 0.08,
+      "pitch": 66,
+      "duration": 3.6,
+      "velocity": 32
+    },
+    {
+      "instrument": 2,
+      "beat": 0.08,
+      "pitch": 69,
+      "duration": 3.6,
+      "velocity": 32
+    },
+    {
+      "instrument": 0,
+      "beat": 0.47,
+      "pitch": 66,
+      "duration": 0.9,
+      "velocity": 44
+    },
+    {
+      "instrument": 1,
+      "beat": 0.55,
+      "pitch": 69,
+      "duration": 0.62,
+      "velocity": 40
+    },
+    {
+      "instrument": 0,
+      "beat": 0.89,
+      "pitch": 69,
+      "duration": 0.9,
+      "velocity": 42
+    },
+    {
+      "instrument": 1,
+      "beat": 1.27,
+      "pitch": 74,
+      "duration": 0.62,
+      "velocity": 40
+    },
+    {
+      "instrument": 0,
+      "beat": 1.31,
+      "pitch": 74,
+      "duration": 0.9,
+      "velocity": 40
+    },
+    {
+      "instrument": 1,
+      "beat": 1.99,
+      "pitch": 66,
+      "duration": 0.62,
+      "velocity": 40
+    },
+    {
+      "instrument": 1,
+      "beat": 2.71,
+      "pitch": 62,
+      "duration": 0.62,
+      "velocity": 40
+    },
+    {
+      "instrument": 0,
+      "beat": 3.05,
+      "pitch": 62,
+      "duration": 0.68,
+      "velocity": 38
+    },
+    {
+      "instrument": 0,
+      "beat": 3.05,
+      "pitch": 66,
+      "duration": 0.68,
+      "velocity": 38
+    },
+    {
+      "instrument": 0,
+      "beat": 3.05,
+      "pitch": 69,
+      "duration": 0.68,
+      "velocity": 38
+    }
+  ]
+}

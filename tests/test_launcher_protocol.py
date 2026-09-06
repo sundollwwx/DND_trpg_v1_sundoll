@@ -29,6 +29,9 @@ class FakeResponse:
 
 
 class LauncherProtocolTests(unittest.TestCase):
+    def test_document_library_requires_protocol_nine(self):
+        self.assertEqual(LAUNCHER.SERVER_PROTOCOL_VERSION, 9)
+
     def response(self, protocol=None):
         payload = {'name': LAUNCHER.SERVER_NAME, 'port': 8090}
         if protocol is not None:
@@ -37,6 +40,12 @@ class LauncherProtocolTests(unittest.TestCase):
 
     def test_only_current_protocol_server_is_reused(self):
         with mock.patch.object(LAUNCHER.urllib.request, 'urlopen', return_value=self.response()):
+            self.assertIsNone(LAUNCHER.server_info(8090))
+        with mock.patch.object(
+            LAUNCHER.urllib.request,
+            'urlopen',
+            return_value=self.response(LAUNCHER.SERVER_PROTOCOL_VERSION - 1),
+        ):
             self.assertIsNone(LAUNCHER.server_info(8090))
         with mock.patch.object(
             LAUNCHER.urllib.request,

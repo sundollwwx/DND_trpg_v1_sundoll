@@ -1,0 +1,25 @@
+{
+  "title": "决战·余烬不灭",
+  "gainDB": 24.401,
+  "targetRMSDBFS": -22,
+  "master": {
+    "seconds": 137.14285714285714,
+    "sampleRate": 44100,
+    "channels": 2,
+    "samplePeakDBFS": -5.263,
+    "rmsDBFS": -22.0,
+    "clippedSamples": 0,
+    "boundaryJump": 0.0
+  },
+  "decodedAAC": {
+    "seconds": 137.14285714285714,
+    "sampleRate": 44100,
+    "channels": 2,
+    "samplePeakDBFS": -5.238,
+    "rmsDBFS": -22.004,
+    "clippedSamples": 0,
+    "boundaryJump": 0.00018310546875
+  },
+  "finalBytes": 4460352,
+  "finalPath": "asset/音乐/通用/首领/决战·余烬不灭.m4a"
+}

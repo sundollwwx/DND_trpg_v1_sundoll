@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-  <title>桑多尔之歌 · 玩家端</title>
-  <link rel="icon" type="image/png" href="../asset/界面/品牌/桑多尔之歌-logo.png">
+  <title>桑哆尔之歌 · 玩家端</title>
+  <link rel="icon" type="image/png" href="../asset/界面/品牌/桑哆尔之歌-logo.png">
   <link rel="preload" as="image" href="../asset/界面/状态图标-v1.png">
     <style>
     :root { color-scheme: dark; --bg:#11141c; --panel:#1b202b; --line:#31394a; --text:#edf1f7; --muted:#9aa6ba; --gold:#e0b34c; --good:#4cc38a; --bad:#e74c5e; }
@@ -186,11 +186,11 @@
     .hp-bar i { display:block; height:100%; background:var(--good); }
     .quick { display:grid; grid-template-columns:repeat(5,1fr); gap:5px; margin-top:7px; }
     .quick button { padding:5px 2px; font-size:12px; }
-    #flowbar { --flow-open-height:252px; flex:0 0 auto; padding:8px 12px; border-top:1px solid var(--line); background:linear-gradient(180deg,#1c2029,var(--panel)); }
-    #flowbar:not(.collapsed) { height:var(--flow-open-height); }
+    #flowbar { --flow-row-height:34px; --flow-row-gap:4px; --flow-list-height:calc(var(--flow-row-height) * 3 + var(--flow-row-gap) * 2); flex:0 0 auto; padding:6px 10px 8px; border-top:1px solid var(--line); background:linear-gradient(180deg,#1c2029,var(--panel)); }
+    #flowbar:not(.collapsed) { height:auto; }
     #flowbar.collapsed { padding-top:6px; padding-bottom:6px; }
     #flowbar.collapsed .flow-body { display:none; }
-    .flow-head { display:flex; align-items:center; gap:8px; min-height:28px; min-width:0; }
+    .flow-head { display:flex; align-items:center; gap:8px; min-height:26px; min-width:0; }
     #flow-toggle { border:0; padding:0; background:transparent; color:var(--gold); font-weight:700; white-space:nowrap; }
     .flow-mode { padding:3px 7px; border:1px solid #5b4922; border-radius:999px; color:var(--gold); font-size:11px; white-space:nowrap; }
     .flow-mode.prepare { border-color:#416e9e; background:#152337; color:#a8ceff; }
@@ -198,21 +198,21 @@
     .flow-weather-summary { padding:3px 7px; border:1px solid #3a465a; border-radius:999px; color:#b9c7db; background:#151a24; font-size:10px; white-space:nowrap; }
     .flow-date { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--muted); font-size:12px; }
     .flow-head .flow-date { margin-left:auto; }
-    .flow-tabs { display:flex; gap:4px; padding:3px 0 7px; }
-    .flow-tabs button { border-color:transparent; background:transparent; color:var(--muted); padding:4px 8px; font-size:12px; }
+    .flow-tabs { display:flex; gap:4px; padding:2px 0 5px; }
+    .flow-tabs button { border-color:transparent; background:transparent; color:var(--muted); padding:3px 8px; font-size:11px; }
     .flow-tabs button.active { color:var(--gold); background:#2b2733; border-color:#5b4922; }
-    .flow-body { display:flex; flex-direction:column; flex:1; min-height:0; overflow:hidden; padding-top:7px; border-top:1px solid rgba(255,255,255,.06); }
-    .flow-panel { min-height:0; overflow:hidden; }
+    .flow-body { display:flex; flex-direction:column; min-height:0; overflow:hidden; padding-top:5px; border-top:1px solid rgba(255,255,255,.06); }
+    .flow-panel { height:var(--flow-list-height); min-height:0; overflow:hidden; }
     .flow-panel[hidden] { display:none; }
     .flow-init-meta { display:flex; align-items:center; gap:9px; color:var(--muted); font-size:12px; margin-bottom:6px; }
     .flow-init-meta b { color:var(--text); font-weight:600; }
-    #flow-panel-initiative:not([hidden]) { display:grid; grid-template-columns:minmax(180px,230px) minmax(0,1fr); gap:10px; }
-    .flow-init-hero { display:flex; flex-direction:column; justify-content:center; min-width:0; padding:8px 10px; border:1px solid var(--line); border-radius:9px; background:#171c27; }
+    #flow-panel-initiative:not([hidden]) { display:grid; grid-template-columns:minmax(170px,220px) minmax(0,1fr); gap:8px; }
+    .flow-init-hero { display:flex; flex-direction:column; justify-content:center; min-width:0; padding:6px 9px; border:1px solid var(--line); border-radius:9px; background:#171c27; }
     .flow-init-hero > span:first-child { color:var(--muted); font-size:10px; }
-    .flow-init-hero strong { overflow:hidden; margin:3px 0; color:var(--gold); font-size:17px; text-overflow:ellipsis; white-space:nowrap; }
+    .flow-init-hero strong { overflow:hidden; margin:2px 0; color:var(--gold); font-size:16px; text-overflow:ellipsis; white-space:nowrap; }
     .flow-init-hero > span:last-child { overflow:hidden; color:var(--muted); font-size:10px; text-overflow:ellipsis; white-space:nowrap; }
-    .flow-init-list { display:flex; flex-direction:column; align-items:stretch; min-height:0; gap:5px; overflow-x:hidden; overflow-y:auto; padding:1px 4px 3px 1px; scroll-behavior:smooth; scrollbar-gutter:stable; }
-    .flow-chip { display:grid; grid-template-columns:18px 8px minmax(0,1fr) minmax(24px,auto) auto; align-items:center; gap:6px; flex:0 0 auto; padding:7px 9px; border:1px solid var(--line); border-left:3px solid transparent; border-radius:8px; background:#202633; }
+    .flow-init-list { display:flex; height:var(--flow-list-height); flex-direction:column; align-items:stretch; min-height:0; gap:var(--flow-row-gap); overflow-x:hidden; overflow-y:auto; padding:0 4px 0 1px; overscroll-behavior:contain; scroll-behavior:smooth; scrollbar-gutter:stable; }
+    .flow-chip { display:grid; grid-template-columns:18px 8px minmax(0,1fr) minmax(24px,auto) auto auto; align-items:center; gap:5px; height:var(--flow-row-height); min-height:var(--flow-row-height); flex:0 0 var(--flow-row-height); padding:4px 7px; border:1px solid var(--line); border-left:3px solid transparent; border-radius:8px; background:#202633; }
     .flow-chip.current { border-left-color:var(--gold); background:#3a3325; box-shadow:0 0 0 1px #e0b34c55; }
     .flow-chip.owned-adjustable { border-color:#416e9e; background:linear-gradient(180deg,#202d40,#1b2534); }
     .flow-chip-dot { width:8px; height:8px; border-radius:50%; }
@@ -220,12 +220,11 @@
     .flow-chip-value { color:var(--gold); font-weight:700; }
     .flow-chip-order { display:grid; place-items:center; width:18px; height:18px; border-radius:5px; background:#141923; color:#8490a4; font-size:9px; font-weight:700; }
     .flow-chip-current { padding:2px 5px; border-radius:999px; background:#e0b34c22; color:#f5d77f; font-size:9px; font-weight:700; }
-    .flow-chip-actions { grid-column:1/-1; display:flex; align-items:center; justify-content:flex-end; gap:4px; padding-top:5px; border-top:1px solid #ffffff0d; }
-    .flow-chip-actions span { margin-right:auto; color:#8fa5c2; font-size:10px; }
-    .flow-chip-actions button { min-width:28px; padding:3px 7px; font-size:10px; }
+    .flow-chip-actions { grid-column:5/7; display:flex; align-items:center; justify-content:flex-end; gap:3px; }
+    .flow-chip-actions button { min-width:24px; height:24px; padding:1px 5px; font-size:10px; line-height:1; }
     .flow-chip-actions button:disabled { opacity:.4; cursor:not-allowed; }
     .flow-empty { color:var(--muted); font-size:12px; }
-    #flow-panel-time:not([hidden]) { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+    #flow-panel-time:not([hidden]) { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
     .flow-time-card,.flow-weather-card { display:flex; align-items:center; gap:14px; min-width:0; padding:9px 12px; border:1px solid var(--line); border-radius:9px; background:#171c27; }
     .flow-time-card { display:grid; grid-template-columns:minmax(0,1fr) auto; grid-template-areas:"date clock" "mode clock"; column-gap:12px; row-gap:3px; }
     .flow-time-date { grid-area:date; overflow:hidden; color:var(--muted); font-size:12px; font-weight:600; text-overflow:ellipsis; white-space:nowrap; }
@@ -453,7 +452,7 @@
       #left-panel.mobile-open { display:block; position:absolute; z-index:7; left:0; top:0; width:min(300px,88vw); height:100%; background:#1b202bf7; box-shadow:12px 0 28px #0008; }
       #right-panel { top:0; height:calc(100% - 0px); }
     }
-    @media (max-width:900px) { #flowbar { --flow-open-height:315px; } .flow-head .flow-date { max-width:42vw; } .flow-weather-summary { display:none; } #flow-panel-initiative:not([hidden]) { grid-template-columns:minmax(150px,190px) minmax(0,1fr); } #flow-panel-time:not([hidden]) { grid-template-columns:1fr; } }
+    @media (max-width:900px) { .flow-head .flow-date { max-width:42vw; } .flow-weather-summary { display:none; } #flow-panel-initiative:not([hidden]) { grid-template-columns:minmax(145px,180px) minmax(0,1fr); } #flow-panel-time:not([hidden]) { grid-template-columns:1fr 1fr; } .flow-time-card,.flow-weather-card { padding:7px 9px; } }
     #toast { position:fixed; z-index:20; left:50%; bottom:18px; transform:translateX(-50%); padding:8px 12px; border-radius:8px; background:#10141de8; border:1px solid #4c5870; opacity:0; pointer-events:none; transition:opacity .18s; }
     #toast.show { opacity:1; }
     @media (max-width:900px) { #layout { grid-template-columns:1fr; } .panel { display:none; } #right-panel { display:block; position:absolute; z-index:7; right:0; top:0; width:min(300px,88vw); height:100%; background:#1b202bf7; box-shadow:-12px 0 28px #0008; } #right-panel:has(#detail[hidden]):not(.mobile-open) { display:none; } }
@@ -462,7 +461,7 @@
 </head>
 <body>
   <header id="topbar">
-    <div id="brand"><img src="../asset/界面/品牌/桑多尔之歌-logo.png" alt="">桑多尔之歌 · 玩家端</div>
+    <div id="brand"><img src="../asset/界面/品牌/桑哆尔之歌-logo.png" alt="">桑哆尔之歌 · 玩家端</div>
     <div id="campaign"></div>
     <input id="player-name" maxlength="24" placeholder="你的名字">
     <span id="session-badge">未加入</span>
@@ -620,8 +619,8 @@
   <div id="token-peek" role="status" aria-live="polite" hidden></div>
   <div id="join-mask" class="join-mask" role="dialog" aria-modal="true" aria-labelledby="join-title">
     <div class="join-shell">
-      <header class="join-global-bar"><div class="join-brand"><span class="join-brand-mark" aria-hidden="true"><img src="../asset/界面/品牌/桑多尔之歌-logo.png" alt=""></span><strong>桑多尔之歌</strong><span>玩家端</span></div><div class="join-global-actions"><div id="join-theme-picker" class="join-theme-picker" role="group" aria-label="切换主页背景"><span class="join-theme-caption">背景</span><button type="button" data-join-theme="a" aria-pressed="false" title="A · 冒险桌">A</button><button type="button" data-join-theme="b" aria-pressed="false" title="B · 城外营地">B</button><button type="button" data-join-theme="c" aria-pressed="false" title="C · 传送门大厅">C</button><button type="button" data-join-theme="d" aria-pressed="false" title="D · 旅途区域地图">D</button></div><span id="join-server-status" class="join-server-status" data-state="checking">连接服务器中</span></div></header>
-      <section class="join-project-head" aria-label="玩家房间"><div class="join-project-title"><span class="join-project-icon" aria-hidden="true">⌁</span><h1 id="join-title">桑多尔之歌 <span>/</span> <strong>玩家地图</strong></h1><span class="join-project-badge">联机</span></div></section>
+      <header class="join-global-bar"><div class="join-brand"><span class="join-brand-mark" aria-hidden="true"><img src="../asset/界面/品牌/桑哆尔之歌-logo.png" alt=""></span><strong>桑哆尔之歌</strong><span>玩家端</span></div><div class="join-global-actions"><div id="join-theme-picker" class="join-theme-picker" role="group" aria-label="切换主页背景"><span class="join-theme-caption">背景</span><button type="button" data-join-theme="a" aria-pressed="false" title="A · 冒险桌">A</button><button type="button" data-join-theme="b" aria-pressed="false" title="B · 城外营地">B</button><button type="button" data-join-theme="c" aria-pressed="false" title="C · 传送门大厅">C</button><button type="button" data-join-theme="d" aria-pressed="false" title="D · 旅途区域地图">D</button></div><span id="join-server-status" class="join-server-status" data-state="checking">连接服务器中</span></div></header>
+      <section class="join-project-head" aria-label="玩家房间"><div class="join-project-title"><span class="join-project-icon" aria-hidden="true">⌁</span><h1 id="join-title">桑哆尔之歌 <span>/</span> <strong>玩家地图</strong></h1><span class="join-project-badge">联机</span></div></section>
       <div class="join-dashboard">
         <main class="join-main">
           <article id="join-campaign-card" class="join-campaign-card"><img id="join-campaign-cover" class="join-campaign-cover" alt="" hidden><div class="join-campaign-icon" aria-hidden="true">◈</div><div class="join-campaign-copy"><span>当前战役</span><strong id="join-campaign-name">等待主控台</strong><small id="join-room-hint">正在读取房间信息…</small></div></article>
@@ -641,7 +640,8 @@
   <div id="toast"></div>
   <script src="../three.min.js"></script>
   <script src="../骰子动画.js?v=20260904-physics-v7-face-lock-continuous-settle-r6-uv-handedness-r7-result-focus-r8-public-skin-r9-d20-tilt-r10"></script>
-  <script src="../asset/界面/休息动画/休息场景.js?v=20260905-rest-scenes-v2"></script>
+  <script src="../asset/界面/休息动画/休息场景.js?v=20260906-rest-audio-v2-library-cleanup"></script>
+<script src="../asset/界面/休息动画/休息音频.js?v=20260906-rest-audio-v2-library-cleanup"></script>
   <script>
   'use strict';
   const $ = (s) => document.querySelector(s);
@@ -668,7 +668,7 @@
   let state = null, currentMap = null, view = {scale:1,ox:0,oy:0}, myName = '', myPlayerId = '', sessionToken = '', roomCode = '', players = [], presenceStatus = 'online', selectedId = null, drag = null, toastTimer = null, peekTimer = null, restAnimationTimer = null, localRolls = new Set(), lastMapViewKey = '', flowPanel = 'initiative', flowClockAnchor = { localNow: performance.now(), serverNow: Date.now() }, flowTimer = null, measureMode = false, measureDraft = null, doodleTool = null, doodleColor = '#ff4d4f', doodleWidth = 6, doodleDraft = null, presenceTimer = null, streamES = null, streamAppliedSeq = 0, lastStateRevision = 0, spellAimTokenId = null, pendingMapReaction = null, spellRangeRaf = null, initiativePending = false, lastFlowScrollEntryId = null, editingPlayerConditionId = null, activePlayerDetailTab = 'status', diceVisibility = 'public';
   const localReactionIds = new Set();
   const playedRestTransitions = new Set();
-  const REQUIRED_SERVER_PROTOCOL=7,PLAYER_PORTRAIT_SOURCE_LIMIT=12*1024*1024,PLAYER_PORTRAIT_TARGET_BYTES=280*1024;
+  const REQUIRED_SERVER_PROTOCOL=9,PLAYER_PORTRAIT_SOURCE_LIMIT=12*1024*1024,PLAYER_PORTRAIT_TARGET_BYTES=280*1024;
   let playerSpawnPending=false,playerPortraitPending=false,playerDraftPortrait='',playerDeletePending=null,playerMountPending=null,playerDismountPending=null;
   function applyJoinHomeTheme(themeKey){
     const mask=$('#join-mask'),key=Object.prototype.hasOwnProperty.call(PLAYER_HOME_THEMES,themeKey)?themeKey:'a',theme=PLAYER_HOME_THEMES[key];if(!mask||!theme)return;
@@ -689,6 +689,7 @@
     if(restId){playedRestTransitions.add(restId);while(playedRestTransitions.size>24)playedRestTransitions.delete(playedRestTransitions.values().next().value);}
     const isLong=kind==='long',fallback=isLong?4400:2200,reducedMotion=window.matchMedia?.('(prefers-reduced-motion: reduce)').matches,duration=reducedMotion?(isLong?900:600):clamp(Math.trunc(Number(action.duration)||fallback),1000,8000),layer=$('#rest-transition'),sceneApi=window.SundollRestScenes,scene=sceneApi&&sceneApi.get?sceneApi.get(action.scene,kind):{id:isLong?'long-outdoor':'short-outdoor',icon:isLong?'🌙':'🔥',subtitle:isLong?'星夜安营，静候黎明':'林间停驻，整备再启',effect:isLong?'stars':'embers',image:new URL(isLong?'../asset/界面/休息动画/长休-室外星夜.jpg':'../asset/界面/休息动画/短休-室外林地.jpg',window.location.href).href};
     clearTimeout(restAnimationTimer);
+    window.SundollRestAudio?.play(scene,duration,{volume:()=>playerAudioMuted?0:Number($('#player-audio-volume').value)/100,backgroundVolume:()=>Number($('#player-audio-volume').value)/100,backgrounds:()=>[playerAudio,playerLiveAudio],onBlocked:()=>toast('点击页面启用声音，下次休息将播放配乐'),onError:()=>toast('休息配乐加载失败')});
     layer.hidden=false;layer.className='rest-transition '+(isLong?'is-long':'is-short')+' rest-effect-'+scene.effect;layer.dataset.restScene=scene.id;layer.style.setProperty('--rest-scene-image','url("'+scene.image+'")');layer.style.setProperty('--rest-duration',duration+'ms');layer.setAttribute('aria-label',isLong?'长休进行中':'短休进行中');
     $('#rest-transition-icon').textContent=scene.icon;$('#rest-transition-title').textContent=isLong?'长休':'短休';$('#rest-transition-subtitle').textContent=scene.subtitle;void layer.offsetWidth;
     restAnimationTimer=setTimeout(()=>{restAnimationTimer=null;layer.hidden=true;layer.className='rest-transition';delete layer.dataset.restScene;layer.style.removeProperty('--rest-scene-image');layer.removeAttribute('aria-label');},duration);
@@ -696,7 +697,8 @@
   function actionId() { return (crypto&&crypto.randomUUID) ? crypto.randomUUID() : 'a'+Date.now()+Math.random().toString(36).slice(2); }
   function requestAction(action) {
     const body={player:myName||'玩家',sessionToken,actionId:actionId(),action};
-    return fetch('/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(async r=>({ok:r.ok,data:await r.json().catch(()=>({}))}));
+    const requestedToken=sessionToken;
+    return fetch('/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(async r=>{const result={ok:r.ok,data:await r.json().catch(()=>({}))};if(r.status===401&&sessionToken===requestedToken)handleSessionRevoked({playerId:myPlayerId,reason:result.data.error||'玩家会话已失效'});return result;});
   }
   function dataUrlBytes(value){const comma=String(value||'').indexOf(',');return comma<0?0:Math.ceil((value.length-comma-1)*3/4);}
   function renderPlayerDraftPortrait(){
@@ -840,8 +842,10 @@
     setJoinHomeBusy(false);updateSessionUi();
     requestAnimationFrame(()=>$('#join-name').focus());
   }
-  function sendPresence(status=presenceStatus) { if(!sessionToken)return; presenceStatus=status; fetch('/api/presence',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionToken,status})}).catch(()=>{}); }
-  function leaveSession() { clearTimeout(patchTimer);patchTimer=null;pendingPatch=null;if(sessionToken)sendPresence('offline');if(streamES){try{streamES.close();}catch(e){}streamES=null;}clearStoredSession();setConnection('未进入',false);$('#join-name').value=myName;$('#join-room').value=roomCode;$('#join-submit').textContent='进入玩家地图';$('#join-session-hint').textContent='输入新的玩家名后进入；这台设备会记住名字。';randomizeJoinHomeTheme();$('#join-mask').hidden=false;closeDetail();updateSessionUi();if(currentMap)renderTokens(currentMap);refreshPlayerHome().catch(()=>setJoinHomeStatus('服务器未连接','error')); }
+  function sendPresence(status=presenceStatus) { if(!sessionToken)return Promise.resolve();presenceStatus=status;const requestedToken=sessionToken;return fetch('/api/presence',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionToken:requestedToken,status})}).then(response=>{if(response.status===401&&sessionToken===requestedToken)handleSessionRevoked({playerId:myPlayerId,reason:'玩家会话已失效'});return response;}).catch(()=>{}); }
+  function returnToJoinHome({notifyServer=true,hint='输入新的玩家名后进入；这台设备会记住名字。'}={}) { clearTimeout(patchTimer);patchTimer=null;pendingPatch=null;if(notifyServer&&sessionToken)sendPresence('offline');if(streamES){try{streamES.close();}catch(e){}streamES=null;}clearStoredSession();setConnection('未进入',false);$('#join-name').value=myName;$('#join-room').value=roomCode;$('#join-submit').textContent='进入玩家地图';$('#join-session-hint').textContent=hint;randomizeJoinHomeTheme();$('#join-mask').hidden=false;closeDetail();updateSessionUi();if(currentMap)renderTokens(currentMap);refreshPlayerHome().catch(()=>setJoinHomeStatus('服务器未连接','error')); }
+  function leaveSession() { returnToJoinHome(); }
+  function handleSessionRevoked(event) { if(!sessionToken||String(event&&event.playerId||'')!==String(myPlayerId||''))return;const reason=String(event&&event.reason||'已被主控台移出房间');returnToJoinHome({notifyServer:false,hint:reason+'。如需继续游戏，请重新加入。'});toast('👋 '+reason); }
   function mine(t) { return !!myName && (t.owner || '') === myName; }
   function friendly(t) { return !!t && (t.type === 'pc' || t.type === 'ally'); }
   const PLAYER_PORTRAIT_TIER=512, portraitProbes=new Map();
@@ -1001,8 +1005,11 @@
   }
 
   function encounter() {
-    const e=state&&state.encounter&&typeof state.encounter==='object'?state.encounter:{playMode:'free',round:1,currentEntryId:null,entries:[],turnSerial:1,turnPath:{mapId:null,tokenId:null,points:[]}};
-    if(e.playMode==='turn'&&(!Array.isArray(e.entries)||!e.entries.length)){e.playMode='prepare';e.currentEntryId=null;e.round=1;e.turnPath={mapId:null,tokenId:null,points:[]};}
+    const e=state&&state.encounter&&typeof state.encounter==='object'?state.encounter:{playMode:'free',round:1,currentEntryId:null,entries:[],turnSerial:1,turnPath:{mapId:null,tokenId:null,points:[],segmentEnds:[]}};
+    if(e.playMode==='turn'&&(!Array.isArray(e.entries)||!e.entries.length)){e.playMode='prepare';e.currentEntryId=null;e.round=1;e.turnPath={mapId:null,tokenId:null,points:[],segmentEnds:[]};}
+    if(!e.turnPath||typeof e.turnPath!=='object')e.turnPath={mapId:null,tokenId:null,points:[],segmentEnds:[]};
+    if(!Array.isArray(e.turnPath.points))e.turnPath.points=[];
+    e.turnPath.segmentEnds=normalizeTurnPathSegmentEnds(e.turnPath.segmentEnds,e.turnPath.points.length);
     return e;
   }
   function tokenControlGroup(token) {
@@ -1055,17 +1062,21 @@
     return !!current && controlsCurrentTurn(current) && tokenControlGroup(token).has(current.id);
   }
   function canMoveToken(token) { return canActWithToken(token); }
-  function drawTurnPath(points, color, dashed) {
+  function sameTurnPoint(a,b){return Math.abs(Number(a&&a.x)-Number(b&&b.x))<.01&&Math.abs(Number(a&&a.y)-Number(b&&b.y))<.01;}
+  function normalizeTurnPathSegmentEnds(rawEnds,pointCount){const last=Math.max(0,Math.trunc(Number(pointCount)||0)-1);if(last<1)return[];const ends=[];(Array.isArray(rawEnds)?rawEnds:[]).forEach(raw=>{const end=Math.trunc(Number(raw));if(Number.isInteger(end)&&end>=1&&end<=last&&end>(ends[ends.length-1]||0))ends.push(end);});if(!ends.length||ends[ends.length-1]!==last)ends.push(last);return ends;}
+  function turnPathEdgeKey(a,b){const key=p=>(Math.round(Number(p.x)*10)/10)+','+(Math.round(Number(p.y)*10)/10),left=key(a),right=key(b);return left<right?left+'|'+right:right+'|'+left;}
+  function turnPathEdgeCounts(...paths){const counts=new Map();paths.forEach(points=>{if(!Array.isArray(points))return;for(let i=1;i<points.length;i++){if(sameTurnPoint(points[i-1],points[i]))continue;const key=turnPathEdgeKey(points[i-1],points[i]);counts.set(key,(counts.get(key)||0)+1);}});return counts;}
+  function drawTurnPath(points, color, dashed, priorPoints=[]) {
     if (!Array.isArray(points)||points.length<2) return;
-    turnPathCtx.save(); turnPathCtx.strokeStyle=color; turnPathCtx.fillStyle=color; turnPathCtx.lineWidth=4; turnPathCtx.lineCap='round'; turnPathCtx.lineJoin='round'; if(dashed)turnPathCtx.setLineDash([10,8]);
-    turnPathCtx.beginPath(); turnPathCtx.moveTo(points[0].x,points[0].y); points.slice(1).forEach(p=>turnPathCtx.lineTo(p.x,p.y)); turnPathCtx.stroke(); turnPathCtx.setLineDash([]);
+    turnPathCtx.save(); turnPathCtx.strokeStyle=color; turnPathCtx.fillStyle=color; turnPathCtx.lineCap='round'; turnPathCtx.lineJoin='round'; if(dashed)turnPathCtx.setLineDash([10,8]);
+    const counts=turnPathEdgeCounts(priorPoints,points),drawn=new Set();for(let i=1;i<points.length;i++){const start=points[i-1],end=points[i];if(sameTurnPoint(start,end))continue;const key=turnPathEdgeKey(start,end);if(drawn.has(key))continue;drawn.add(key);turnPathCtx.lineWidth=4+Math.min(8,Math.max(0,(counts.get(key)||1)-1)*2);turnPathCtx.beginPath();turnPathCtx.moveTo(start.x,start.y);turnPathCtx.lineTo(end.x,end.y);turnPathCtx.stroke();}turnPathCtx.setLineDash([]);
     turnPathCtx.beginPath(); turnPathCtx.arc(points[0].x,points[0].y,6,0,Math.PI*2); turnPathCtx.fill(); const end=points[points.length-1]; turnPathCtx.globalAlpha=.9; turnPathCtx.beginPath(); turnPathCtx.arc(end.x,end.y,7,0,Math.PI*2); turnPathCtx.fill(); turnPathCtx.restore();
   }
   function renderTurnPath(draftPoints=null) {
     if(!currentMap)return;
     turnPath.width=currentMap.mapW; turnPath.height=currentMap.mapH; turnPathCtx.clearRect(0,0,currentMap.mapW,currentMap.mapH);
     const e=encounter(), saved=e.playMode==='turn'&&e.turnPath&&e.turnPath.mapId===currentMap.id?e.turnPath.points:[];
-    drawTurnPath(saved,'rgba(224,179,76,.82)',false); if(Array.isArray(draftPoints))drawTurnPath(draftPoints,'rgba(255,232,145,.95)',true);
+    drawTurnPath(saved,'rgba(224,179,76,.82)',false); if(Array.isArray(draftPoints))drawTurnPath(draftPoints,'rgba(255,232,145,.95)',true,saved);
     if(measureDraft&&measureDraft.mapId===currentMap.id&&measureDraft.from&&measureDraft.to){
       turnPathCtx.save(); turnPathCtx.strokeStyle='rgba(126,205,255,.96)'; turnPathCtx.lineWidth=4; turnPathCtx.setLineDash([12,8]); turnPathCtx.beginPath(); turnPathCtx.moveTo(measureDraft.from.x,measureDraft.from.y); turnPathCtx.lineTo(measureDraft.to.x,measureDraft.to.y); turnPathCtx.stroke(); turnPathCtx.setLineDash([]); turnPathCtx.fillStyle='#7ecfff'; [measureDraft.from,measureDraft.to].forEach(p=>{turnPathCtx.beginPath();turnPathCtx.arc(p.x,p.y,6,0,Math.PI*2);turnPathCtx.fill();}); turnPathCtx.restore();
       const mid={x:(measureDraft.from.x+measureDraft.to.x)/2,y:(measureDraft.from.y+measureDraft.to.y)/2}, feet=Math.hypot(measureDraft.to.x-measureDraft.from.x,measureDraft.to.y-measureDraft.from.y)/(currentMap.gridSize||50)*5, rounded=Math.round(feet*10)/10; const label=$('#measure-label'); label.hidden=false; label.textContent=(Number.isInteger(rounded)?rounded:rounded.toFixed(1))+' 尺'; label.style.left=(mid.x*view.scale+view.ox)+'px'; label.style.top=(mid.y*view.scale+view.oy)+'px';
@@ -1089,7 +1100,7 @@
     const path=e.turnPath&&anchor&&e.turnPath.mapId===currentMap?.id&&e.turnPath.tokenId===anchor.id&&Array.isArray(e.turnPath.points)?e.turnPath.points:[], canChangePath=ownsCurrent&&path.length>1&&!turnPathActionPending&&!endTurnPending, status=$('#turn-action-status'), actions=$('#turn-path-actions');
     if(actions)actions.hidden=!ownsCurrent;
     const undo=$('#turn-path-undo'),reset=$('#turn-path-reset');
-    if(undo){undo.disabled=!canChangePath;undo.title=path.length>1?'回到路径中的上一个位置':'移动后可以回退一步';}
+    if(undo){undo.disabled=!canChangePath;undo.title=path.length>1?'撤销上一次完整拖动':'移动后可以撤销上一次拖动';}
     if(reset){reset.disabled=!canChangePath;reset.title=path.length>1?'回到本回合开始时的位置':'移动后可以重置路径';}
     const can=ownsCurrent&&!endTurnPending&&!turnPathActionPending;
     document.querySelectorAll('#end-turn').forEach(b=>{b.disabled=!can;b.title=endTurnPending?'正在结束回合':turnPathActionPending?'正在修改路径':can?'结束当前角色回合':e.playMode==='turn'?'还没有轮到你的角色':e.playMode==='prepare'?'战斗尚未开始':'自由模式没有回合结束操作';});
@@ -1121,6 +1132,7 @@
     const candidate={x,y},last=points[points.length-1],grid=Math.max(1,Number(gridSize)||50),threshold=snapEnabled?.01:Math.max(3,grid*.08),rawX=Number(rawPoint&&rawPoint.x),rawY=Number(rawPoint&&rawPoint.y);
     const diagonalGestureFrom=origin=>{if(!origin||!Number.isFinite(rawX)||!Number.isFinite(rawY))return false;const dx=Math.abs(rawX-Number(origin.x)),dy=Math.abs(rawY-Number(origin.y)),major=Math.max(dx,dy);return major>=grid*.25&&Math.min(dx,dy)/major>=TURN_DIAGONAL_INTENT_RATIO;};
     if(last&&Math.hypot(x-last.x,y-last.y)<threshold){const intent=move.diagonalCornerIntent;if(intent&&intent.eligible&&Math.abs(last.x-intent.cornerX)<.01&&Math.abs(last.y-intent.cornerY)<.01&&!diagonalGestureFrom({x:intent.startX,y:intent.startY}))intent.eligible=false;return false;}
+    const backtrackThreshold=snapEnabled?.01:Math.max(5,grid*.12);for(let i=points.length-2;i>=0;i--){if(Math.hypot(candidate.x-points[i].x,candidate.y-points[i].y)>backtrackThreshold)continue;points.splice(i+1);if(!snapEnabled)points[i]=candidate;move.diagonalCornerIntent=null;return true;}
     if(snapEnabled&&points.length>=2){
       const start=points[points.length-2],corner=last,step=v=>v>=TURN_DIAGONAL_MIN_STEP&&v<=TURN_DIAGONAL_MAX_STEP,zero=v=>v<=(1-TURN_DIAGONAL_MIN_STEP);
       const ax=Math.abs(corner.x-start.x)/grid,ay=Math.abs(corner.y-start.y)/grid,bx=Math.abs(candidate.x-corner.x)/grid,by=Math.abs(candidate.y-corner.y)/grid,dx=Math.abs(candidate.x-start.x)/grid,dy=Math.abs(candidate.y-start.y)/grid;
@@ -1133,13 +1145,14 @@
   }
   function appendTurnPath(mapId, tokenId, points) {
     const e=encounter(); if(e.playMode!=='turn'||!mapId||!tokenId||!Array.isArray(points))return;
-    const same=e.turnPath&&e.turnPath.mapId===mapId&&e.turnPath.tokenId===tokenId;
-    const combined=same&&Array.isArray(e.turnPath.points)?e.turnPath.points.slice():[];
+    const same=e.turnPath&&e.turnPath.mapId===mapId&&e.turnPath.tokenId===tokenId,previous=same&&Array.isArray(e.turnPath.points)?e.turnPath.points:[],previousEnds=same?normalizeTurnPathSegmentEnds(e.turnPath.segmentEnds,previous.length):[];
+    const first=points.find(point=>point&&Number.isFinite(Number(point.x))&&Number.isFinite(Number(point.y))),continuous=!previous.length||(first&&sameTurnPoint(previous[previous.length-1],first));
+    let combined=same&&continuous?previous.slice():[],segmentEnds=same&&continuous?previousEnds.slice():[];const previousLength=combined.length;
     points.slice(0,MAX_MOVE_POINTS).forEach(point=>{
       const x=Number(point&&point.x), y=Number(point&&point.y); if(!Number.isFinite(x)||!Number.isFinite(y))return;
       const last=combined[combined.length-1]; if(!last||Math.hypot(last.x-x,last.y-y)>=.01)combined.push({x,y});
     });
-    e.turnPath={mapId:String(mapId),tokenId:String(tokenId),points:combined.length>MAX_TURN_PATH_POINTS?combined.slice(0,MAX_TURN_PATH_POINTS-1).concat(combined[combined.length-1]):combined};
+    if(combined.length>previousLength)segmentEnds.push(combined.length-1);if(combined.length>MAX_TURN_PATH_POINTS){combined=combined.slice(0,MAX_TURN_PATH_POINTS-1).concat(combined[combined.length-1]);segmentEnds=segmentEnds.filter(end=>end<MAX_TURN_PATH_POINTS-1);segmentEnds.push(MAX_TURN_PATH_POINTS-1);}e.turnPath={mapId:String(mapId),tokenId:String(tokenId),points:combined,segmentEnds:normalizeTurnPathSegmentEnds(segmentEnds,combined.length)};
   }
 
   async function runTurnPathAction(op){
@@ -1158,12 +1171,13 @@
 
   function renderMap(m) {
     const g=m.gridSize||50,hasMap=!!m.mapData;
+    const showGrid=typeof m.gridVisible==='boolean'?m.gridVisible:state?.showGrid!==false;
     const grid='repeating-linear-gradient(to right,rgba(255,255,255,.78) 0,rgba(255,255,255,.78) 2px,transparent 2px,transparent '+g+'px),repeating-linear-gradient(to bottom,rgba(255,255,255,.78) 0,rgba(255,255,255,.78) 2px,transparent 2px,transparent '+g+'px),repeating-linear-gradient(to right,rgba(0,0,0,.16) 0,rgba(0,0,0,.16) 2px,transparent 2px,transparent '+g+'px),repeating-linear-gradient(to bottom,rgba(0,0,0,.16) 0,rgba(0,0,0,.16) 2px,transparent 2px,transparent '+g+'px)';
     world.style.width=m.mapW+'px'; world.style.height=m.mapH+'px';
-    world.style.backgroundColor=hasMap?'transparent':'#ddd6c2';
-    world.style.backgroundImage=hasMap?grid+',url("'+m.mapData+'")':grid;
-    world.style.backgroundSize=hasMap?g+'px '+g+'px,'+g+'px '+g+'px,'+g+'px '+g+'px,'+g+'px '+g+'px,100% 100%':g+'px '+g+'px,'+g+'px '+g+'px,'+g+'px '+g+'px,'+g+'px '+g+'px';
-    world.style.backgroundRepeat=hasMap?'repeat,repeat,repeat,repeat,no-repeat':'repeat';
+    world.style.backgroundColor=hasMap?'transparent':showGrid?'#ddd6c2':'#0f1116';
+    world.style.backgroundImage=hasMap?(showGrid?grid+',url("'+m.mapData+'")':'url("'+m.mapData+'")'):(showGrid?grid:'none');
+    world.style.backgroundSize=hasMap?(showGrid?g+'px '+g+'px,'+g+'px '+g+'px,'+g+'px '+g+'px,'+g+'px '+g+'px,100% 100%':'100% 100%'):(showGrid?g+'px '+g+'px,'+g+'px '+g+'px,'+g+'px '+g+'px,'+g+'px '+g+'px':'');
+    world.style.backgroundRepeat=showGrid?(hasMap?'repeat,repeat,repeat,repeat,no-repeat':'repeat'):'no-repeat';
     world.style.backgroundPosition='0 0';
   }
   function cloneDoodleStroke(stroke) {
@@ -1386,7 +1400,7 @@
       if(!target||Number(entry.value)!==Number(target.value)||!Number.isFinite(entryOrder)||!Number.isFinite(targetOrder))return false;
       entry.order=entryOrder;target.order=targetOrder;
     }else return false;
-    sortFlowInitiativeEntries(e);e.turnSerial=nextSerial;e.currentEntryId=null;e.turnPath={mapId:null,tokenId:null,points:[]};
+    sortFlowInitiativeEntries(e);e.turnSerial=nextSerial;e.currentEntryId=null;e.turnPath={mapId:null,tokenId:null,points:[],segmentEnds:[]};
     return true;
   }
   function scrollFlowCurrentIntoView(list,e){
@@ -1438,7 +1452,7 @@
       chip.className='flow-chip'+(active?' current':'')+(owned?' owned-adjustable':'');chip.dataset.entryId=entry.id;
       chip.innerHTML='<span class="flow-chip-order">'+(index+1)+'</span><span class="flow-chip-dot" style="background:'+(entry.color||'#e0b34c')+'"></span><span class="flow-chip-name">'+esc(entry.name||'未命名单位')+'</span><span class="flow-chip-value">'+(Number(entry.value)||0)+'</span>'+(active?'<span class="flow-chip-current">行动中</span>':'');
       if(owned){
-        const actions=document.createElement('div');actions.className='flow-chip-actions';actions.innerHTML='<span>同先攻换位</span>';
+        const actions=document.createElement('div');actions.className='flow-chip-actions';actions.setAttribute('aria-label','同先攻换位');
         const makeSwap=(label,target,title)=>{const button=document.createElement('button');button.type='button';button.textContent=label;button.title=title;const allowed=!!target&&Number(target.value)===Number(entry.value)&&flowEntryControllers(map,target).length>0;button.disabled=initiativePending||!allowed;button.addEventListener('click',event=>{event.stopPropagation();if(allowed)submitFlowInitiativeAction({op:'initiativeSwap',entryId:entry.id,targetEntryId:target.id});});return button;};
         actions.appendChild(makeSwap('↑',entries[index-1],entries[index-1]?'与上一位同先攻玩家换位':'已经是第一位'));
         actions.appendChild(makeSwap('↓',entries[index+1],entries[index+1]?'与下一位同先攻玩家换位':'已经是最后一位'));
@@ -1722,14 +1736,14 @@
       const map=state&&(state.maps||[]).find(item=>item.id===a.mapId);if(!map)return;const token=(map.tokens||[]).find(item=>item.id===a.tokenId),tokenName=a.tokenName||(token&&token.name)||'临时棋子';
       (map.tokens||[]).forEach(item=>{if(item&&item.mountId===a.tokenId)item.mountId=null;});map.tokens=(map.tokens||[]).filter(item=>item&&item.id!==a.tokenId);
       const e=encounter(),removed=new Set(Array.isArray(a.removedEntryIds)?a.removedEntryIds:[]);if(Array.isArray(e.entries))e.entries=e.entries.filter(entry=>entry&&entry.tokenId!==a.tokenId&&!removed.has(entry.id));
-      if(['free','prepare','turn'].includes(a.playMode))e.playMode=a.playMode;e.currentEntryId=a.currentEntryId||null;e.round=Math.max(1,Number(a.round)||1);e.turnSerial=Math.max(1,Number(a.turnSerial)||Number(e.turnSerial)||1);e.turnPath={mapId:null,tokenId:null,points:[]};
+      if(['free','prepare','turn'].includes(a.playMode))e.playMode=a.playMode;e.currentEntryId=a.currentEntryId||null;e.round=Math.max(1,Number(a.round)||1);e.turnSerial=Math.max(1,Number(a.turnSerial)||Number(e.turnSerial)||1);e.turnPath={mapId:null,tokenId:null,points:[],segmentEnds:[]};
       const wasSelected=selectedId===a.tokenId;if(map===currentMap){renderTokens(map);renderTurnPath();requestSpellRangeRender();}renderFlow(state);updateEndTurnUi();if(wasSelected)closeDetail();else if(selectedId)openDetail(selectedId);
       toast((a.actor===myName?'已删除「':'♟ '+(a.actor||'玩家')+' 删除了「')+tokenName+'」');return;
     }
     if(a.op==='mountToken'){
       const map=state&&(state.maps||[]).find(item=>item.id===a.mapId),rider=map&&(map.tokens||[]).find(item=>item.id===a.tokenId),mount=map&&(map.tokens||[]).find(item=>item.id===a.mountId);if(!map||!rider||!mount)return;
       if(!rider.mountId||rider.mountId===mount.id)rider.mountId=mount.id;rider.x=Number.isFinite(Number(a.x))?Number(a.x):mount.x;rider.y=Number.isFinite(Number(a.y))?Number(a.y):mount.y;syncMountedCoordinates(mount,map);
-      const e=encounter();if(Array.isArray(a.initiativeEntries))e.entries=a.initiativeEntries.map(entry=>({...entry}));if(['free','prepare','turn'].includes(a.encounterPlayMode))e.playMode=a.encounterPlayMode;e.currentEntryId=a.currentEntryId||null;e.round=Math.max(1,Number(a.round)||1);e.turnSerial=Math.max(1,Number(a.turnSerial)||Number(e.turnSerial)||1);if(a.turnPath&&typeof a.turnPath==='object')e.turnPath={mapId:a.turnPath.mapId||null,tokenId:a.turnPath.tokenId||null,points:Array.isArray(a.turnPath.points)?a.turnPath.points.map(point=>({x:Number(point.x),y:Number(point.y)})):[]};
+      const e=encounter();if(Array.isArray(a.initiativeEntries))e.entries=a.initiativeEntries.map(entry=>({...entry}));if(['free','prepare','turn'].includes(a.encounterPlayMode))e.playMode=a.encounterPlayMode;e.currentEntryId=a.currentEntryId||null;e.round=Math.max(1,Number(a.round)||1);e.turnSerial=Math.max(1,Number(a.turnSerial)||Number(e.turnSerial)||1);if(a.turnPath&&typeof a.turnPath==='object'){const points=Array.isArray(a.turnPath.points)?a.turnPath.points.map(point=>({x:Number(point.x),y:Number(point.y)})).filter(point=>Number.isFinite(point.x)&&Number.isFinite(point.y)):[];e.turnPath={mapId:a.turnPath.mapId||null,tokenId:a.turnPath.tokenId||null,points,segmentEnds:normalizeTurnPathSegmentEnds(a.turnPath.segmentEnds,points.length)};}
       if(map===currentMap){renderTokens(map);renderTurnPath();requestSpellRangeRender();}renderFlow(state);updateEndTurnUi();if(selectedId)openDetail(selectedId);
       toast((a.actor===myName?'你':a.actor||'玩家')+'让「'+(a.riderName||rider.name||'骑手')+'」骑上了「'+(a.mountName||mount.name||'坐骑')+'」');return;
     }
@@ -1750,11 +1764,11 @@
       if(currentMode!=='turn'||a.playMode!=='turn'||Number(a.turnSerial)!==Number(e.turnSerial)||!Array.isArray(a.path)||!a.path.length)return;
       const m=state&&(state.maps||[]).find(x=>x.id===a.mapId),t=m&&(m.tokens||[]).find(x=>x.id===a.tokenId);if(!t)return;
       const points=a.path.slice(0,MAX_TURN_PATH_POINTS).map(p=>({x:Number(p&&p.x),y:Number(p&&p.y)})).filter(p=>Number.isFinite(p.x)&&Number.isFinite(p.y));if(!points.length)return;
-      setTokenPosition(t,Number(a.x),Number(a.y));e.turnPath={mapId:m.id,tokenId:t.id,points};
-      if(m===currentMap)renderTokens(m);renderTurnPath();updateEndTurnUi();if(a.actor===myName)toast(a.op==='turnPathUndo'?'↶ 已回退一步':'⟲ 已重置到本回合起点');return;
+      setTokenPosition(t,Number(a.x),Number(a.y));e.turnPath={mapId:m.id,tokenId:t.id,points,segmentEnds:normalizeTurnPathSegmentEnds(a.segmentEnds,points.length)};
+      if(m===currentMap)renderTokens(m);renderTurnPath();updateEndTurnUi();if(a.actor===myName)toast(a.op==='turnPathUndo'?'↶ 已撤销上一次移动':'⟲ 已重置到本回合起点');return;
     }
     if (a.op==='endTurn') {
-      const e=encounter(); if(Number(e.turnSerial)!==Number(a.turnSerial))return; decrementCurrentTokenConditions(); e.currentEntryId=a.nextEntryId; e.round=Number(a.round)||e.round; e.turnSerial=Number(a.nextTurnSerial)||e.turnSerial+1; e.turnPath={mapId:null,tokenId:null,points:[]}; if(e.worldTime){if(Number.isFinite(Number(a.worldTimeSeconds)))e.worldTime.totalSeconds=Math.max(0,Math.trunc(Number(a.worldTimeSeconds)));e.worldTime.runningSince=null;}if(a.weather&&typeof a.weather==='object')e.weather=Object.assign({},e.weather||{},a.weather); renderFlow(state); renderTokens(currentMap); renderTurnPath(); if(selectedId)openDetail(selectedId); toast((a.name||'玩家')+' 已结束回合'); return;
+      const e=encounter(); if(Number(e.turnSerial)!==Number(a.turnSerial))return; decrementCurrentTokenConditions(); e.currentEntryId=a.nextEntryId; e.round=Number(a.round)||e.round; e.turnSerial=Number(a.nextTurnSerial)||e.turnSerial+1; e.turnPath={mapId:null,tokenId:null,points:[],segmentEnds:[]}; if(e.worldTime){if(Number.isFinite(Number(a.worldTimeSeconds)))e.worldTime.totalSeconds=Math.max(0,Math.trunc(Number(a.worldTimeSeconds)));e.worldTime.runningSince=null;}if(a.weather&&typeof a.weather==='object')e.weather=Object.assign({},e.weather||{},a.weather); renderFlow(state); renderTokens(currentMap); renderTurnPath(); if(selectedId)openDetail(selectedId); toast((a.name||'玩家')+' 已结束回合'); return;
     }
     if (a.op==='roll') { if(a.rid && localRolls.has(a.rid)){localRolls.delete(a.rid);return;} addRoll(a.name||'玩家',a.expr||'',a.detail||'',a.total); if(window.playDieAnimation) window.playDieAnimation(a.sides||20,a.expr||'',a.total,{dice:a.dice,pick:a.pick,mode:a.mode,natural:a.natural,critical:a.critical,skin:a.skin,interrupt:true,visibility:'public'}); return; }
     if (a.op==='announce') { toast('📣 '+(a.text||'GM 发布了一条公告')); return; }
@@ -1992,7 +2006,7 @@
   $('#player-audio-enable').addEventListener('click',enablePlayerAudio);
   updatePlayerAudioUi();
   async function syncRoomState(){try{const res=await fetch('/api/state',{cache:'no-store'});if(!res.ok)return;render(await res.json());}catch(e){/* SSE 会继续自动重试 */}}
-  function connectStream(){ if(streamES){try{streamES.close();}catch(e){}} streamES=new EventSource('/api/events'); streamES.onopen=()=>{setConnection('已连接',true);sendPresence(presenceStatus);sendPlayerWebRtcSignal({type:'ready'}).catch(()=>{});syncRoomState();syncMusicState();}; streamES.onerror=()=>setConnection('重连中…',false); streamES.onmessage=e=>{try{const ev=JSON.parse(e.data), seq=Number(e.lastEventId)||Number(ev.seq)||0, instant=ev.type==='action'&&ev.action&&['roll','bgm','announce','mapReaction','restTransition'].includes(ev.action.op);if(ev.type==='webrtcSignal'){applyPlayerWebRtcSignal(ev);return;}if(!instant&&seq&&seq<=streamAppliedSeq&&ev.type==='action')return;if(seq&&!instant)streamAppliedSeq=Math.max(streamAppliedSeq,seq);if(ev.type==='state'){render(ev.state);}else if(ev.type==='presence'){renderPlayers(ev.players);}else if(ev.type==='action'){if(ev.action&&ev.action.op==='bgm')applyBgm(ev.action);else applyAction(ev.action);}}catch(err){}}; }
+  function connectStream(){ if(streamES){try{streamES.close();}catch(e){}} streamES=new EventSource('/api/events'); streamES.onopen=()=>{setConnection('已连接',true);sendPresence(presenceStatus);sendPlayerWebRtcSignal({type:'ready'}).catch(()=>{});syncRoomState();syncMusicState();}; streamES.onerror=()=>setConnection('重连中…',false); streamES.onmessage=e=>{try{const ev=JSON.parse(e.data), seq=Number(e.lastEventId)||Number(ev.seq)||0, instant=ev.type==='action'&&ev.action&&['roll','bgm','announce','mapReaction','restTransition'].includes(ev.action.op);if(ev.type==='sessionRevoked'){handleSessionRevoked(ev);return;}if(ev.type==='webrtcSignal'){applyPlayerWebRtcSignal(ev);return;}if(!instant&&seq&&seq<=streamAppliedSeq&&ev.type==='action')return;if(seq&&!instant)streamAppliedSeq=Math.max(streamAppliedSeq,seq);if(ev.type==='state'){render(ev.state);}else if(ev.type==='presence'){renderPlayers(ev.players);}else if(ev.type==='action'){if(ev.action&&ev.action.op==='bgm')applyBgm(ev.action);else applyAction(ev.action);}}catch(err){}}; }
   initJoinHomeThemePicker();
   bootstrapSession();
   presenceTimer=setInterval(()=>sendPresence(presenceStatus),15000);

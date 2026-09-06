@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""桑多尔之歌的跨平台联机启动器。
+"""桑哆尔之歌的跨平台联机启动器。
 
 macOS 和 Windows 的双击脚本只负责找到 Python；服务器检查、端口选择、
 浏览器打开和可选 Cloudflare Quick Tunnel 都集中在这里，避免两套脚本漂移。
@@ -24,8 +24,8 @@ from urllib.parse import quote, urlencode
 ROOT = Path(__file__).resolve().parent
 SERVER_ENTRY = ROOT / "start_server.py"
 DEFAULT_PORT = 8090
-SERVER_PROTOCOL_VERSION = 7
-SERVER_NAME = "桑多尔之歌联机"
+SERVER_PROTOCOL_VERSION = 9
+SERVER_NAME = "桑哆尔之歌联机"
 COMPATIBLE_SERVER_NAMES = {SERVER_NAME, "桑哆尔联机"}
 HOST_ROUTE = "/主控台/主控台.html"
 PLAYER_ROUTE = "/主控台/玩家.html"
@@ -48,7 +48,7 @@ def page_url(host, port, route, room_code=""):
 
 
 def raw_server_info(port, timeout=0.45):
-    """读取端口上的桑多尔之歌服务信息，不在这里判断版本是否兼容。"""
+    """读取端口上的桑哆尔之歌服务信息，不在这里判断版本是否兼容。"""
     try:
         with urllib.request.urlopen(
             "http://127.0.0.1:%d/api/info" % port, timeout=timeout
@@ -73,7 +73,7 @@ def compatible_server_info(payload):
 
 
 def server_info(port, timeout=0.45):
-    """只把协议一致的桑多尔之歌服务认作可复用服务。"""
+    """只把协议一致的桑哆尔之歌服务认作可复用服务。"""
     payload = raw_server_info(port, timeout)
     return payload if compatible_server_info(payload) else None
 
@@ -92,7 +92,7 @@ def select_port(requested):
     if compatible_server_info(probed):
         return requested, probed
     if probed:
-        print("端口 %d 运行的是旧版桑多尔之歌服务器，不再复用。" % requested)
+        print("端口 %d 运行的是旧版桑哆尔之歌服务器，不再复用。" % requested)
     if not port_is_open(requested):
         return requested, None
 
@@ -100,7 +100,7 @@ def select_port(requested):
     for port in range(requested + 1, min(requested + 20, 65536)):
         info = server_info(port)
         if info:
-            print("发现已运行的桑多尔之歌服务器：端口 %d。" % port)
+            print("发现已运行的桑哆尔之歌服务器：端口 %d。" % port)
             return port, info
         if not port_is_open(port):
             print("将改用端口 %d。" % port)
@@ -134,13 +134,13 @@ def stop_process(process):
 def prepare_server(requested_port, bind_host="0.0.0.0"):
     port, info = select_port(requested_port)
     if info:
-        print("桑多尔之歌服务器已经在端口 %d 运行，将直接复用。" % port)
+        print("桑哆尔之歌服务器已经在端口 %d 运行，将直接复用。" % port)
         return None, info, port
 
     if not SERVER_ENTRY.is_file():
         raise RuntimeError("找不到服务器入口：%s" % SERVER_ENTRY)
 
-    print("正在启动桑多尔之歌联机服务器（端口 %d）……" % port)
+    print("正在启动桑哆尔之歌联机服务器（端口 %d）……" % port)
     process = subprocess.Popen(
         [
             sys.executable,
@@ -305,7 +305,7 @@ def choose_mode():
     if not sys.stdin.isatty():
         return "local"
     print("=" * 58)
-    print("桑多尔之歌联机启动器")
+    print("桑哆尔之歌联机启动器")
     print("  1. 本地 / 同一 Wi-Fi / Radmin（推荐）")
     print("  2. Cloudflare 公网 Tunnel")
     print("  Q. 退出")
@@ -325,16 +325,16 @@ def choose_mode():
 
 
 def diagnostics(port):
-    print("桑多尔之歌启动环境检查")
+    print("桑哆尔之歌启动环境检查")
     print("  系统：%s" % sys.platform)
     print("  Python：%s" % sys.executable)
     print("  版本：%s" % sys.version.split()[0])
     print("  服务器入口：%s" % ("正常" if SERVER_ENTRY.is_file() else "缺失"))
     probed = raw_server_info(port)
     if compatible_server_info(probed):
-        port_status = "桑多尔之歌服务器已运行"
+        port_status = "桑哆尔之歌服务器已运行"
     elif probed:
-        port_status = "旧版桑多尔之歌服务器正在运行（将自动避开）"
+        port_status = "旧版桑哆尔之歌服务器正在运行（将自动避开）"
     elif port_is_open(port):
         port_status = "被其他程序占用"
     else:
@@ -345,7 +345,7 @@ def diagnostics(port):
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="启动桑多尔之歌本地联机或 Cloudflare Tunnel")
+    parser = argparse.ArgumentParser(description="启动桑哆尔之歌本地联机或 Cloudflare Tunnel")
     parser.add_argument("mode", nargs="?", choices=("local", "tunnel"))
     parser.add_argument("--port", type=int, default=default_port())
     parser.add_argument("--no-open", action="store_true", help="不自动打开主控台")

@@ -1,0 +1,26 @@
+{
+  "title": "决战·赤旗破阵",
+  "version": "v002",
+  "gainDB": 8.849,
+  "targetRMSDBFS": -17.5,
+  "master": {
+    "seconds": 113.68421768707483,
+    "sampleRate": 44100,
+    "channels": 2,
+    "samplePeakDBFS": -2.0,
+    "rmsDBFS": -18.916,
+    "clippedSamples": 0,
+    "boundaryJump": 0.0
+  },
+  "decodedAAC": {
+    "seconds": 113.68421768707483,
+    "sampleRate": 44100,
+    "channels": 2,
+    "samplePeakDBFS": -2.065,
+    "rmsDBFS": -18.923,
+    "clippedSamples": 0,
+    "boundaryJump": 0.000274658203125
+  },
+  "finalBytes": 3718244,
+  "finalPath": "asset/音乐/通用/首领/决战·赤旗破阵.m4a"
+}

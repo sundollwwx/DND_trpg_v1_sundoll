@@ -106,7 +106,7 @@ def main():
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, 'reconfigure'):
             stream.reconfigure(encoding='utf-8', errors='replace')
-    print('桑多尔之歌 · 一键上传 GitHub\n' + REPOSITORY)
+    print('桑哆尔之歌 · 一键上传 GitHub\n' + REPOSITORY)
     print('以当前电脑文件为准更新 main；包括存档、素材与删除，保留历史版本。')
     print('请先在主控台保存战役；浏览器中尚未写入文件的内容无法上传。\n', flush=True)
     try:

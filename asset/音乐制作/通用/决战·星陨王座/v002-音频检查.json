@@ -1,0 +1,26 @@
+{
+  "title": "决战·星陨王座",
+  "version": "v002",
+  "gainDB": 8.64,
+  "targetRMSDBFS": -17.5,
+  "master": {
+    "seconds": 123.42857142857143,
+    "sampleRate": 44100,
+    "channels": 2,
+    "samplePeakDBFS": -2.0,
+    "rmsDBFS": -19.197,
+    "clippedSamples": 0,
+    "boundaryJump": 0.0
+  },
+  "decodedAAC": {
+    "seconds": 123.42857142857143,
+    "sampleRate": 44100,
+    "channels": 2,
+    "samplePeakDBFS": -2.02,
+    "rmsDBFS": -19.203,
+    "clippedSamples": 0,
+    "boundaryJump": 0.000213623046875
+  },
+  "finalBytes": 4028734,
+  "finalPath": "asset/音乐/通用/首领/决战·星陨王座.m4a"
+}

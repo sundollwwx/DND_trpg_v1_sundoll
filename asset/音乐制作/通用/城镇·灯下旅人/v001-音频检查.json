@@ -1,0 +1,25 @@
+{
+  "title": "城镇·灯下旅人",
+  "gainDB": 19.348,
+  "targetRMSDBFS": -22,
+  "master": {
+    "seconds": 90.0,
+    "sampleRate": 44100,
+    "channels": 2,
+    "samplePeakDBFS": -8.047,
+    "rmsDBFS": -22.0,
+    "clippedSamples": 0,
+    "boundaryJump": 0.0
+  },
+  "decodedAAC": {
+    "seconds": 90.0,
+    "sampleRate": 44100,
+    "channels": 2,
+    "samplePeakDBFS": -8.074,
+    "rmsDBFS": -22.001,
+    "clippedSamples": 0,
+    "boundaryJump": 0.000152587890625
+  },
+  "finalBytes": 2868379,
+  "finalPath": "asset/音乐/通用/城镇/城镇·灯下旅人.m4a"
+}

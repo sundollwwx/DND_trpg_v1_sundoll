@@ -1,0 +1,26 @@
+{
+  "title": "长休·星夜至晨",
+  "version": "v001",
+  "gainDB": 24.746,
+  "targetRMSDBFS": -24,
+  "master": {
+    "seconds": 4.4,
+    "sampleRate": 44100,
+    "channels": 2,
+    "samplePeakDBFS": -4.529,
+    "rmsDBFS": -24.0,
+    "clippedSamples": 0,
+    "boundaryJump": 0.0
+  },
+  "decodedAAC": {
+    "seconds": 4.4,
+    "sampleRate": 44100,
+    "channels": 2,
+    "samplePeakDBFS": -4.509,
+    "rmsDBFS": -24.001,
+    "clippedSamples": 0,
+    "boundaryJump": 0.0
+  },
+  "finalBytes": 135184,
+  "finalPath": "asset/界面/休息动画/音频/长休·星夜至晨.m4a"
+}

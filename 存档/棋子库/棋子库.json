@@ -1,7 +1,7 @@
 {
   "format": "sangduoer-library",
   "schemaVersion": 1,
-  "savedAt": 1788279796029,
+  "savedAt": 1788701331794,
   "presets": [
     {
       "id": "l1",
@@ -1308,6 +1308,177 @@
       "size": 1,
       "hpMax": 1,
       "ac": 13,
+      "spellRange": {
+        "shape": "off",
+        "feet": 30,
+        "direction": 0
+      }
+    },
+    {
+      "id": "l86",
+      "name": "黑胡桃",
+      "type": "pc",
+      "category": "玩家/战役-风骸岛之龙",
+      "icon": "🛡️",
+      "iconImg": null,
+      "iconImgHd": null,
+      "iconImgPath": "立绘/玩家/战役-风骸岛之龙/黑胡桃.png",
+      "iconImgId": null,
+      "size": 1,
+      "hpMax": 10,
+      "ac": 10,
+      "spellRange": {
+        "shape": "off",
+        "feet": 30,
+        "direction": 0
+      }
+    },
+    {
+      "id": "l87",
+      "name": "雷弗",
+      "type": "pc",
+      "category": "玩家/战役-风骸岛之龙",
+      "icon": "🎵",
+      "iconImg": null,
+      "iconImgHd": null,
+      "iconImgPath": "立绘/玩家/战役-风骸岛之龙/雷弗.png",
+      "iconImgId": null,
+      "size": 1,
+      "hpMax": 10,
+      "ac": 10,
+      "spellRange": {
+        "shape": "off",
+        "feet": 30,
+        "direction": 0
+      }
+    },
+    {
+      "id": "l88",
+      "name": "萨司柯一",
+      "type": "pc",
+      "category": "玩家/战役-风骸岛之龙",
+      "icon": "⚔️",
+      "iconImg": null,
+      "iconImgHd": null,
+      "iconImgPath": "立绘/玩家/战役-风骸岛之龙/萨司柯一.png",
+      "iconImgId": null,
+      "size": 1,
+      "hpMax": 10,
+      "ac": 10,
+      "spellRange": {
+        "shape": "off",
+        "feet": 30,
+        "direction": 0
+      }
+    },
+    {
+      "id": "token-1788700764356776000",
+      "name": "鲨华鱼人武者",
+      "type": "enemy",
+      "category": "类人/鲨华鱼人",
+      "icon": "",
+      "iconImg": null,
+      "iconImgHd": null,
+      "iconImgPath": "立绘/类人/鲨华鱼人/鲨华鱼人武者.png",
+      "iconImgId": null,
+      "size": 1,
+      "hpMax": 22,
+      "ac": 12,
+      "spellRange": {
+        "shape": "off",
+        "feet": 30,
+        "direction": 0
+      }
+    },
+    {
+      "id": "token-1788700764356780000",
+      "name": "丧尸",
+      "type": "enemy",
+      "category": "不死/丧尸",
+      "icon": "",
+      "iconImg": null,
+      "iconImgHd": null,
+      "iconImgPath": "立绘/不死/丧尸/丧尸.png",
+      "iconImgId": null,
+      "size": 1,
+      "hpMax": 22,
+      "ac": 8,
+      "spellRange": {
+        "shape": "off",
+        "feet": 30,
+        "direction": 0
+      }
+    },
+    {
+      "id": "token-1788700764356781000",
+      "name": "狗头人",
+      "type": "enemy",
+      "category": "龙类/狗头人",
+      "icon": "",
+      "iconImg": null,
+      "iconImgHd": null,
+      "iconImgPath": "立绘/龙类/狗头人/狗头人.png",
+      "iconImgId": null,
+      "size": 1,
+      "hpMax": 5,
+      "ac": 12,
+      "spellRange": {
+        "shape": "off",
+        "feet": 30,
+        "direction": 0
+      }
+    },
+    {
+      "id": "l89",
+      "name": "零式",
+      "type": "pc",
+      "category": "玩家/战役-风骸岛之龙",
+      "icon": "⚙️",
+      "iconImg": null,
+      "iconImgHd": null,
+      "iconImgPath": "立绘/玩家/战役-风骸岛之龙/零式.png",
+      "iconImgId": null,
+      "size": 1,
+      "hpMax": 10,
+      "ac": 10,
+      "spellRange": {
+        "shape": "off",
+        "feet": 30,
+        "direction": 0
+      }
+    },
+    {
+      "id": "npc-1788701100330042000",
+      "name": "狗头人修道士",
+      "type": "npc",
+      "category": "NPC/战役-风骸龙之岛",
+      "icon": "",
+      "iconImg": null,
+      "iconImgHd": null,
+      "iconImgPath": "立绘/NPC/战役-风骸龙之岛/狗头人修道士.png",
+      "iconImgId": null,
+      "size": 1,
+      "hpMax": 4,
+      "ac": 10,
+      "spellRange": {
+        "shape": "off",
+        "feet": 30,
+        "direction": 0
+      }
+    },
+    {
+      "id": "npc-1788701100416470000",
+      "name": "茹娜拉",
+      "type": "npc",
+      "category": "NPC/战役-风骸龙之岛",
+      "icon": "",
+      "iconImg": null,
+      "iconImgHd": null,
+      "iconImgPath": "立绘/NPC/战役-风骸龙之岛/茹娜拉.png",
+      "iconImgId": null,
+      "size": 1,
+      "hpMax": 4,
+      "ac": 10,
       "spellRange": {
         "shape": "off",
         "feet": 30,

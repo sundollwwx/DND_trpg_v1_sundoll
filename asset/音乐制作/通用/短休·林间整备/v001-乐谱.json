@@ -1,0 +1,103 @@
+{
+  "version": "v001",
+  "title": "短休·林间整备",
+  "scene": "休息",
+  "restScene": "short-outdoor",
+  "bpm": 60,
+  "meter": 4,
+  "lengthBeats": 2.2,
+  "loop": false,
+  "reverb": 15,
+  "seed": 90630,
+  "fadeInSeconds": 0.035,
+  "fadeOutSeconds": 0.4,
+  "brief": "原创休息转场纯器乐，D 大调竖琴上行与轻木管回应，林间停驻、整备后再出发。实际播放 2.2 秒，与现有短休 2.2 秒动画（世界时间 +1 小时）一致。无歌词、无重鼓、不引用现有旋律；开头轻起，最后预留自然衰减，单次播放。",
+  "instruments": [
+    {
+      "name": "拨奏主奏",
+      "program": 46,
+      "gain": -5,
+      "pan": -15,
+      "percussion": false
+    },
+    {
+      "name": "旋律回应",
+      "program": 73,
+      "gain": -11,
+      "pan": 18,
+      "percussion": false
+    },
+    {
+      "name": "低音与铺底",
+      "program": 42,
+      "gain": -17,
+      "pan": 0,
+      "percussion": false
+    }
+  ],
+  "notes": [
+    {
+      "instrument": 2,
+      "beat": 0.03,
+      "pitch": 50,
+      "duration": 1.5,
+      "velocity": 32
+    },
+    {
+      "instrument": 0,
+      "beat": 0.05,
+      "pitch": 62,
+      "duration": 0.48,
+      "velocity": 46
+    },
+    {
+      "instrument": 0,
+      "beat": 0.24,
+      "pitch": 66,
+      "duration": 0.48,
+      "velocity": 44
+    },
+    {
+      "instrument": 0,
+      "beat": 0.43,
+      "pitch": 69,
+      "duration": 0.48,
+      "velocity": 42
+    },
+    {
+      "instrument": 1,
+      "beat": 0.55,
+      "pitch": 69,
+      "duration": 0.4,
+      "velocity": 41
+    },
+    {
+      "instrument": 0,
+      "beat": 0.6200000000000001,
+      "pitch": 74,
+      "duration": 0.48,
+      "velocity": 40
+    },
+    {
+      "instrument": 1,
+      "beat": 1.03,
+      "pitch": 74,
+      "duration": 0.53,
+      "velocity": 39
+    },
+    {
+      "instrument": 0,
+      "beat": 1.35,
+      "pitch": 62,
+      "duration": 0.42,
+      "velocity": 37
+    },
+    {
+      "instrument": 0,
+      "beat": 1.35,
+      "pitch": 69,
+      "duration": 0.42,
+      "velocity": 32
+    }
+  ]
+}

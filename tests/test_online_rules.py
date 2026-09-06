@@ -47,7 +47,7 @@ def make_state(play_mode='turn'):
                 {'id': 'init-rider', 'name': '骑手', 'tokenId': 'rider', 'value': 18},
                 {'id': 'init-other', 'name': '其他角色', 'tokenId': 'other', 'value': 12},
             ],
-            'turnPath': {'mapId': None, 'tokenId': None, 'points': []},
+            'turnPath': {'mapId': None, 'tokenId': None, 'points': [], 'segmentEnds': []},
             'worldTime': {'totalSeconds': 100, 'runningSince': None},
             'weather': {'climate': 'temperate', 'condition': 'clear', 'temperature': 18,
                         'wind': 'breeze', 'generatedDay': -1},
@@ -150,11 +150,36 @@ class TurnPermissionTests(unittest.TestCase):
         self.assertEqual(action['tokenId'], 'mount')
         self.assertEqual(state['encounter']['turnPath']['tokenId'], 'mount')
         self.assertEqual(state['encounter']['turnPath']['points'][-1], {'x': 410.0, 'y': 360.0})
+        self.assertEqual(state['encounter']['turnPath']['segmentEnds'], [1])
+
+    def test_separate_drags_can_retrace_a_committed_route(self):
+        state = make_state()
+        first = {
+            'op': 'moveToken', 'tokenId': 'rider', 'mapId': 'map-1', 'x': 300, 'y': 250,
+            'playMode': 'turn', 'turnSerial': 7,
+            'path': [{'x': 250, 'y': 250}, {'x': 300, 'y': 250}],
+        }
+        second = {
+            'op': 'moveToken', 'tokenId': 'rider', 'mapId': 'map-1', 'x': 250, 'y': 250,
+            'playMode': 'turn', 'turnSerial': 7,
+            'path': [{'x': 300, 'y': 250}, {'x': 250, 'y': 250}],
+        }
+        self.assertTrue(SERVER.apply_action(state, first))
+        self.assertTrue(SERVER.apply_action(state, second))
+        self.assertEqual(state['encounter']['turnPath']['points'], [
+            {'x': 250.0, 'y': 250.0},
+            {'x': 300.0, 'y': 250.0},
+            {'x': 250.0, 'y': 250.0},
+        ])
+        self.assertEqual(state['encounter']['turnPath']['segmentEnds'], [1, 2])
 
     def test_turn_path_undo_moves_mount_group_back_and_replay_is_idempotent(self):
         state = make_state()
         points = [{'x': 250, 'y': 250}, {'x': 300, 'y': 250}, {'x': 350, 'y': 300}]
-        state['encounter']['turnPath'] = {'mapId': 'map-1', 'tokenId': 'mount', 'points': copy.deepcopy(points)}
+        state['encounter']['turnPath'] = {
+            'mapId': 'map-1', 'tokenId': 'mount', 'points': copy.deepcopy(points),
+            'segmentEnds': [1, 2],
+        }
         for token_id in ('rider', 'mount', 'co-rider'):
             token = SERVER.find_token(state, token_id)[1]
             token['x'], token['y'] = 350, 300
@@ -167,7 +192,9 @@ class TurnPermissionTests(unittest.TestCase):
         self.assertEqual(action['tokenId'], 'mount')
         self.assertEqual(action['pathMode'], 'replace')
         self.assertEqual(action['path'], [{'x': 250.0, 'y': 250.0}, {'x': 300.0, 'y': 250.0}])
+        self.assertEqual(action['segmentEnds'], [1])
         self.assertEqual(state['encounter']['turnPath']['points'], action['path'])
+        self.assertEqual(state['encounter']['turnPath']['segmentEnds'], [1])
         for token_id in ('rider', 'mount', 'co-rider'):
             token = SERVER.find_token(state, token_id)[1]
             self.assertEqual((token['x'], token['y']), (300.0, 250.0))
@@ -178,11 +205,29 @@ class TurnPermissionTests(unittest.TestCase):
         self.assertEqual((SERVER.find_token(state, 'mount')[1]['x'], SERVER.find_token(state, 'mount')[1]['y']),
                          (300.0, 250.0))
 
+    def test_legacy_unsegmented_path_is_one_completed_drag(self):
+        state = make_state()
+        state['encounter']['turnPath'] = {
+            'mapId': 'map-1', 'tokenId': 'mount',
+            'points': [{'x': 250, 'y': 250}, {'x': 300, 'y': 250}, {'x': 350, 'y': 300}],
+        }
+        for token_id in ('rider', 'mount', 'co-rider'):
+            token = SERVER.find_token(state, token_id)[1]
+            token['x'], token['y'] = 350, 300
+        action = {
+            'op': 'turnPathUndo', 'tokenId': 'rider', 'mapId': 'map-1', 'actor': 'Alice',
+            'playMode': 'turn', 'turnSerial': 7,
+        }
+        self.assertTrue(SERVER.apply_action(state, action))
+        self.assertEqual(action['path'], [{'x': 250.0, 'y': 250.0}])
+        self.assertEqual(action['segmentEnds'], [])
+
     def test_turn_path_reset_returns_mount_group_to_turn_start(self):
         state = make_state()
         state['encounter']['turnPath'] = {
             'mapId': 'map-1', 'tokenId': 'mount',
             'points': [{'x': 250, 'y': 250}, {'x': 300, 'y': 250}, {'x': 350, 'y': 300}],
+            'segmentEnds': [1, 2],
         }
         for token_id in ('rider', 'mount', 'co-rider'):
             token = SERVER.find_token(state, token_id)[1]
@@ -195,6 +240,7 @@ class TurnPermissionTests(unittest.TestCase):
         self.assertTrue(SERVER.apply_action(state, action))
         self.assertEqual(action['pathMode'], 'replace')
         self.assertEqual(state['encounter']['turnPath']['points'], [{'x': 250.0, 'y': 250.0}])
+        self.assertEqual(state['encounter']['turnPath']['segmentEnds'], [])
         for token_id in ('rider', 'mount', 'co-rider'):
             token = SERVER.find_token(state, token_id)[1]
             self.assertEqual((token['x'], token['y']), (250.0, 250.0))
@@ -204,6 +250,7 @@ class TurnPermissionTests(unittest.TestCase):
         state['encounter']['turnPath'] = {
             'mapId': 'map-1', 'tokenId': 'mount',
             'points': [{'x': 250, 'y': 250}, {'x': 300, 'y': 250}],
+            'segmentEnds': [1],
         }
         original = copy.deepcopy(state)
         wrong_player = {
@@ -221,7 +268,7 @@ class TurnPermissionTests(unittest.TestCase):
 
     def test_end_turn_decrements_every_mount_group_member_once_and_clears_path(self):
         state = make_state()
-        state['encounter']['turnPath'] = {'mapId': 'map-1', 'tokenId': 'mount', 'points': [{'x': 250, 'y': 250}]}
+        state['encounter']['turnPath'] = {'mapId': 'map-1', 'tokenId': 'mount', 'points': [{'x': 250, 'y': 250}], 'segmentEnds': []}
         SERVER.find_token(state, 'rider')[1]['conditions'].append({'label': '永久', 'remainingTurns': None})
         SERVER.find_token(state, 'mount')[1]['conditions'] = [
             {'label': '短暂', 'remainingTurns': 1}, {'label': '永久', 'remainingTurns': None},
@@ -233,6 +280,7 @@ class TurnPermissionTests(unittest.TestCase):
         self.assertEqual(state['encounter']['currentEntryId'], 'init-other')
         self.assertEqual(state['encounter']['turnSerial'], 8)
         self.assertEqual(state['encounter']['turnPath']['points'], [])
+        self.assertEqual(state['encounter']['turnPath']['segmentEnds'], [])
         self.assertEqual(SERVER.find_token(state, 'rider')[1]['conditions'][0]['remainingTurns'], 1)
         self.assertIsNone(SERVER.find_token(state, 'rider')[1]['conditions'][1]['remainingTurns'])
         self.assertEqual(SERVER.find_token(state, 'mount')[1]['conditions'], [
@@ -503,6 +551,7 @@ class PlayerDeleteTokenTests(unittest.TestCase):
         state['encounter']['turnPath'] = {
             'mapId': 'map-1', 'tokenId': token['id'],
             'points': [{'x': 250, 'y': 250}, {'x': 300, 'y': 250}],
+            'segmentEnds': [1],
         }
         action, error, status = SERVER.normalize_player_delete_action(state, {
             'op': 'deletePlayerToken', 'mapId': 'map-1', 'tokenId': token['id'],
@@ -639,6 +688,7 @@ class PlayerMountTests(unittest.TestCase):
         state['encounter']['turnPath'] = {
             'mapId': 'map-1', 'tokenId': 'rider',
             'points': [{'x': 100, 'y': 100}, {'x': 150, 'y': 100}],
+            'segmentEnds': [1],
         }
 
         action, error, status = self.normalize(state)
@@ -710,6 +760,7 @@ class PlayerDismountTests(unittest.TestCase):
         state['encounter']['turnPath'] = {
             'mapId': 'map-1', 'tokenId': 'mount',
             'points': [{'x': 250, 'y': 250}, {'x': 300, 'y': 250}],
+            'segmentEnds': [1],
         }
 
         action, error, status = self.normalize(state)
@@ -733,6 +784,7 @@ class PlayerDismountTests(unittest.TestCase):
         state['encounter']['turnPath'] = {
             'mapId': 'map-1', 'tokenId': 'mount',
             'points': [{'x': 250, 'y': 250}, {'x': 300, 'y': 250}],
+            'segmentEnds': [1],
         }
         action, error, status = self.normalize(state)
         self.assertIsNone(error)
@@ -893,6 +945,45 @@ class ReactionTests(unittest.TestCase):
         }, 'Alice'))
 
 
+class SessionRevocationTests(unittest.TestCase):
+    def setUp(self):
+        self.sessions = dict(SERVER.SESSIONS)
+        self.action_rate = dict(SERVER.ACTION_RATE)
+        self.reaction_rate = dict(SERVER.REACTION_RATE)
+        SERVER.SESSIONS.clear()
+        SERVER.ACTION_RATE.clear()
+        SERVER.REACTION_RATE.clear()
+
+    def tearDown(self):
+        SERVER.SESSIONS.clear()
+        SERVER.SESSIONS.update(self.sessions)
+        SERVER.ACTION_RATE.clear()
+        SERVER.ACTION_RATE.update(self.action_rate)
+        SERVER.REACTION_RATE.clear()
+        SERVER.REACTION_RATE.update(self.reaction_rate)
+
+    def test_revocation_removes_only_the_target_sessions_and_rate_records(self):
+        state = make_state(play_mode='free')
+        tokens_before = copy.deepcopy(state['maps'][0]['tokens'])
+        SERVER.SESSIONS.update({
+            'alice-a': {'token': 'alice-a', 'playerId': 'player-alice', 'name': 'Alice'},
+            'alice-b': {'token': 'alice-b', 'playerId': 'player-alice', 'name': 'Alice'},
+            'bob-a': {'token': 'bob-a', 'playerId': 'player-bob', 'name': 'Bob'},
+        })
+        SERVER.ACTION_RATE.update({'alice-a': [1], 'alice-b': [2], 'bob-a': [3]})
+        SERVER.REACTION_RATE.update({'alice-a': 4, 'alice-b': 5, 'bob-a': 6})
+
+        removed = SERVER.revoke_player_sessions('player-alice')
+
+        self.assertEqual(len(removed), 2)
+        self.assertNotIn('alice-a', SERVER.SESSIONS)
+        self.assertNotIn('alice-b', SERVER.SESSIONS)
+        self.assertIn('bob-a', SERVER.SESSIONS)
+        self.assertNotIn('alice-a', SERVER.ACTION_RATE)
+        self.assertNotIn('alice-b', SERVER.REACTION_RATE)
+        self.assertEqual(state['maps'][0]['tokens'], tokens_before)
+
+
 class RestTransitionTests(unittest.TestCase):
     def test_rest_transition_is_a_validated_transient_host_action(self):
         self.assertIn('restTransition', SERVER.HOST_ACTIONS)
@@ -924,6 +1015,20 @@ class RestTransitionTests(unittest.TestCase):
 
 
 class MusicLibraryTests(unittest.TestCase):
+    def test_replacing_audio_keeps_identity_but_changes_cache_version(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            track = root / '决战.m4a'
+            track.write_bytes(b'v001')
+            before = SERVER.music_library_catalog(str(root))['tracks'][0]
+            track.write_bytes(b'v002-new-recording')
+            after = SERVER.music_library_catalog(str(root))['tracks'][0]
+            self.assertEqual(before['id'], after['id'])
+            self.assertNotEqual(before['url'], after['url'])
+            self.assertIn('?v=', after['url'])
+            normalized = SERVER.normalize_bgm_action({'action': 'play', 'url': after['url']})
+            self.assertEqual(normalized['url'], after['url'])
+
     def test_catalog_combines_general_and_only_the_current_campaign(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

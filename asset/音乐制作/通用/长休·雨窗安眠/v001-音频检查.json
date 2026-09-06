@@ -1,0 +1,26 @@
+{
+  "title": "长休·雨窗安眠",
+  "version": "v001",
+  "gainDB": 25.756,
+  "targetRMSDBFS": -24,
+  "master": {
+    "seconds": 4.4,
+    "sampleRate": 44100,
+    "channels": 2,
+    "samplePeakDBFS": -8.28,
+    "rmsDBFS": -24.0,
+    "clippedSamples": 0,
+    "boundaryJump": 0.0
+  },
+  "decodedAAC": {
+    "seconds": 4.4,
+    "sampleRate": 44100,
+    "channels": 2,
+    "samplePeakDBFS": -8.302,
+    "rmsDBFS": -24.001,
+    "clippedSamples": 0,
+    "boundaryJump": 0.0
+  },
+  "finalBytes": 138537,
+  "finalPath": "asset/界面/休息动画/音频/长休·雨窗安眠.m4a"
+}

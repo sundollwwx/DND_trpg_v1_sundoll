@@ -76,52 +76,6 @@ function catParts(c) {
   return String(c || '').split('/').map((s) => s.trim()).filter(Boolean);
 }
 
-const INTERACT_TYPES = {
-  door: {
-    name: '门',
-    states: [
-      { key: 'closed', label: '关闭', icon: '🚪' },
-      { key: 'open', label: '打开', icon: '🚪' },
-      { key: 'locked', label: '上锁', icon: '🔒' },
-    ],
-  },
-  chest: {
-    name: '宝箱',
-    states: [
-      { key: 'closed', label: '关闭', icon: '📦' },
-      { key: 'open', label: '打开', icon: '🎁' },
-    ],
-  },
-  trap: {
-    name: '陷阱',
-    states: [
-      { key: 'untripped', label: '未触发', icon: '⚠️' },
-      { key: 'tripped', label: '已触发', icon: '💥' },
-    ],
-  },
-  torch: {
-    name: '火把',
-    states: [
-      { key: 'off', label: '熄灭', icon: '🕯️' },
-      { key: 'on', label: '点燃', icon: '🔥' },
-    ],
-  },
-  gate: {
-    name: '铁门',
-    states: [
-      { key: 'closed', label: '关闭', icon: '⚙️' },
-      { key: 'open', label: '打开', icon: '⚙️' },
-    ],
-  },
-  portal: {
-    name: '传送门',
-    states: [
-      { key: 'off', label: '熄灭', icon: '🌀' },
-      { key: 'on', label: '开启', icon: '🌀' },
-    ],
-  },
-};
-
 const $ = (sel) => document.querySelector(sel);
 const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
 const snapToCell = (v, grid) => Math.round(v / grid - 0.5) * grid + grid / 2;
@@ -375,13 +329,11 @@ let streamConnectionState = 'off';
 let streamPlayersTimer = null;
 let pendingLegacyPortraitMigrations = 0;
 let streamPlayers = [];
+const hostPlayerKickPending = new Set();
 let sharedNoteTimer = null;
 let hostLocalRolls = new Set();
 let tokenAvatar = null;
 let boardTool = null;
-let editTile = 'floor';
-let editVariant = 0;
-let mapEditHistory = [];
 const mapThumbnailCache = new Map();
 let mapBrowserRenderToken = 0;
 let mapBrowserPointerDrag = null;
@@ -493,6 +445,7 @@ function normalizeEncounter(raw) {
     mapId: rawTurnPath.mapId ? String(rawTurnPath.mapId) : null,
     tokenId: rawTurnPath.tokenId ? String(rawTurnPath.tokenId) : null,
     points: turnPoints,
+    segmentEnds: normalizeTurnPathSegmentEnds(rawTurnPath.segmentEnds, turnPoints.length),
   };
   const lastEvent = source.lastEvent && typeof source.lastEvent === 'object'
     ? { label: String(source.lastEvent.label || '').slice(0, 80), at: Number(source.lastEvent.at) || Date.now() }
@@ -506,7 +459,7 @@ function normalizeEncounter(raw) {
     currentEntryId,
     turnSerial,
     secondsPerRound,
-    turnPath: playMode === 'turn' ? turnPath : { mapId: null, tokenId: null, points: [] },
+    turnPath: playMode === 'turn' ? turnPath : emptyTurnPath(),
     entries,
     worldTime,
     weather,
@@ -525,14 +478,15 @@ function encounterState() {
   e.round = Math.max(1, parseInt(e.round, 10) || 1);
   e.turnSerial = Math.max(1, parseInt(e.turnSerial, 10) || 1);
   e.secondsPerRound = clamp(Math.trunc(Number(e.secondsPerRound) || 6), 1, 3600);
-  if (!e.turnPath || typeof e.turnPath !== 'object') e.turnPath = { mapId: null, tokenId: null, points: [] };
+  if (!e.turnPath || typeof e.turnPath !== 'object') e.turnPath = emptyTurnPath();
   e.turnPath.mapId = e.turnPath.mapId ? String(e.turnPath.mapId) : null;
   e.turnPath.tokenId = e.turnPath.tokenId ? String(e.turnPath.tokenId) : null;
   e.turnPath.points = Array.isArray(e.turnPath.points) ? e.turnPath.points.filter((point) => (
     point && Number.isFinite(Number(point.x)) && Number.isFinite(Number(point.y))
   )).slice(0, MAX_TURN_PATH_POINTS).map((point) => ({ x: Number(point.x), y: Number(point.y) })) : [];
+  e.turnPath.segmentEnds = normalizeTurnPathSegmentEnds(e.turnPath.segmentEnds, e.turnPath.points.length);
   if (e.playMode === 'turn' && !e.entries.length) returnToCombatPreparationIfEmpty(e);
-  if (e.playMode !== 'turn') e.turnPath = { mapId: null, tokenId: null, points: [] };
+  if (e.playMode !== 'turn') e.turnPath = emptyTurnPath();
   e.entries = e.entries.filter((entry) => entry && entry.id);
   if (e.playMode === 'turn' && !e.entries.some((entry) => entry.id === e.currentEntryId)) e.currentEntryId = e.entries[0]?.id || null;
   if (e.playMode !== 'turn') e.currentEntryId = null;
@@ -556,7 +510,20 @@ function encounterState() {
 }
 
 function emptyTurnPath() {
-  return { mapId: null, tokenId: null, points: [] };
+  return { mapId: null, tokenId: null, points: [], segmentEnds: [] };
+}
+
+function normalizeTurnPathSegmentEnds(rawEnds, pointCount) {
+  const lastPointIndex = Math.max(0, Math.trunc(Number(pointCount) || 0) - 1);
+  if (lastPointIndex < 1) return [];
+  const ends = [];
+  (Array.isArray(rawEnds) ? rawEnds : []).forEach((raw) => {
+    const end = Math.trunc(Number(raw));
+    if (Number.isInteger(end) && end >= 1 && end <= lastPointIndex && end > (ends[ends.length - 1] || 0)) ends.push(end);
+  });
+  // 旧客户端只有 points：把现有路径视为一次已经松开鼠标的移动。
+  if (!ends.length || ends[ends.length - 1] !== lastPointIndex) ends.push(lastPointIndex);
+  return ends;
 }
 
 function bumpEncounterTurn(e) {
@@ -593,6 +560,15 @@ function recordTurnDragPoint(move, point, gridSize, snapEnabled = true, rawPoint
       && Math.abs(last.x - intent.cornerX) < 0.01 && Math.abs(last.y - intent.cornerY) < 0.01
       && !diagonalGestureFrom({ x: intent.startX, y: intent.startY })) intent.eligible = false;
     return false;
+  }
+  // 只允许在当前这次按住鼠标的轨迹里折返。松开后，旧段已提交，下一次拖动不会改写它。
+  const backtrackThreshold = snapEnabled ? 0.01 : Math.max(5, grid * 0.12);
+  for (let index = points.length - 2; index >= 0; index--) {
+    if (Math.hypot(candidate.x - points[index].x, candidate.y - points[index].y) > backtrackThreshold) continue;
+    points.splice(index + 1);
+    if (!snapEnabled) points[index] = candidate;
+    move.diagonalCornerIntent = null;
+    return true;
   }
   if (snapEnabled && points.length >= 2) {
     const start = points[points.length - 2];
@@ -652,17 +628,26 @@ function appendTurnPath(e, mapId, tokenId, points) {
   if (!valid.length) return;
   const samePath = e.turnPath && e.turnPath.mapId === String(mapId) && e.turnPath.tokenId === String(tokenId);
   const previous = samePath && Array.isArray(e.turnPath.points) ? e.turnPath.points : [];
+  const previousEnds = samePath ? normalizeTurnPathSegmentEnds(e.turnPath.segmentEnds, previous.length) : [];
   const continuous = !previous.length || sameTurnPoint(previous[previous.length - 1], valid[0]);
   const combined = samePath && continuous ? previous.slice() : [];
+  let segmentEnds = samePath && continuous ? previousEnds.slice() : [];
+  const previousLength = combined.length;
   valid.forEach((point) => {
     if (!combined.length || !sameTurnPoint(combined[combined.length - 1], point)) combined.push(point);
   });
+  if (combined.length > previousLength) segmentEnds.push(combined.length - 1);
+  let limitedPoints = combined;
+  if (limitedPoints.length > MAX_TURN_PATH_POINTS) {
+    limitedPoints = limitedPoints.slice(0, MAX_TURN_PATH_POINTS - 1).concat(limitedPoints[limitedPoints.length - 1]);
+    segmentEnds = segmentEnds.filter((end) => end < MAX_TURN_PATH_POINTS - 1);
+    segmentEnds.push(MAX_TURN_PATH_POINTS - 1);
+  }
   e.turnPath = {
     mapId: String(mapId),
     tokenId: String(tokenId),
-    points: combined.length > MAX_TURN_PATH_POINTS
-      ? combined.slice(0, MAX_TURN_PATH_POINTS - 1).concat(combined[combined.length - 1])
-      : combined,
+    points: limitedPoints,
+    segmentEnds: normalizeTurnPathSegmentEnds(segmentEnds, limitedPoints.length),
   };
 }
 
@@ -704,7 +689,7 @@ function updateHostTurnPathControls(e = encounterState()) {
   toggle.title = hostTurnPathRecording ? '关闭后，主控台拖动棋子不会新增本回合路径' : '开启主控台回合移动路径记录';
   undo.disabled = !canChange;
   reset.disabled = !canChange;
-  undo.title = canChange ? `让「${context.entry?.name || context.token?.name || '当前单位'}」回到上一个路径点` : '当前单位移动后可以回退一步';
+  undo.title = canChange ? `撤销「${context.entry?.name || context.token?.name || '当前单位'}」上一次完整拖动` : '当前单位移动后可以撤销上一次拖动';
   reset.title = canChange ? `让「${context.entry?.name || context.token?.name || '当前单位'}」回到本回合起点` : '当前单位移动后可以重置路径';
 }
 
@@ -725,19 +710,22 @@ function applyHostTurnPathAction(op) {
     toast('当前路径数据无效，无法回退');
     return;
   }
-  const nextPoints = op === 'turnPathUndo' ? points.slice(0, -1) : points.slice(0, 1);
+  const segmentEnds = normalizeTurnPathSegmentEnds(e.turnPath.segmentEnds, points.length);
+  const previousSegmentEnd = segmentEnds.length > 1 ? segmentEnds[segmentEnds.length - 2] : 0;
+  const nextPoints = op === 'turnPathUndo' ? points.slice(0, previousSegmentEnd + 1) : points.slice(0, 1);
+  const nextSegmentEnds = op === 'turnPathUndo' ? segmentEnds.slice(0, -1) : [];
   const target = nextPoints[nextPoints.length - 1];
   moveToken(context.anchor.id, target.x, target.y, { persist: false });
-  e.turnPath = { mapId: context.map.id, tokenId: context.anchor.id, points: nextPoints };
+  e.turnPath = { mapId: context.map.id, tokenId: context.anchor.id, points: nextPoints, segmentEnds: nextSegmentEnds };
   setEncounterEvent(e, op === 'turnPathUndo'
-    ? `${context.entry?.name || context.token?.name || '当前单位'}回退了一步`
+    ? `${context.entry?.name || context.token?.name || '当前单位'}撤销了上一次移动`
     : `${context.entry?.name || context.token?.name || '当前单位'}重置到回合起点`);
   renderTokens();
   renderTurnPath();
   renderEncounter();
   if (state.selectedId) updateDetail();
   scheduleAutosave();
-  toast(op === 'turnPathUndo' ? '↶ 已回退一步' : '⟲ 已重置到本回合起点');
+  toast(op === 'turnPathUndo' ? '↶ 已撤销上一次移动' : '⟲ 已重置到本回合起点');
 }
 
 function worldTimeNow(e = encounterState(), now = Date.now()) {
@@ -1226,6 +1214,8 @@ function publicEncounterState(visibleTokenIds = null) {
       tokenId: visible(e.turnPath?.tokenId) ? (e.turnPath?.tokenId || null) : null,
       points: visible(e.turnPath?.tokenId) && Array.isArray(e.turnPath?.points)
         ? e.turnPath.points.map((point) => ({ x: point.x, y: point.y })) : [],
+      segmentEnds: visible(e.turnPath?.tokenId)
+        ? normalizeTurnPathSegmentEnds(e.turnPath?.segmentEnds, e.turnPath?.points?.length || 0) : [],
     },
     entries: e.entries.filter((entry) => visible(entry.tokenId)).map((entry) => ({
       id: entry.id,
@@ -1621,6 +1611,13 @@ function playRestTransition(kind, requestedDuration = null, requestedScene = nul
   const fallbackDuration = REST_TRANSITION_DURATIONS[normalizedKind];
   const networkDuration = clamp(Math.trunc(Number(requestedDuration) || fallbackDuration), 1000, 8000);
   const duration = reducedMotion ? (isLong ? 900 : 600) : networkDuration;
+  window.SundollRestAudio?.play(scene, duration, {
+    volume: () => Number($('#bgm-volume').value) / 100,
+    backgroundVolume: () => Number($('#bgm-volume').value) / 100,
+    backgrounds: () => [bgmAudio, bgmPreviewAudio],
+    onBlocked: () => toast('点击页面启用声音，下次休息将播放配乐'),
+    onError: () => toast('休息配乐加载失败，休息照常完成'),
+  });
   restAnimationActive = true;
   clearTimeout(restAnimationTimer);
   if (layer) {
@@ -1741,13 +1738,43 @@ function mapById(id) {
   return state.maps.find((m) => m.id === id);
 }
 
+function mapGridVisible(map = activeMap()) {
+  return map ? map.gridVisible !== false : true;
+}
+
+function syncToggleTargetButtons(target) {
+  if (!target?.id) return;
+  document.querySelectorAll(`[data-toggle-target="${target.id}"]`).forEach((button) => {
+    const active = Boolean(target.checked);
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-pressed', String(active));
+    button.disabled = Boolean(target.disabled);
+  });
+}
+
+function syncActiveMapGridSetting() {
+  const map = activeMap();
+  const toggle = $('#grid-toggle');
+  if (!toggle) return;
+  toggle.checked = mapGridVisible(map);
+  toggle.disabled = !map;
+  syncToggleTargetButtons(toggle);
+  document.querySelectorAll('[data-toggle-target="grid-toggle"]').forEach((button) => {
+    button.title = map ? (toggle.checked ? '隐藏当前地图网格' : '显示当前地图网格') : '当前没有地图';
+    const label = button.querySelector('span');
+    if (label) label.textContent = map ? (toggle.checked ? '网格：开' : '网格：关') : '网格';
+    button.setAttribute('aria-label', map
+      ? `网格已${toggle.checked ? '开启' : '关闭'}，点击${button.title}`
+      : '当前没有地图，网格开关不可用');
+  });
+}
+
 function cleanCellStates(cellStates) {
   if (!cellStates || typeof cellStates !== 'object') return {};
   return Object.fromEntries(Object.entries(cellStates).filter(([, value]) => value !== 'marked'));
 }
 
-function makeMapEntry(name, dataUrl, w, h, gridSize, cells, cellStates, cellVariants) {
-  const cleanStates = cleanCellStates(cellStates);
+function makeMapEntry(name, dataUrl, w, h, gridSize, cells, cellVariants, gridVisible = true) {
   return {
     id: 'm' + (uid++),
     name: name || '未命名地图',
@@ -1755,21 +1782,17 @@ function makeMapEntry(name, dataUrl, w, h, gridSize, cells, cellStates, cellVari
     mapW: w || 1400,
     mapH: h || 900,
     gridSize: gridSize || 50,
+    gridVisible: gridVisible !== false,
     cells: Array.isArray(cells) ? cells.map((r) => r.slice()) : null,
-    cellStates: cleanStates,
     cellVariants: cellVariants && typeof cellVariants === 'object' ? { ...cellVariants } : {},
-    // 原始底图快照：编辑器橡皮只还原到这份快照，不破坏原地图
-    baseCells: Array.isArray(cells) ? cells.map((r) => r.slice()) : null,
-    baseCellStates: { ...cleanStates },
-    baseCellVariants: cellVariants && typeof cellVariants === 'object' ? { ...cellVariants } : {},
     doodles: [],
     tokens: [],
     cam: { x: 0, y: 0, zoom: 1 },
   };
 }
 
-function addMap(name, dataUrl, w, h, gridSize, cells, cellStates, cellVariants) {
-  const m = makeMapEntry(name, dataUrl, w, h, gridSize, cells, cellStates, cellVariants);
+function addMap(name, dataUrl, w, h, gridSize, cells, cellVariants, gridVisible = true) {
+  const m = makeMapEntry(name, dataUrl, w, h, gridSize, cells, cellVariants, gridVisible);
   state.maps.push(m);
   switchMap(m.id);
   fitView();
@@ -1995,12 +2018,22 @@ function renderMapBrowser(focusActive = false) {
     name.title = map.name || '未命名地图';
     const meta = document.createElement('span');
     meta.className = 'map-thumb-meta';
-    meta.textContent = `${map.mapW || 0} × ${map.mapH || 0} · 格距 ${map.gridSize || 50}px/5尺`;
+    meta.textContent = `${map.mapW || 0} × ${map.mapH || 0} · ${mapGridVisible(map) ? `网格 ${map.gridSize || 50}px/5尺` : `网格隐藏 · ${map.gridSize || 50}px/5尺`}`;
     copy.append(name, meta);
     open.append(preview, copy);
 
     const management = document.createElement('div');
     management.className = 'map-thumb-management';
+    const gridToggleLabel = document.createElement('label');
+    gridToggleLabel.className = 'map-thumb-grid-toggle';
+    gridToggleLabel.title = '只控制这张地图是否显示网格';
+    const gridToggle = document.createElement('input');
+    gridToggle.type = 'checkbox';
+    gridToggle.checked = mapGridVisible(map);
+    gridToggle.dataset.mapGridVisible = map.id;
+    const gridToggleText = document.createElement('span');
+    gridToggleText.textContent = '显示网格';
+    gridToggleLabel.append(gridToggle, gridToggleText);
     const gridSize = document.createElement('input');
     gridSize.className = 'map-thumb-grid-size';
     gridSize.type = 'number';
@@ -2027,7 +2060,7 @@ function renderMapBrowser(focusActive = false) {
     remove.setAttribute('aria-label', `删除 ${map.name}`);
     remove.textContent = '×';
     remove.disabled = state.maps.length <= 1;
-    management.append(gridSize, rename, remove);
+    management.append(gridToggleLabel, gridSize, rename, remove);
 
     const actions = document.createElement('div');
     actions.className = 'map-thumb-actions';
@@ -2123,6 +2156,18 @@ function renameMapById(mapId) {
   if (name === null || !name.trim()) return;
   map.name = name.trim().slice(0, 60);
   syncMapSelect();
+  scheduleAutosave();
+}
+
+function setMapGridVisibility(mapId, visible) {
+  const map = mapById(mapId);
+  if (!map) return;
+  map.gridVisible = Boolean(visible);
+  if (map.id === state.activeMapId) {
+    syncActiveMapGridSetting();
+    updateWorldBackground();
+  }
+  if (!$('#map-browser-modal')?.hidden) renderMapBrowser();
   scheduleAutosave();
 }
 
@@ -3218,8 +3263,10 @@ function importMapFile(f) {
       const cells = Array.isArray(s.grid) ? s.grid.map((r) => r.slice()) : null;
       const cellStates = s.cellStates && typeof s.cellStates === 'object' ? { ...s.cellStates } : {};
       const cellVariants = s.cellVariants && typeof s.cellVariants === 'object' ? { ...s.cellVariants } : {};
-      const dataUrl = cells ? renderCellsToDataUrl(cells, cellStates, s.gridSize, cellVariants) : s.mapData;
-      const m = addMap(s.mapName || '导入地图', dataUrl, s.mapW, s.mapH, s.gridSize, cells, cellStates, cellVariants);
+      // 工坊导出的完整底图包含材质与摆件；仅缺少底图的旧文件需要重建。
+      const dataUrl = s.mapData || renderCellsToDataUrl(cells, cleanCellStates(cellStates), s.gridSize, cellVariants);
+      const gridVisible = typeof s.gridVisible === 'boolean' ? s.gridVisible : s.showGrid !== false;
+      const m = addMap(s.mapName || '导入地图', dataUrl, s.mapW, s.mapH, s.gridSize, cells, cellVariants, gridVisible);
       if (m && Array.isArray(s.tokens)) {
         s.tokens.forEach((raw) => {
           if (!raw || typeof raw !== 'object') return;
@@ -3275,6 +3322,7 @@ function inspectDirectMapImage(file) {
         height: img.naturalHeight,
         name: mapNameFromFile(file.name),
         gridSize: clamp(Number(activeMap()?.gridSize) || 50, 10, 300),
+        gridVisible: true,
       });
     };
     img.onerror = () => {
@@ -3328,6 +3376,15 @@ function renderMapImageImportList() {
 
     const gridLabel = document.createElement('div');
     gridLabel.className = 'map-image-import-grid';
+    const gridHead = document.createElement('label');
+    gridHead.className = 'map-image-import-grid-head';
+    const gridToggle = document.createElement('input');
+    gridToggle.type = 'checkbox';
+    gridToggle.checked = item.gridVisible !== false;
+    gridToggle.dataset.mapImportGridVisible = String(index);
+    const gridHeadText = document.createElement('span');
+    gridHeadText.textContent = '显示网格';
+    gridHead.append(gridToggle, gridHeadText);
     const gridSizeWrap = document.createElement('label');
     gridSizeWrap.className = 'map-image-import-grid-size';
     const gridSizeText = document.createElement('span');
@@ -3340,7 +3397,7 @@ function renderMapImageImportList() {
     gridInput.value = String(item.gridSize);
     gridInput.dataset.mapImportGrid = String(index);
     gridSizeWrap.append(gridSizeText, gridInput);
-    gridLabel.append(gridSizeWrap);
+    gridLabel.append(gridHead, gridSizeWrap);
 
     const remove = document.createElement('button');
     remove.type = 'button';
@@ -3416,6 +3473,7 @@ async function confirmDirectMapImport() {
         dataUrl: await readFileAsDataUrl(item.file),
         name: String(item.name || '').trim().slice(0, 60) || mapNameFromFile(item.file.name),
         gridSize: clamp(Math.round(Number(item.gridSize) || 50), 10, 300),
+        gridVisible: item.gridVisible !== false,
       });
     }
     const usedNames = new Set(state.maps.map((map) => String(map.name || '').toLocaleLowerCase('zh-CN')));
@@ -3427,7 +3485,7 @@ async function confirmDirectMapImport() {
       item.gridSize,
       null,
       null,
-      null
+      item.gridVisible
     ));
     state.maps.push(...added);
     if (added.length) {
@@ -3458,17 +3516,24 @@ function updateWorldBackground() {
   const m = activeMap();
   const g = m ? m.gridSize : 50;
   const hasMap = !!m && !!m.mapData;
+  const showGrid = mapGridVisible(m);
   const gridLayer =
     `repeating-linear-gradient(to right, rgba(255,255,255,.78) 0, rgba(255,255,255,.78) 2px, transparent 2px, transparent ${g}px),` +
     `repeating-linear-gradient(to bottom, rgba(255,255,255,.78) 0, rgba(255,255,255,.78) 2px, transparent 2px, transparent ${g}px),` +
     `repeating-linear-gradient(to right, rgba(0,0,0,.16) 0, rgba(0,0,0,.16) 2px, transparent 2px, transparent ${g}px),` +
     `repeating-linear-gradient(to bottom, rgba(0,0,0,.16) 0, rgba(0,0,0,.16) 2px, transparent 2px, transparent ${g}px)`;
-  world.style.backgroundColor = hasMap ? 'transparent' : '#ddd6c2';
-  world.style.backgroundImage = hasMap ? `${gridLayer}, url("${m.mapData}")` : gridLayer;
-  world.style.backgroundSize = hasMap
-    ? `${g}px ${g}px, ${g}px ${g}px, ${g}px ${g}px, ${g}px ${g}px, 100% 100%`
-    : `${g}px ${g}px, ${g}px ${g}px, ${g}px ${g}px, ${g}px ${g}px`;
-  world.style.backgroundRepeat = hasMap ? 'repeat, repeat, repeat, repeat, no-repeat' : 'repeat';
+  world.style.backgroundColor = hasMap ? 'transparent' : (showGrid ? '#ddd6c2' : '#0f1116');
+  if (hasMap) {
+    world.style.backgroundImage = showGrid ? `${gridLayer}, url("${m.mapData}")` : `url("${m.mapData}")`;
+    world.style.backgroundSize = showGrid
+      ? `${g}px ${g}px, ${g}px ${g}px, ${g}px ${g}px, ${g}px ${g}px, 100% 100%`
+      : '100% 100%';
+    world.style.backgroundRepeat = showGrid ? 'repeat, repeat, repeat, repeat, no-repeat' : 'no-repeat';
+  } else {
+    world.style.backgroundImage = showGrid ? gridLayer : 'none';
+    world.style.backgroundSize = showGrid ? `${g}px ${g}px, ${g}px ${g}px, ${g}px ${g}px, ${g}px ${g}px` : '';
+    world.style.backgroundRepeat = showGrid ? 'repeat' : 'no-repeat';
+  }
   world.style.backgroundPosition = '0 0';
 }
 
@@ -3509,7 +3574,7 @@ function zoomAt(cx, cy, factor) {
   applyCamera();
 }
 
-/* ==================== 格子渲染（交互式地图） ==================== */
+/* ==================== 旧地图导入的静态格子渲染 ==================== */
 
 const CELL_BASE = {
   void: '#181b21', floor: '#8f8574', wood: '#a97c50', grass: '#7da05c',
@@ -3524,25 +3589,6 @@ const CELL_BASE = {
   pit: '#1e2126', bush: '#4a7a3a', mushroom: '#6a6f4a',
 };
 
-// 轻便地图编辑：完整地块库（分门别类，每块带名字）
-const EDIT_GROUPS = [
-  { name: '🟫 地面', tiles: ['grass', 'floor', 'wood', 'sand', 'road', 'water', 'ice', 'lava', 'void'] },
-  { name: '🧱 墙与障碍', tiles: ['wall', 'woodwall', 'fence', 'hedge', 'bars', 'pillar', 'rock'] },
-  { name: '🚪 门与通道', tiles: ['door', 'gate', 'stairs', 'bridge', 'portal'] },
-  { name: '🪑 家具物品', tiles: ['table', 'chest', 'bed', 'bookshelf', 'altar', 'throne', 'barrel', 'crate', 'fountain', 'statue', 'torch'] },
-  { name: '⚠️ 机关与自然', tiles: ['rubble', 'trap', 'spikes', 'pit', 'bush', 'tree', 'mushroom'] },
-];
-const EDIT_TILES = EDIT_GROUPS.flatMap((g) => g.tiles);
-const TILE_LABELS = {
-  void: '清除', grass: '草地', floor: '石板', wood: '木地板', sand: '沙地', road: '道路',
-  water: '水面', ice: '冰面', lava: '岩浆', wall: '石墙', woodwall: '木墙', fence: '栅栏',
-  hedge: '树篱', bars: '铁栏', pillar: '石柱', rock: '岩石', door: '木门', gate: '铁门',
-  stairs: '楼梯', bridge: '木桥', portal: '传送门', table: '桌子', chest: '宝箱', bed: '床',
-  bookshelf: '书架', altar: '祭坛', throne: '王座', barrel: '木桶', crate: '板条箱',
-  fountain: '喷泉', statue: '雕像', torch: '火把', rubble: '碎石', trap: '陷阱',
-  spikes: '尖刺', pit: '深坑', bush: '灌木', tree: '树', mushroom: '蘑菇',
-};
-
 function materialVariantsFor(id) {
   const variants = window.SundollTileRenderer?.getVariants?.(id);
   return Array.isArray(variants) ? variants : [];
@@ -3554,16 +3600,6 @@ function normalizeMaterialVariant(id, value) {
   const index = Number.parseInt(value, 10);
   // 旧地图没有记录此字段时，固定使用样式 I，不再由坐标随机决定。
   return Number.isInteger(index) && index >= 0 && index < variants.length ? index : 0;
-}
-
-function editTileOptions(id) {
-  const variants = materialVariantsFor(id);
-  if (!variants.length) return [{ id, variant: null, label: TILE_LABELS[id] || id }];
-  return variants.map((variant) => ({ id, variant: variant.index, label: variant.label }));
-}
-
-function cellStateDefs(tile) {
-  return INTERACT_TYPES[tile] ? INTERACT_TYPES[tile].states : null;
 }
 
 // 基于格子坐标的稳定伪随机：同一格子的装饰每次绘制都一致
@@ -4238,19 +4274,49 @@ function renderTokens() {
   renderInitiativeSelection();
 }
 
-function drawTurnPath(ctx, points, color, dashed) {
+function turnPathEdgeKey(a, b) {
+  const pointKey = (point) => `${Math.round(Number(point.x) * 10) / 10},${Math.round(Number(point.y) * 10) / 10}`;
+  const left = pointKey(a);
+  const right = pointKey(b);
+  return left < right ? `${left}|${right}` : `${right}|${left}`;
+}
+
+function turnPathEdgeCounts(...paths) {
+  const counts = new Map();
+  paths.forEach((points) => {
+    if (!Array.isArray(points)) return;
+    for (let index = 1; index < points.length; index++) {
+      if (sameTurnPoint(points[index - 1], points[index])) continue;
+      const key = turnPathEdgeKey(points[index - 1], points[index]);
+      counts.set(key, (counts.get(key) || 0) + 1);
+    }
+  });
+  return counts;
+}
+
+function drawTurnPath(ctx, points, color, dashed, priorPoints = []) {
   if (!ctx || !Array.isArray(points) || points.length < 2) return;
   ctx.save();
   ctx.strokeStyle = color;
   ctx.fillStyle = color;
-  ctx.lineWidth = 4;
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
   if (dashed) ctx.setLineDash([10, 8]);
-  ctx.beginPath();
-  ctx.moveTo(points[0].x, points[0].y);
-  points.slice(1).forEach((point) => ctx.lineTo(point.x, point.y));
-  ctx.stroke();
+  const edgeCounts = turnPathEdgeCounts(priorPoints, points);
+  const drawn = new Set();
+  for (let index = 1; index < points.length; index++) {
+    const start = points[index - 1];
+    const end = points[index];
+    if (sameTurnPoint(start, end)) continue;
+    const key = turnPathEdgeKey(start, end);
+    if (drawn.has(key)) continue;
+    drawn.add(key);
+    ctx.lineWidth = 4 + Math.min(8, Math.max(0, (edgeCounts.get(key) || 1) - 1) * 2);
+    ctx.beginPath();
+    ctx.moveTo(start.x, start.y);
+    ctx.lineTo(end.x, end.y);
+    ctx.stroke();
+  }
   ctx.setLineDash([]);
   ctx.beginPath();
   ctx.arc(points[0].x, points[0].y, 6, 0, Math.PI * 2);
@@ -4277,7 +4343,7 @@ function renderTurnPath(draftPoints = null) {
   const e = encounterState();
   const path = e.playMode === 'turn' && e.turnPath && e.turnPath.mapId === m.id ? e.turnPath.points : [];
   drawTurnPath(turnPathCtx, path, 'rgba(224, 179, 76, .82)', false);
-  if (Array.isArray(draftPoints)) drawTurnPath(turnPathCtx, draftPoints, 'rgba(255, 232, 145, .95)', true);
+  if (Array.isArray(draftPoints)) drawTurnPath(turnPathCtx, draftPoints, 'rgba(255, 232, 145, .95)', true, path);
 }
 
 // 名字放在独立图层：盖在棋子图标之上，并禁用文字选取与指针命中。
@@ -5376,10 +5442,10 @@ function stateStorageReplacer(key, value) {
   if (key === 'turnPath' && this === state.encounter) return undefined;
   // 棋子库是全局数据，只写入“存档/棋子库/棋子库.json”。
   if (key === 'library' && this === state) return undefined;
-  // 已移除的地图显示功能不再写回新存档；旧存档读取时也会被忽略。
+  // 已移除的旧全局地图显示功能不再写回；每张地图的 gridVisible 继续保存。
   if ((key === 'showGrid' || key === 'markMode' || key === 'fogOn') && this === state) return undefined;
-  if ((key === 'gridVisible' || key === 'fog') && this && Array.isArray(this.tokens)) return undefined;
-  if ((key === 'cellStates' || key === 'baseCellStates') && this && Array.isArray(this.tokens)) return cleanCellStates(value);
+  if (key === 'fog' && this && Array.isArray(this.tokens)) return undefined;
+  if (['cellStates', 'baseCells', 'baseCellStates', 'baseCellVariants'].includes(key) && this && Array.isArray(this.tokens)) return undefined;
   if ((key === 'iconImgHd' || key === 'iconImg') && this && this.iconImgPath) return null;
   return value;
 }
@@ -5390,6 +5456,29 @@ function stateStorageJson(space) {
 
 function stateStorageSnapshot() {
   return JSON.parse(stateStorageJson());
+}
+
+function browserStorageIssue(error) {
+  const quotaExceeded = error && (
+    error.name === 'QuotaExceededError'
+    || error.name === 'NS_ERROR_DOM_QUOTA_REACHED'
+    || error.code === 22
+    || error.code === 1014
+  );
+  return quotaExceeded ? '浏览器恢复缓存已满' : '浏览器恢复缓存不可用';
+}
+
+function cacheLoadedStateInBrowser() {
+  try {
+    localStorage.setItem(STORAGE_KEY, stateStorageJson());
+    localStorage.setItem('dnd-board-local-save-at', String(Date.now()));
+    browserStateCacheFailed = false;
+    return { ok: true, issue: '' };
+  } catch (error) {
+    browserStateCacheFailed = true;
+    console.warn('正式存档已读取，但浏览器恢复缓存写入失败', error);
+    return { ok: false, issue: browserStorageIssue(error) };
+  }
 }
 
 function normalizeServerBase(value) {
@@ -5523,10 +5612,14 @@ async function loadFolderSave(item, confirmLoad = true) {
     applyAllState();
     loadLinks();
     renderLinks();
-    localStorage.setItem(STORAGE_KEY, stateStorageJson());
-    localStorage.setItem('dnd-board-local-save-at', String(Date.now()));
-    updateSaveStatus(`已读取 ${item.name}`, 'ok');
-    toast(`已读取存档「${item.name}」`);
+    const browserCache = cacheLoadedStateInBrowser();
+    if (browserCache.ok) {
+      updateSaveStatus(`已读取 ${item.name}`, 'ok');
+      toast(`已读取存档「${item.name}」`);
+    } else {
+      updateSaveStatus(`已读取 ${item.name} · ${browserCache.issue}`, 'error');
+      toast(`已读取存档「${item.name}」；${browserCache.issue}，正式文件仍可使用`);
+    }
     streamDirty = true;
     return true;
   } catch (error) {
@@ -5555,13 +5648,24 @@ async function restoreFolderIfAvailable() {
     return;
   }
   let localSavedAt = 0;
-  try { localSavedAt = Number(localStorage.getItem('dnd-board-local-save-at')) || 0; } catch (e) { /* 忽略 */ }
-  if (!localStorage.getItem(STORAGE_KEY) || !state.maps.length) {
+  let hasBrowserState = false;
+  try {
+    localSavedAt = Number(localStorage.getItem('dnd-board-local-save-at')) || 0;
+    hasBrowserState = Boolean(localStorage.getItem(STORAGE_KEY));
+  } catch (e) { /* 浏览器缓存不可读时直接使用正式文件 */ }
+  if (!hasBrowserState || !state.maps.length) {
     applySavedState(record.state);
     applyAllState();
     loadLinks();
     renderLinks();
-    updateSaveStatus(`已从文件夹恢复 ${new Date(record.savedAt).toLocaleTimeString('zh-CN')}`, 'ok');
+    const browserCache = cacheLoadedStateInBrowser();
+    const restoredAt = new Date(record.savedAt).toLocaleTimeString('zh-CN');
+    if (browserCache.ok) {
+      updateSaveStatus(`已从文件夹恢复 ${restoredAt}`, 'ok');
+    } else {
+      updateSaveStatus(`已从文件夹恢复 ${restoredAt} · ${browserCache.issue}`, 'error');
+      toast(`已从正式文件恢复战役；${browserCache.issue}，正式文件仍可使用`);
+    }
     return;
   }
   if (record.savedAt > localSavedAt + 1000 && confirm('检测到更新的文件夹存档，是否读取？')) {
@@ -5570,9 +5674,14 @@ async function restoreFolderIfAvailable() {
     applyAllState();
     loadLinks();
     renderLinks();
-    localStorage.setItem(STORAGE_KEY, stateStorageJson());
-    toast('已读取更新的文件夹存档');
-    updateSaveStatus('已读取文件夹存档', 'ok');
+    const browserCache = cacheLoadedStateInBrowser();
+    if (browserCache.ok) {
+      toast('已读取更新的文件夹存档');
+      updateSaveStatus('已读取文件夹存档', 'ok');
+    } else {
+      toast(`已读取更新的文件夹存档；${browserCache.issue}，正式文件仍可使用`);
+      updateSaveStatus(`已读取文件夹存档 · ${browserCache.issue}`, 'error');
+    }
   } else if (localSavedAt > record.savedAt + 1000) {
     if (confirm('浏览器恢复点比正式文件更新，是否补写到存档文件夹？')) {
       await queueCurrentFolderSave();
@@ -5658,6 +5767,31 @@ function loadSaved() {
   return applySavedState(JSON.parse(raw));
 }
 
+function nextSafeCounter(ids) {
+  // 时间戳加随机后缀不是递增编号；拼接其数字会超过安全整数范围。
+  return ids.reduce((max, id) => {
+    const match = /^[a-z]+(\d+)$/i.exec(String(id));
+    const n = match ? Number(match[1]) : 0;
+    return Number.isSafeInteger(n) && n < 1e12 ? Math.max(max, n + 1) : max;
+  }, 1);
+}
+
+function repairDuplicateTokenIds(maps) {
+  const used = new Set(maps.flatMap((m) => m.tokens.map((t) => t.id)));
+  const seen = new Set();
+  for (const m of maps) {
+    for (const t of m.tokens) {
+      if (!t.id || seen.has(t.id)) {
+        let id;
+        do { id = 't-' + crypto.randomUUID(); } while (used.has(id));
+        t.id = id;
+        used.add(id);
+      }
+      seen.add(t.id);
+    }
+  }
+}
+
 function applySavedState(s) {
   try {
     state.snap = s.snap !== false;
@@ -5706,12 +5840,9 @@ function applySavedState(s) {
         mapW: m.mapW || 1400,
         mapH: m.mapH || 900,
         gridSize: m.gridSize || 50,
+        gridVisible: typeof m.gridVisible === 'boolean' ? m.gridVisible : s.showGrid !== false,
         cells: Array.isArray(m.cells) ? m.cells.map((r) => r.slice()) : null,
-        cellStates: cleanCellStates(m.cellStates),
         cellVariants: m.cellVariants && typeof m.cellVariants === 'object' ? { ...m.cellVariants } : {},
-        baseCells: Array.isArray(m.baseCells) ? m.baseCells.map((r) => r.slice()) : (Array.isArray(m.cells) ? m.cells.map((r) => r.slice()) : null),
-        baseCellStates: cleanCellStates(m.baseCellStates || m.cellStates),
-        baseCellVariants: m.baseCellVariants && typeof m.baseCellVariants === 'object' ? { ...m.baseCellVariants } : (m.cellVariants && typeof m.cellVariants === 'object' ? { ...m.cellVariants } : {}),
         doodles: Array.isArray(m.doodles) ? m.doodles : [],
         tokens: Array.isArray(m.tokens) ? m.tokens.map(normalizeToken) : [],
         cam: m.cam || { x: 0, y: 0, zoom: 1 },
@@ -5727,20 +5858,17 @@ function applySavedState(s) {
         s.gridSize || 50,
         null,
         null,
-        null
+        s.showGrid !== false
       );
       legacy.tokens = Array.isArray(s.tokens) ? s.tokens.map(normalizeToken) : [];
       legacy.cells = null;
-      legacy.cellStates = {};
       legacy.cellVariants = {};
-      legacy.baseCells = null;
-      legacy.baseCellStates = {};
-      legacy.baseCellVariants = {};
       legacy.doodles = [];
       legacy.cam = s.cam || legacy.cam;
       state.maps = [legacy];
       state.activeMapId = legacy.id;
     }
+    repairDuplicateTokenIds(state.maps);
     // 旧版手动先攻只有名字；仅在当前地图存在唯一同名棋子时自动补上关联。
     // 骑手和坐骑若曾分别存在，也会在这里安全合并为同一个先攻项。
     reconcileInitiativeEntries({ linkLegacyNames: true });
@@ -5753,10 +5881,9 @@ function applySavedState(s) {
     }
 
     const ids = state.maps.flatMap((m) => [m.id, ...m.tokens.map((t) => t.id)])
-      .map((id) => parseInt(String(id).replace(/\D/g, ''), 10) || 0)
-      .concat(state.library.map((p) => parseInt(String(p.id).replace(/\D/g, ''), 10) || 0))
-      .concat(state.encounter.entries.map((entry) => parseInt(String(entry.id).replace(/\D/g, ''), 10) || 0));
-    uid = Math.max(1, ...ids) + 1;
+      .concat(state.library.map((p) => p.id))
+      .concat(state.encounter.entries.map((entry) => entry.id));
+    uid = nextSafeCounter(ids);
     renumberAllMaps();
     pendingLegacyPortraitMigrations = migratedPortraits;
     return true;
@@ -5769,15 +5896,18 @@ function applySavedState(s) {
 function applyAllState() {
   $('#names-toggle').checked = state.showNames;
   $('#snap-toggle').checked = state.snap;
+  syncActiveMapGridSetting();
   renderLibrary();
   renderSharedNotes();
   ensureBgmLibraryForCampaign();
+  ensureCampaignDocumentsForCampaign();
   syncMapSelect();
   applyActiveMap();
 }
 
 function applyActiveMap() {
   const m = activeMap();
+  syncActiveMapGridSetting();
   if (!m) {
     world.style.width = '100%';
     world.style.height = '100%';
@@ -5870,6 +6000,11 @@ function bindEvents() {
     }
   });
   mapStrip.addEventListener('change', (e) => {
+    const visibilityMapId = e.target.dataset.mapGridVisible;
+    if (visibilityMapId !== undefined) {
+      setMapGridVisibility(visibilityMapId, e.target.checked);
+      return;
+    }
     const sizeMapId = e.target.dataset.mapGridSize;
     if (sizeMapId !== undefined) setMapGridSize(sizeMapId, e.target.value);
   });
@@ -5955,11 +6090,15 @@ function bindEvents() {
   $('#map-image-import-list').addEventListener('input', (e) => {
     const nameIndex = e.target.dataset.mapImportName;
     const gridIndex = e.target.dataset.mapImportGrid;
+    const visibilityIndex = e.target.dataset.mapImportGridVisible;
     if (nameIndex !== undefined && pendingMapImageImports[Number(nameIndex)]) {
       pendingMapImageImports[Number(nameIndex)].name = e.target.value;
     }
     if (gridIndex !== undefined && pendingMapImageImports[Number(gridIndex)]) {
       pendingMapImageImports[Number(gridIndex)].gridSize = e.target.value;
+    }
+    if (visibilityIndex !== undefined && pendingMapImageImports[Number(visibilityIndex)]) {
+      pendingMapImageImports[Number(visibilityIndex)].gridVisible = e.target.checked;
     }
   });
   $('#map-image-import-list').addEventListener('click', (e) => {
@@ -6095,7 +6234,15 @@ function bindEvents() {
     if (item) appendDirectMapImages([item.getAsFile()]);
   });
 
-  // 名字与吸附
+  // 网格、名字与吸附
+  $('#grid-toggle').addEventListener('change', (e) => {
+    const map = activeMap();
+    if (!map) {
+      syncActiveMapGridSetting();
+      return;
+    }
+    setMapGridVisibility(map.id, e.target.checked);
+  });
   $('#names-toggle').addEventListener('change', (e) => {
     state.showNames = e.target.checked;
     renderTokens();
@@ -6132,7 +6279,7 @@ function bindEvents() {
 
   // 拖拽：棋子 / 平移
   board.addEventListener('pointerdown', (e) => {
-    // 只处理左键（右键留给 contextmenu 反向切换等）
+    // 左键拖拽；右键选择棋子。
     if (e.button !== 0) return;
     // 按钮（如右下角缩放按钮）正常响应点击，不进入拖拽逻辑
     if (e.target.closest('button')) return;
@@ -6146,7 +6293,7 @@ function bindEvents() {
       beginSelectedSpellAim(e);
       return;
     }
-    // 涂鸦与地图材质工具
+    // 战术涂鸦工具
     if (boardTool) {
       const m = activeMap();
       if (m) {
@@ -6162,10 +6309,6 @@ function bindEvents() {
           selectedDoodleId = s ? s.id : null;
           renderDoodles();
           if (s) drag = { mode: 'doodle-move', id: s.id, startX: wx, startY: wy };
-        } else if (boardTool === 'tile-paint') {
-          board.setPointerCapture(e.pointerId);
-          paintCellAt(e);
-          drag = { mode: 'tile-paint' };
         } else {
           startDoodle(wx, wy);
           drag = { mode: 'doodle' };
@@ -6237,10 +6380,6 @@ function bindEvents() {
       }
       return;
     }
-    if (drag.mode === 'tile-paint') {
-      paintCellAt(e);
-      return;
-    }
     if (drag.mode === 'doodle-move') {
       const m = activeMap();
       const s = m && m.doodles.find((d) => d.id === drag.id);
@@ -6291,23 +6430,13 @@ function bindEvents() {
         scheduleAutosave();
       }
     }
-    const wasPan = drag && drag.mode === 'pan';
-    const moved = drag ? Math.hypot(e.clientX - drag.startX, e.clientY - drag.startY) > 5 : true;
     drag = null;
     board.classList.remove('panning');
-    // 短点击（没有拖动）时，切换所点格子的样子
-    if (wasPan && !moved && (!e || e.button === 0)) {
-      const m = activeMap();
-      if (m && m.cells) {
-        const cell = pointerToCell(e);
-        if (cell) cycleCell(cell.col, cell.row);
-      }
-    }
   };
   board.addEventListener('pointerup', endDrag);
   board.addEventListener('pointercancel', endDrag);
 
-  // 右键仍保留给地图格子的反向切换；棋子本身不再带规则状态。
+  // 右键仅用于选择棋子，地图底图始终保持静态。
   board.addEventListener('contextmenu', (e) => {
     e.preventDefault();
     const tokenEl = e.target.closest('.token');
@@ -6316,15 +6445,11 @@ function bindEvents() {
       if (t) selectToken(t.id);
       return;
     }
-    const m = activeMap();
-    if (m && m.cells) {
-      const cell = pointerToCell(e);
-      if (cell) cycleCell(cell.col, cell.row, -1);
-    }
   });
 
   // 键盘
   document.addEventListener('keydown', (e) => {
+    if ($('#bgm-player')?.open) return;
     if (e.key === 'Escape' && (pendingMapReaction || spellAimTokenId)) {
       cancelMapReaction();
       cancelSpellAim();
@@ -6911,6 +7036,9 @@ function placeToken() {
 /* ==================== 常用网站（左侧底部，可折叠） ==================== */
 
 const LINKS_KEY = 'sangduoer-links-v1';
+const BUILTIN_LINKS = Object.freeze([
+  Object.freeze({ id: 'builtin-trpgcard', name: '车卡器', url: 'https://www.trpgcard.com/share/INV-U8NL' }),
+]);
 let userLinks = null;
 
 function normalizeLink(link) {
@@ -6927,31 +7055,36 @@ function normalizeLink(link) {
   return { id: String(link.id || 'link' + (uid++)), name, url: url.slice(0, 500) };
 }
 
+function isBuiltinLink(link) {
+  return BUILTIN_LINKS.some((builtin) => builtin.id === link?.id || builtin.url === link?.url);
+}
+
+function mergeBuiltinLinks(links) {
+  const builtin = BUILTIN_LINKS.map(normalizeLink).filter(Boolean);
+  const normalized = (Array.isArray(links) ? links : []).map(normalizeLink).filter(Boolean);
+  return builtin.concat(normalized.filter((link) => !isBuiltinLink(link)));
+}
+
 function loadLinks() {
   const saved = Array.isArray(state.sharedResources) ? state.sharedResources.map(normalizeLink).filter(Boolean) : [];
-  if (saved.length) {
-    userLinks = saved;
-    return;
-  }
-  try {
-    const raw = localStorage.getItem(LINKS_KEY);
-    if (raw) {
-      const arr = JSON.parse(raw);
-      if (Array.isArray(arr) && arr.length) {
-        userLinks = arr.map(normalizeLink).filter(Boolean);
-        state.sharedResources = userLinks.map((link) => ({ ...link }));
+  let loaded = saved;
+  if (!loaded.length) {
+    try {
+      const raw = localStorage.getItem(LINKS_KEY);
+      if (raw) {
+        const arr = JSON.parse(raw);
+        if (Array.isArray(arr) && arr.length) loaded = arr.map(normalizeLink).filter(Boolean);
       }
-    }
-  } catch (e) { /* 忽略 */ }
-  if (!userLinks) {
-    userLinks = [normalizeLink({ name: '5E 不全书', url: 'https://5echm.kagangtuya.top/' })].filter(Boolean);
-    state.sharedResources = userLinks.map((link) => ({ ...link }));
-    try { localStorage.setItem(LINKS_KEY, JSON.stringify(state.sharedResources)); } catch (e) { /* 忽略 */ }
+    } catch (e) { /* 忽略 */ }
   }
+  if (!loaded.length) loaded = [normalizeLink({ name: '5E 不全书', url: 'https://5echm.kagangtuya.top/' })].filter(Boolean);
+  userLinks = mergeBuiltinLinks(loaded);
+  state.sharedResources = userLinks.map((link) => ({ ...link }));
+  try { localStorage.setItem(LINKS_KEY, JSON.stringify(state.sharedResources)); } catch (e) { /* 忽略 */ }
 }
 
 function saveLinks() {
-  userLinks = (userLinks || []).map(normalizeLink).filter(Boolean);
+  userLinks = mergeBuiltinLinks(userLinks);
   state.sharedResources = userLinks.map((link) => ({ ...link }));
   try { localStorage.setItem(LINKS_KEY, JSON.stringify(state.sharedResources)); } catch (e) { /* 忽略 */ }
   scheduleAutosave();
@@ -6970,12 +7103,15 @@ function renderLinks() {
     a.rel = 'noopener noreferrer';
     a.textContent = l.name;
     a.title = l.url;
-    const del = document.createElement('button');
-    del.className = 'small danger';
-    del.textContent = '×';
-    del.title = '删除';
-    del.dataset.idx = i;
-    row.append(a, del);
+    row.append(a);
+    if (!isBuiltinLink(l)) {
+      const del = document.createElement('button');
+      del.className = 'small danger';
+      del.textContent = '×';
+      del.title = '删除';
+      del.dataset.idx = i;
+      row.append(del);
+    }
     box.appendChild(row);
   });
 }
@@ -7011,19 +7147,43 @@ function addLink(name, url) {
 
 let bgmList = [];
 let bgmIndex = -1;
+let bgmSelectedKey = '';
 let bgmServerUrl = null;
 let bgmPlaying = false;
 let bgmCatalogKey = '';
-let bgmCatalogLoading = false;
-const bgmAudio = new Audio();
-bgmAudio.loop = false;
+let bgmCatalogRequest = 0;
+let bgmPlayRequest = 0;
+let bgmBroadcastRequest = 0;
+let bgmSendChain = Promise.resolve();
+let bgmPendingAudio = null;
+let bgmPendingKey = '';
+let bgmLoading = false;
+let bgmError = '';
+let bgmSyncStatus = '尚未广播';
+let bgmMode = 'loop';
+let bgmQueue = [];
+let bgmSeeking = false;
+let bgmAudio = new Audio();
+const bgmPreviewAudio = new Audio();
+let bgmPreviewKey = '';
+let bgmPreviewRequest = 0;
 let liveAudioStream = null;
 let liveAudioActive = false;
 const liveAudioPeers = new Map();
 const LIVE_AUDIO_RTC_CONFIG = { iceServers: [{ urls: ['stun:stun.cloudflare.com:3478', 'stun:stun.l.google.com:19302'] }] };
+const BGM_SCENES = ['主题', '城镇', '探索', '悬疑', '战斗', '首领', '休息', '剧情'];
 
 function bgmAudioExt(name) {
   return /\.(mp3|m4a|wav|ogg|flac|aac|opus|webm)$/i.test(String(name || ''));
+}
+
+function bgmKey(item) { return item?.id || item?.url || ''; }
+
+function bgmScene(item) {
+  if (item.source === 'temporary') return '临时';
+  const parts = String(item.category || '').split(/\s*\/\s*/).filter((part) => part && part !== '通用');
+  const aliases = { Boss: '首领', boss: '首领', BOSS: '首领', 环境: '探索' };
+  return parts.length ? (aliases[parts[0]] || parts[0]) : '未分类';
 }
 
 function currentBgmCatalogKey() {
@@ -7031,44 +7191,46 @@ function currentBgmCatalogKey() {
 }
 
 async function loadProjectMusicLibrary(options = {}) {
-  if (bgmCatalogLoading) return;
-  bgmCatalogLoading = true;
+  const request = ++bgmCatalogRequest;
   const requestedKey = currentBgmCatalogKey();
-  const previous = bgmList[bgmIndex];
-  updateBgmStatus('正在扫描项目曲库…');
+  $('#btn-bgm-refresh').disabled = true;
+  $('#bgm-results-count').textContent = '正在读取…';
   try {
-    const query = new URLSearchParams({
-      campaignId: state.campaignId || '',
-      campaignName: state.campaignName || '',
-    });
+    const query = new URLSearchParams({ campaignId: state.campaignId || '', campaignName: state.campaignName || '' });
     const res = await fetch(`${serverApiBase()}/api/music-library?${query}`, { cache: 'no-store' });
     const data = await res.json().catch(() => ({}));
+    if (request !== bgmCatalogRequest || requestedKey !== currentBgmCatalogKey()) return;
     if (!res.ok || data.ok === false || !Array.isArray(data.tracks)) throw new Error(data.error || '服务器未响应');
+    const previousKey = bgmKey(bgmList[bgmIndex]);
     const temporary = bgmList.filter((item) => item.source === 'temporary');
-    bgmList = data.tracks.map((track) => ({
-      id: track.id,
-      name: track.title || track.fileName || '未命名音乐',
-      fileName: track.fileName || '',
+    const next = data.tracks.map((track) => ({
+      id: track.id, name: track.title || track.fileName || '未命名音乐', fileName: track.fileName || '',
       url: track.url?.startsWith('/') ? `${serverApiBase()}${track.url}` : track.url,
-      serverUrl: track.url,
-      source: 'library',
-      scope: track.scope === 'campaign' ? 'campaign' : 'general',
+      serverUrl: track.url, source: 'library', scope: track.scope === 'campaign' ? 'campaign' : 'general',
       collection: track.collection || (track.scope === 'campaign' ? '当前战役' : '通用'),
       category: track.category || '未分类',
     })).concat(temporary);
+    const missingCurrent = previousKey && !next.some((item) => bgmKey(item) === previousKey);
+    if (missingCurrent) stopBgmAudio();
+    // A pending load belongs to the old catalog. Never commit it against new indices.
+    cancelPendingBgm();
+    if (bgmPreviewKey && !next.some((item) => bgmKey(item) === bgmPreviewKey)) stopBgmPreview();
+    bgmList = next;
+    bgmIndex = previousKey ? bgmList.findIndex((item) => bgmKey(item) === previousKey) : -1;
+    bgmQueue = bgmQueue.filter((key) => bgmList.some((item) => bgmKey(item) === key));
+    if (!bgmList.some((item) => bgmKey(item) === bgmSelectedKey)) bgmSelectedKey = '';
     bgmCatalogKey = requestedKey;
-    bgmIndex = previous ? bgmList.findIndex((item) => (
-      (previous.id && item.id === previous.id) || (previous.source === 'temporary' && item.url === previous.url)
-    )) : -1;
+    if (missingCurrent) bgmError = '当前曲目已移除，播放已停止';
     renderBgmList();
     updateBgmStatus();
     if (!options.silent) toast(`项目曲库已刷新：${data.tracks.length} 首`);
   } catch (error) {
+    if (request !== bgmCatalogRequest) return;
     renderBgmList();
-    updateBgmStatus('无法读取项目曲库 · 请先启动联机程序');
+    $('#bgm-results-count').textContent = '曲库读取失败 · 请启动联机程序后刷新';
     if (!options.silent) toast('曲库刷新失败：' + (error.message || error));
   } finally {
-    bgmCatalogLoading = false;
+    if (request === bgmCatalogRequest) $('#btn-bgm-refresh').disabled = false;
   }
 }
 
@@ -7077,173 +7239,359 @@ function ensureBgmLibraryForCampaign() {
 }
 
 function pickBgmFiles(files) {
-  bgmList.filter((item) => item.source === 'temporary' && item.url).forEach((item) => URL.revokeObjectURL(item.url));
-  bgmList = bgmList.filter((item) => item.source !== 'temporary');
-  [...files].forEach((f) => {
-    if (bgmAudioExt(f.name)) bgmList.push({
-      name: f.name.replace(/\.[^.]+$/, ''), fileName: f.name, file: f,
-      url: URL.createObjectURL(f), source: 'temporary', collection: '临时音乐', category: '本次会话',
-    });
+  const previousKey = bgmKey(bgmList[bgmIndex]);
+  [...files].filter((file) => bgmAudioExt(file.name)).forEach((file) => {
+    bgmList.push({ name: file.name.replace(/\.[^.]+$/, ''), fileName: file.name, file,
+      url: URL.createObjectURL(file), source: 'temporary', collection: '临时音乐', category: '临时' });
   });
+  bgmIndex = previousKey ? bgmList.findIndex((item) => bgmKey(item) === previousKey) : -1;
   renderBgmList();
-  updateBgmStatus();
-  toast(`已加入 ${bgmList.filter((item) => item.source === 'temporary').length} 首临时音乐`);
+  toast('已加入临时音乐，本次页面会话内可用');
 }
 
-function updateBgmStatus(message = '') {
-  const el = $('#bgm-status');
-  const title = $('#bgm-now-title');
-  const card = $('#bgm-now');
-  if (!el || !title || !card) return;
-  const current = bgmList[bgmIndex];
-  title.textContent = liveAudioActive ? '标签页音频直播' : (current?.name || '尚未播放');
-  if (message) el.textContent = message;
-  else if (liveAudioActive) el.textContent = `${[...liveAudioPeers.values()].filter((entry) => entry.pc.connectionState === 'connected').length} 名玩家正在接收`;
-  else el.textContent = `${bgmList.filter((item) => item.source === 'library').length} 首项目音乐${bgmPlaying ? ' · 正在同步' : ''}`;
-  card.dataset.state = (liveAudioActive || bgmPlaying) ? 'playing' : (current ? 'paused' : 'stopped');
+function visibleBgmTracks() {
+  const scene = $('#bgm-scene').value || 'all';
+  const scope = $('#bgm-scope').value;
+  const search = $('#bgm-search').value.trim().toLocaleLowerCase();
+  return bgmList.filter((item) => (scene === 'all' || bgmScene(item) === scene)
+    && (scope === 'all' || (scope === 'temporary' ? item.source === 'temporary' : item.source === 'library' && item.scope === scope))
+    && item.name.toLocaleLowerCase().includes(search));
 }
 
 function renderBgmList() {
+  const sceneSelect = $('#bgm-scene');
+  const previousScene = sceneSelect.value || 'all';
+  const scenes = [...new Set([...BGM_SCENES, ...bgmList.map(bgmScene)])];
+  sceneSelect.replaceChildren();
+  [['all', '全部场景'], ...scenes.map((scene) => [scene, scene])].forEach(([value, label]) => {
+    const option = document.createElement('option');
+    option.value = value;
+    option.textContent = `${label} · ${value === 'all' ? bgmList.length : bgmList.filter((item) => bgmScene(item) === value).length}`;
+    sceneSelect.append(option);
+  });
+  sceneSelect.value = scenes.includes(previousScene) ? previousScene : 'all';
+  const tracks = visibleBgmTracks();
   const box = $('#bgm-list');
-  if (!box) return;
-  box.innerHTML = '';
-  if (!bgmList.length) {
-    box.innerHTML = '<div class="hint" style="font-size:11px;">把音乐放进 asset/音乐，刷新后会自动出现</div>';
-    return;
+  box.replaceChildren();
+  $('#bgm-results-count').textContent = `${tracks.length} 首`;
+  if (!tracks.length) {
+    const empty = document.createElement('p');
+    empty.className = 'bgm-empty';
+    empty.textContent = bgmList.length ? '这个分类还没有匹配的音乐。' : '曲库里还没有音乐。放入成品后点击刷新，也可以临时选择文件。';
+    box.append(empty);
   }
-  let previousGroup = '';
-  bgmList.forEach((it, i) => {
-    const collection = it.collection || '通用';
-    const category = String(it.category || '').replace(/^通用\s*\/\s*/, '');
-    const group = !category || category === collection || category === '未分类' ? collection : `${collection} · ${category}`;
-    if (group !== previousGroup) {
-      const label = document.createElement('div');
-      label.className = 'bgm-group-label';
-      label.textContent = group;
-      box.appendChild(label);
-      previousGroup = group;
-    }
-    const row = document.createElement('div');
-    row.className = 'bgm-item' + (i === bgmIndex ? ' current' : '');
-    const scope = document.createElement('span');
-    scope.className = 'bgm-item-scope';
-    scope.textContent = i === bgmIndex ? '♪' : (it.source === 'temporary' ? '临时' : '');
+  tracks.forEach((item) => {
+    const row = document.createElement('button');
+    row.type = 'button';
+    row.className = 'bgm-item';
+    row.dataset.key = bgmKey(item);
     const name = document.createElement('span');
     name.className = 'bgm-item-title';
-    name.textContent = it.name;
-    row.append(scope, name);
-    row.title = '点击播放：' + it.name;
-    row.addEventListener('click', () => playBgm(i));
-    box.appendChild(row);
+    name.textContent = item.name;
+    const meta = document.createElement('span');
+    meta.className = 'bgm-item-scope';
+    meta.textContent = `${bgmScene(item)} · ${item.collection}`;
+    row.append(name, meta);
+    row.addEventListener('click', () => {
+      const key = bgmKey(item);
+      const switching = !liveAudioActive && Boolean(bgmAudio.src)
+        && key !== bgmKey(bgmList[bgmIndex]);
+      bgmSelectedKey = key;
+      if (switching) {
+        playBgm(bgmList.findIndex((entry) => bgmKey(entry) === key));
+        return;
+      }
+      updateBgmStatus();
+    });
+    box.append(row);
+  });
+  updateBgmStatus();
+}
+
+function updateBgmProgress() {
+  const duration = Number.isFinite(bgmAudio.duration) ? bgmAudio.duration : 0;
+  const time = bgmAudio.currentTime || 0;
+  const format = (seconds) => `${Math.floor(seconds / 60).toString().padStart(2, '0')}:${Math.floor(seconds % 60).toString().padStart(2, '0')}`;
+  if (!bgmSeeking) {
+    $('#bgm-seek').max = duration || 100;
+    $('#bgm-seek').value = time;
+    $('#bgm-time').textContent = `${format(time)} / ${duration ? format(duration) : '--:--'}`;
+  }
+  $('#bgm-seek').disabled = liveAudioActive || !duration || !bgmAudio.src || bgmLoading;
+}
+
+function updateBgmStatus() {
+  const current = bgmList[bgmIndex];
+  const pending = bgmLoading ? bgmList.find((item) => bgmKey(item) === bgmPendingKey) : null;
+  const selected = bgmList.find((item) => bgmKey(item) === bgmSelectedKey);
+  const title = liveAudioActive ? '标签页音频直播' : (pending?.name || current?.name || '尚未播放');
+  const status = liveAudioActive ? '直播中' : pending ? '正在切换' : bgmPlaying ? '播放中' : bgmAudio.src ? '已暂停' : '已停止';
+  $('#bgm-now-title').textContent = title;
+  $('#bgm-status').textContent = bgmError || `${bgmLoading ? '新曲加载中 · ' : ''}${status} · ${streamOn ? bgmSyncStatus : '仅本机播放'}`;
+  $('#bgm-now').dataset.state = liveAudioActive || bgmPlaying ? 'playing' : bgmAudio.src ? 'paused' : 'stopped';
+  $('#bgm-mini-title').textContent = current || pending || liveAudioActive ? title : '音乐';
+  $('#btn-bgm-open').title = `打开音乐播放器 · ${title} · ${status}`;
+  $('#btn-bgm-open').classList.toggle('active', bgmPlaying || liveAudioActive);
+  $('#btn-bgm-mini-play').hidden = liveAudioActive || !current;
+  $('#btn-bgm-mini-stop').hidden = !current && !liveAudioActive && !bgmLoading;
+  $('#btn-bgm-mini-play').textContent = bgmPlaying ? '⏸' : '▶';
+  $('#btn-bgm-mini-play').setAttribute('aria-label', bgmPlaying ? '暂停音乐' : '继续音乐');
+  $('#btn-bgm-play').textContent = bgmPlaying ? '暂停' : bgmAudio.src ? '继续' : '重新播放';
+  $('#btn-bgm-play').disabled = liveAudioActive || !current || bgmLoading;
+  $('#btn-bgm-mini-play').disabled = bgmLoading;
+  $('#btn-bgm-stop').disabled = !liveAudioActive && !bgmAudio.src && !bgmLoading;
+  $('#btn-bgm-mini-stop').disabled = $('#btn-bgm-stop').disabled;
+  const queue = bgmQueue.filter((key) => bgmList.some((item) => bgmKey(item) === key));
+  $('#btn-bgm-prev').disabled = $('#btn-bgm-next').disabled = liveAudioActive || bgmLoading || queue.length < 2;
+  $('#bgm-mode').disabled = liveAudioActive;
+  $('#bgm-mode').value = bgmMode;
+  $('#bgm-volume').disabled = liveAudioActive;
+  $('#bgm-selected-title').textContent = selected?.name || '请选择一首音乐';
+  $('#bgm-selected-meta').textContent = selected ? `${bgmScene(selected)} · ${selected.collection}` : '选择分类，找到此刻想听的音乐。';
+  $('#btn-bgm-preview').disabled = !selected || liveAudioActive;
+  $('#btn-bgm-preview').textContent = bgmPreviewKey && bgmPreviewKey === bgmSelectedKey ? '结束试听' : '仅我试听';
+  $('#btn-bgm-selected-play').disabled = !selected;
+  $('#btn-bgm-selected-play').textContent = streamOn ? '给全员播放' : '在本机播放';
+  $('#bgm-broadcast-hint').textContent = streamOn ? '播放会同步给房间；各自调节音量。' : '未开启联机，播放仅在本机。';
+  document.querySelectorAll('#bgm-list .bgm-item').forEach((row) => {
+    row.classList.toggle('current', row.dataset.key === bgmKey(current));
+    row.setAttribute('aria-pressed', String(row.dataset.key === bgmSelectedKey));
+  });
+  updateBgmProgress();
+}
+
+function openBgmPlayer() {
+  const dialog = $('#bgm-player');
+  if (!dialog.open) dialog.showModal();
+  updateBgmStatus();
+}
+
+function closeBgmPlayer() { $('#bgm-player').close(); }
+
+function stopBgmPreview() {
+  ++bgmPreviewRequest;
+  bgmPreviewKey = '';
+  bgmPreviewAudio.pause();
+  bgmPreviewAudio.removeAttribute('src');
+  bgmPreviewAudio.load();
+  bgmAudio.muted = false;
+  $('#bgm-preview-status').textContent = '试听只在本机播放。';
+  updateBgmStatus();
+}
+
+async function previewSelectedBgm() {
+  if (liveAudioActive) return;
+  if (bgmPreviewKey === bgmSelectedKey && bgmPreviewKey) { stopBgmPreview(); return; }
+  const selected = bgmList.find((item) => bgmKey(item) === bgmSelectedKey);
+  if (!selected) return;
+  stopBgmPreview();
+  const request = ++bgmPreviewRequest;
+  bgmPreviewKey = bgmKey(selected);
+  bgmAudio.muted = true;
+  bgmPreviewAudio.src = selected.url;
+  bgmPreviewAudio.volume = bgmAudio.volume;
+  $('#bgm-preview-status').textContent = '正在加载试听…';
+  updateBgmStatus();
+  try {
+    await bgmPreviewAudio.play();
+    if (request !== bgmPreviewRequest) return;
+    $('#bgm-preview-status').textContent = `正在试听：${selected.name}；房间音乐不变。`;
+  } catch (error) {
+    if (request !== bgmPreviewRequest) return;
+    stopBgmPreview();
+    $('#bgm-preview-status').textContent = '试听失败：' + (error.message || error);
+  }
+}
+
+function cancelPendingBgm() {
+  ++bgmPlayRequest;
+  if (bgmPendingAudio) {
+    bgmPendingAudio.pause();
+    bgmPendingAudio.removeAttribute('src');
+    bgmPendingAudio.load();
+    bgmPendingAudio = null;
+  }
+  bgmPendingKey = '';
+  bgmLoading = false;
+}
+
+function bindBgmAudioEvents(audio) {
+  ['timeupdate', 'loadedmetadata', 'durationchange'].forEach((event) => audio.addEventListener(event, () => {
+    if (audio === bgmAudio) updateBgmProgress();
+  }));
+  audio.addEventListener('ended', () => {
+    if (audio !== bgmAudio || liveAudioActive) return;
+    if (bgmMode === 'category' && bgmQueue.length) nextBgm();
+    else stopBgmAudio();
+  });
+  audio.addEventListener('error', () => {
+    if (audio !== bgmAudio || !audio.src) return;
+    stopBgmAudio();
+    bgmError = '播放失败 · 文件可能已移动或浏览器不支持此格式';
+    updateBgmStatus();
   });
 }
 
-async function playBgm(i) {
-  if (i < 0 || i >= bgmList.length) return;
-  if (liveAudioActive) await stopLiveAudioBroadcast();
-  bgmIndex = i;
+async function playBgm(i, keepQueue = false) {
+  const item = bgmList[i];
+  if (!item?.url) return;
+  cancelPendingBgm();
+  stopBgmPreview();
+  const request = bgmPlayRequest;
+  const audio = new Audio(item.url);
+  audio.volume = bgmAudio.volume;
+  audio.loop = bgmMode === 'loop';
+  audio.muted = true;
+  bgmPendingAudio = audio;
+  bgmPendingKey = bgmKey(item);
+  bgmLoading = true;
+  bgmError = '';
+  updateBgmStatus();
   try {
-    let url = bgmList[i].url;
-    if (!url) return;
-    if (bgmAudio.src !== new URL(url, location.href).href) bgmAudio.src = url;
-    await bgmAudio.play();
+    await audio.play();
+    if (request !== bgmPlayRequest) return;
+    if (liveAudioActive) await stopLiveAudioBroadcast();
+    if (request !== bgmPlayRequest) return;
+    bgmAudio.pause();
+    bgmAudio.removeAttribute('src');
+    bgmAudio.load();
+    bgmAudio = audio;
+    bgmPendingAudio = null;
+    bgmPendingKey = '';
+    bgmLoading = false;
+    bgmIndex = bgmList.findIndex((entry) => bgmKey(entry) === bgmKey(item));
+    bgmSelectedKey = bgmKey(item);
+    if (!keepQueue) bgmQueue = bgmList.filter((entry) => bgmScene(entry) === bgmScene(item)).map(bgmKey);
+    audio.loop = bgmMode === 'loop';
+    audio.volume = Number($('#bgm-volume').value) / 100;
+    audio.muted = Boolean(bgmPreviewKey);
+    bindBgmAudioEvents(audio);
     bgmPlaying = true;
-    renderBgmList();
-    $('#btn-bgm-play').textContent = '⏸';
     updateBgmStatus();
     broadcastBgm('play');
-  } catch (e) {
-    toast('播放失败：' + (e.message || e));
+  } catch (error) {
+    if (request !== bgmPlayRequest) return;
+    cancelPendingBgm();
+    bgmError = '播放失败：' + (error.message || error);
+    updateBgmStatus();
+    toast(bgmError);
   }
 }
 
 function stopBgmAudio(shouldBroadcast = true) {
+  cancelPendingBgm();
   bgmAudio.pause();
-  bgmAudio.currentTime = 0;
   bgmAudio.removeAttribute('src');
   bgmAudio.load();
   bgmPlaying = false;
-  bgmServerUrl = null;
-  const btn = $('#btn-bgm-play');
-  if (btn) btn.textContent = '▶';
-  updateBgmStatus();
+  bgmSeeking = false;
+  bgmError = '';
   if (shouldBroadcast) broadcastBgm('stop');
+  bgmServerUrl = null;
+  updateBgmStatus();
 }
 
-function toggleBgm() {
-  if (liveAudioActive) { stopLiveAudioBroadcast(); return; }
-  if (!bgmList.length) { toast('项目曲库里还没有音乐'); return; }
-  if (bgmAudio.paused) {
-    if (!bgmAudio.src) {
-      if (bgmIndex < 0) bgmIndex = 0;
-      playBgm(bgmIndex);
-      return;
-    }
-    bgmAudio.play().then(() => {
-      bgmPlaying = true;
-      $('#btn-bgm-play').textContent = '⏸';
-      updateBgmStatus();
-      broadcastBgm('play');
-    }).catch((error) => toast('播放失败：' + (error.message || error)));
-  } else {
+async function toggleBgm() {
+  if (liveAudioActive || bgmIndex < 0) return;
+  if (!bgmAudio.src) { playBgm(bgmIndex, true); return; }
+  cancelPendingBgm();
+  const request = bgmPlayRequest;
+  if (!bgmAudio.paused) {
     bgmAudio.pause();
     bgmPlaying = false;
-    $('#btn-bgm-play').textContent = '▶';
-    updateBgmStatus();
     broadcastBgm('pause');
+    updateBgmStatus();
+    return;
+  }
+  try {
+    await bgmAudio.play();
+    if (request !== bgmPlayRequest) return;
+    bgmPlaying = true;
+    bgmError = '';
+    broadcastBgm('play');
+    updateBgmStatus();
+  } catch (error) {
+    if (request !== bgmPlayRequest) return;
+    bgmError = '播放失败：' + (error.message || error);
+    updateBgmStatus();
   }
 }
 
-function nextBgm() {
-  if (!bgmList.length) return;
-  bgmIndex = (bgmIndex + 1) % bgmList.length;
-  playBgm(bgmIndex);
+function stepBgm(direction) {
+  const keys = bgmQueue.filter((key) => bgmList.some((item) => bgmKey(item) === key));
+  const at = keys.indexOf(bgmKey(bgmList[bgmIndex]));
+  if (at < 0 || !keys.length) return;
+  const key = keys[(at + direction + keys.length) % keys.length];
+  playBgm(bgmList.findIndex((item) => bgmKey(item) === key), true);
 }
-
-function prevBgm() {
-  if (!bgmList.length) return;
-  bgmIndex = (bgmIndex - 1 + bgmList.length) % bgmList.length;
-  playBgm(bgmIndex);
-}
+function nextBgm() { stepBgm(1); }
+function prevBgm() { stepBgm(-1); }
 
 async function ensureBgmServerUrl(i) {
   const it = bgmList[i];
   if (!it) return null;
   if (it.serverUrl) return it.serverUrl;
   try {
-    let file = it.file || null;
-    if (!file && it.url) file = await (await fetch(it.url)).blob();
+    const file = it.file;
     if (!file) return null;
     const buf = await file.arrayBuffer();
     const res = await fetch(`${serverApiBase()}/api/music?name=` + encodeURIComponent(it.fileName || it.name), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/octet-stream' },
-      body: buf,
+      method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: buf,
     });
-    const d = await res.json();
-    if (d && d.ok) { it.serverUrl = d.url; return d.url; }
-  } catch (e) { /* 上传失败不广播 */ }
+    const data = await res.json();
+    if (res.ok && data?.ok) { it.serverUrl = data.url; return data.url; }
+  } catch (error) { /* 由广播状态报告上传失败 */ }
   return null;
 }
 
 async function broadcastBgm(action) {
-  if (!streamOn || bgmIndex < 0 || !bgmList[bgmIndex]) return;
-  const url = action === 'stop' ? (bgmServerUrl || await ensureBgmServerUrl(bgmIndex)) : await ensureBgmServerUrl(bgmIndex);
-  if (!url && action !== 'stop') return;
-  bgmServerUrl = url;
-  bgmPlaying = action === 'play';
-  sendHostAction({
-    op: 'bgm',
-    action,
-    mode: bgmList[bgmIndex].source === 'library' ? 'library' : 'upload',
-    trackId: bgmList[bgmIndex].id || '',
-    track: bgmList[bgmIndex].name,
-    url: url || '',
-    time: Number((bgmAudio.currentTime || 0).toFixed(3)),
-    loop: bgmAudio.loop,
-  }).then((result) => {
-    if (!result.ok || result.data?.ok === false) toast('⚠ BGM 未广播');
-  }).catch(() => toast('⚠ BGM 未广播'));
+  const request = ++bgmBroadcastRequest;
+  if (!streamOn) { updateBgmStatus(); return; }
+  const item = bgmList[bgmIndex];
+  if (!item && action !== 'stop') return;
+  const payload = { op: 'bgm', action, mode: item?.source === 'temporary' ? 'upload' : 'library',
+    trackId: item?.id || '', track: item?.name || '', url: '', time: 0, loop: bgmAudio.loop };
+  bgmSyncStatus = '正在发送…';
+  updateBgmStatus();
+  const url = action === 'stop' ? '' : await ensureBgmServerUrl(bgmIndex);
+  if (request !== bgmBroadcastRequest || !streamOn) return;
+  if (!url && action !== 'stop') {
+    bgmSyncStatus = '广播失败 · 请重试播放';
+    updateBgmStatus();
+    return;
+  }
+  payload.url = url || '';
+  bgmServerUrl = action === 'stop' ? null : url;
+  // Uploads may finish out of order; only enqueue the latest action and serialize sends.
+  bgmSendChain = bgmSendChain.catch(() => {}).then(async () => {
+    if (request !== bgmBroadcastRequest || !streamOn) return;
+    payload.time = action === 'stop' ? 0 : Number((bgmAudio.currentTime || 0).toFixed(3));
+    try {
+      const result = await sendHostAction(payload);
+      if (request !== bgmBroadcastRequest) return;
+      bgmSyncStatus = result.ok && result.data?.ok !== false ? '已发送房间指令' : '广播失败 · 请重试播放';
+    } catch (error) {
+      if (request === bgmBroadcastRequest) bgmSyncStatus = '广播失败 · 请重试播放';
+    }
+    updateBgmStatus();
+  });
+  await bgmSendChain;
+}
+
+function broadcastLiveBgm(action) {
+  const request = ++bgmBroadcastRequest;
+  bgmSyncStatus = '正在发送…';
+  bgmSendChain = bgmSendChain.catch(() => {}).then(async () => {
+    if (request !== bgmBroadcastRequest || !streamOn) return;
+    try {
+      const result = await sendHostAction({ op: 'bgm', action, mode: 'live', track: '标签页音频直播', url: '', time: 0, loop: false });
+      if (request !== bgmBroadcastRequest) return;
+      bgmSyncStatus = result.ok && result.data?.ok !== false ? '已发送房间指令' : '广播失败 · 请重新开始';
+    } catch (error) {
+      if (request === bgmBroadcastRequest) bgmSyncStatus = '广播失败 · 请重新开始';
+    }
+    updateBgmStatus();
+  });
 }
 
 function postHostWebRtcSignal(playerId, signal) {
@@ -7349,14 +7697,14 @@ async function startLiveAudioBroadcast() {
       toast('没有捕获到声音：请选择浏览器标签页并勾选共享音频');
       return;
     }
-    bgmAudio.pause();
-    bgmPlaying = false;
-    $('#btn-bgm-play').textContent = '▶';
+    cancelPendingBgm();
+    stopBgmPreview();
+    stopBgmAudio(false);
     liveAudioStream = captured;
     liveAudioActive = true;
     captured.getTracks().forEach((track) => { track.onended = () => { if (liveAudioActive) stopLiveAudioBroadcast(); }; });
     syncLiveAudioPeers();
-    sendHostAction({ op: 'bgm', action: 'play', mode: 'live', track: '标签页音频直播', url: '', time: 0, loop: false });
+    broadcastLiveBgm('play');
     updateLiveAudioUi();
     toast('📡 标签页声音已开始广播');
   } catch (error) {
@@ -7373,42 +7721,77 @@ async function stopLiveAudioBroadcast(options = {}) {
   if (captured) captured.getTracks().forEach((track) => { track.onended = null; track.stop(); });
   playerIds.forEach((playerId) => closeLiveAudioPeer(playerId, true));
   if (options.broadcast !== false && streamOn) {
-    sendHostAction({ op: 'bgm', action: 'stop', mode: 'live', track: '标签页音频直播', url: '', time: 0, loop: false });
+    broadcastLiveBgm('stop');
   }
   updateLiveAudioUi();
 }
 
-bgmAudio.addEventListener('ended', () => { if (!bgmAudio.loop) nextBgm(); });
+bindBgmAudioEvents(bgmAudio);
+bgmAudio.volume = 0.7;
 try {
   const saved = parseFloat(localStorage.getItem('sangduoer-bgm-volume'));
-  if (!isNaN(saved)) {
-    const normalized = Math.max(0, Math.min(1, saved > 1 ? saved / 100 : saved));
-    bgmAudio.volume = normalized;
-    $('#bgm-volume').value = Math.round(normalized * 100);
-  }
-} catch (e) { /* 忽略 */ }
-try { bgmAudio.loop = localStorage.getItem('sangduoer-bgm-loop') === '1'; } catch (e) { /* 忽略 */ }
-const bgmLoopEl = $('#bgm-loop');
-if (bgmLoopEl) bgmLoopEl.checked = bgmAudio.loop;
+  if (Number.isFinite(saved)) bgmAudio.volume = Math.max(0, Math.min(1, saved > 1 ? saved / 100 : saved));
+  const mode = localStorage.getItem('sangduoer-bgm-mode');
+  if (['loop', 'once', 'category'].includes(mode)) bgmMode = mode;
+} catch (error) { /* 本机设置不可用时使用默认值 */ }
+bgmAudio.loop = bgmMode === 'loop';
+$('#bgm-volume').value = Math.round(bgmAudio.volume * 100);
+$('#bgm-volume-value').textContent = `${$('#bgm-volume').value}%`;
+$('#bgm-mode').value = bgmMode;
+$('#btn-bgm-open').addEventListener('click', openBgmPlayer);
+$('#btn-bgm-resource-open').addEventListener('click', openBgmPlayer);
+$('#btn-bgm-close').addEventListener('click', closeBgmPlayer);
+$('#bgm-player').addEventListener('close', stopBgmPreview);
+$('#bgm-player').addEventListener('click', (event) => {
+  if (event.target !== $('#bgm-player')) return;
+  const box = event.target.getBoundingClientRect();
+  if (event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom) closeBgmPlayer();
+});
 $('#btn-bgm-refresh').addEventListener('click', () => loadProjectMusicLibrary());
 $('#btn-bgm-pick').addEventListener('click', () => $('#file-bgm').click());
-$('#file-bgm').addEventListener('change', (e) => {
-  pickBgmFiles(e.target.files);
-  e.target.value = '';
+$('#file-bgm').addEventListener('change', (event) => { pickBgmFiles(event.target.files); event.target.value = ''; });
+['#bgm-scene', '#bgm-scope', '#bgm-search'].forEach((selector) => $(selector).addEventListener('input', renderBgmList));
+['#btn-bgm-play', '#btn-bgm-mini-play'].forEach((selector) => $(selector).addEventListener('click', toggleBgm));
+['#btn-bgm-stop', '#btn-bgm-mini-stop'].forEach((selector) => $(selector).addEventListener('click', () => {
+  stopBgmPreview();
+  if (liveAudioActive) stopLiveAudioBroadcast();
+  else stopBgmAudio();
+}));
+$('#btn-bgm-selected-play').addEventListener('click', () => playBgm(bgmList.findIndex((item) => bgmKey(item) === bgmSelectedKey)));
+$('#btn-bgm-preview').addEventListener('click', previewSelectedBgm);
+bgmPreviewAudio.addEventListener('ended', stopBgmPreview);
+bgmPreviewAudio.addEventListener('error', () => {
+  if (!bgmPreviewKey) return;
+  stopBgmPreview();
+  $('#bgm-preview-status').textContent = '试听失败 · 文件可能已移动或不支持此格式';
 });
-$('#btn-bgm-play').addEventListener('click', toggleBgm);
 $('#btn-bgm-next').addEventListener('click', nextBgm);
 $('#btn-bgm-prev').addEventListener('click', prevBgm);
 $('#btn-bgm-live').addEventListener('click', startLiveAudioBroadcast);
-$('#bgm-loop').addEventListener('change', (e) => {
-  bgmAudio.loop = e.target.checked;
-  try { localStorage.setItem('sangduoer-bgm-loop', e.target.checked ? '1' : '0'); } catch (err) { /* 忽略 */ }
-  if (bgmIndex >= 0 && bgmAudio.src) broadcastBgm(bgmAudio.paused ? 'pause' : 'play');
-  toast(e.target.checked ? '单曲循环：开（当前歌曲无限循环）' : '单曲循环：关（顺序播放，列表循环）');
+$('#bgm-mode').addEventListener('change', (event) => {
+  bgmMode = event.target.value;
+  bgmAudio.loop = bgmMode === 'loop';
+  try { localStorage.setItem('sangduoer-bgm-mode', bgmMode); } catch (error) { /* 忽略 */ }
+  if (bgmAudio.src && !liveAudioActive) broadcastBgm(bgmAudio.paused ? 'pause' : 'play');
 });
-$('#bgm-volume').addEventListener('input', (e) => {
-  bgmAudio.volume = parseInt(e.target.value, 10) / 100;
-  try { localStorage.setItem('sangduoer-bgm-volume', String(bgmAudio.volume)); } catch (err) { /* 忽略 */ }
+$('#bgm-volume').addEventListener('input', (event) => {
+  bgmAudio.volume = Number(event.target.value) / 100;
+  bgmPreviewAudio.volume = bgmAudio.volume;
+  $('#bgm-volume-value').textContent = `${event.target.value}%`;
+  try { localStorage.setItem('sangduoer-bgm-volume', String(bgmAudio.volume)); } catch (error) { /* 忽略 */ }
+});
+$('#bgm-seek').addEventListener('input', (event) => {
+  bgmSeeking = true;
+  const time = Number(event.target.value);
+  $('#bgm-time').textContent = `${Math.floor(time / 60).toString().padStart(2, '0')}:${Math.floor(time % 60).toString().padStart(2, '0')} · 松手跳转`;
+});
+$('#bgm-seek').addEventListener('change', (event) => {
+  bgmSeeking = false;
+  if (!liveAudioActive && bgmAudio.src && Number.isFinite(bgmAudio.duration)) {
+    bgmAudio.currentTime = Math.max(0, Math.min(bgmAudio.duration, Number(event.target.value)));
+    broadcastBgm(bgmAudio.paused ? 'pause' : 'play');
+  }
+  updateBgmProgress();
 });
 
 /* ==================== 简易联机（主机推送观战） ==================== */
@@ -7461,6 +7844,7 @@ function buildStreamPayload() {
     mapW: m.mapW,
     mapH: m.mapH,
     gridSize: m.gridSize,
+    gridVisible: mapGridVisible(m),
     doodles: ensureDoodleIds(m).map((stroke) => ({ ...stroke })),
     tokens: publicTokenEntries,
   } : null;
@@ -7468,6 +7852,7 @@ function buildStreamPayload() {
     maps: publicMap ? [publicMap] : [],
     activeMapId: state.activeMapId,
     snap: state.snap,
+    showGrid: mapGridVisible(m),
     showNames: state.showNames,
     campaignId: state.campaignId,
     campaignName: state.campaignName,
@@ -7614,12 +7999,16 @@ function applyRemoteAction(a) {
     e.round = Math.max(1, Number(a.round) || 1);
     e.turnSerial = Math.max(1, Number(a.turnSerial) || e.turnSerial || 1);
     if (a.turnPath && typeof a.turnPath === 'object') {
+      const points = Array.isArray(a.turnPath.points)
+        ? a.turnPath.points
+          .map((point) => ({ x: Number(point.x), y: Number(point.y) }))
+          .filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y))
+        : [];
       e.turnPath = {
         mapId: a.turnPath.mapId || null,
         tokenId: a.turnPath.tokenId || null,
-        points: Array.isArray(a.turnPath.points)
-          ? a.turnPath.points.map((point) => ({ x: Number(point.x), y: Number(point.y) }))
-          : [],
+        points,
+        segmentEnds: normalizeTurnPathSegmentEnds(a.turnPath.segmentEnds, points.length),
       };
     }
     if (m.id === state.activeMapId) {
@@ -7706,12 +8095,14 @@ function applyRemoteAction(a) {
     syncLabelsFor(t);
     requestSpellRangeRender();
     if (isTurnPathAction) {
+      const points = a.path.slice(0, MAX_TURN_PATH_POINTS)
+        .filter((point) => point && Number.isFinite(Number(point.x)) && Number.isFinite(Number(point.y)))
+        .map((point) => ({ x: Number(point.x), y: Number(point.y) }));
       encounter.turnPath = {
         mapId: m.id,
         tokenId: t.id,
-        points: a.path.slice(0, MAX_TURN_PATH_POINTS)
-          .filter((point) => point && Number.isFinite(Number(point.x)) && Number.isFinite(Number(point.y)))
-          .map((point) => ({ x: Number(point.x), y: Number(point.y) })),
+        points,
+        segmentEnds: normalizeTurnPathSegmentEnds(a.segmentEnds, points.length),
       };
       renderTurnPath();
     } else if (encounter.playMode === 'turn' && Number(a.turnSerial) === encounter.turnSerial && Array.isArray(a.path)) {
@@ -7941,7 +8332,7 @@ async function streamPush() {
     const now = Date.now();
     if (now - streamFailToastAt > 15000) {
       streamFailToastAt = now;
-      toast('📡 服务器未连接：请双击项目里的「启动桑多尔之歌」一键启动（会自动重试）');
+      toast('📡 服务器未连接：请双击项目里的「启动桑哆尔之歌」一键启动（会自动重试）');
     }
   } finally {
     streamPushing = false;
@@ -7956,6 +8347,36 @@ function streamTick() {
   if (now - streamLastPushAt < 300) return;
   streamDirty = false;
   streamPush();
+}
+
+async function kickHostPlayer(player) {
+  const playerId = String(player?.playerId || '').trim();
+  const playerName = String(player?.name || '未命名玩家').trim() || '未命名玩家';
+  if (!streamOn || !playerId || hostPlayerKickPending.has(playerId)) return;
+  if (!window.confirm(`将「${playerName}」移出当前房间？\n\n只会断开这次连接，不会删除其棋子或归属。`)) return;
+  hostPlayerKickPending.add(playerId);
+  renderHostRoom();
+  try {
+    const response = await fetch(`${serverApiBase()}/api/players/kick`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ playerId }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data.ok === false) throw new Error(data.error || '移出玩家失败');
+    streamPlayers = Array.isArray(data.players)
+      ? data.players
+      : streamPlayers.filter((candidate) => candidate.playerId !== playerId);
+    syncLiveAudioPeers(streamPlayers);
+    updateStreamUi();
+    toast(`👋 已将「${data.name || playerName}」移出房间`);
+  } catch (error) {
+    toast(`⚠ ${error.message || '移出玩家失败'}`);
+    refreshStreamPlayers();
+  } finally {
+    hostPlayerKickPending.delete(playerId);
+    renderHostRoom();
+  }
 }
 
 function renderHostRoom() {
@@ -8020,7 +8441,15 @@ function renderHostRoom() {
     const status = document.createElement('span');
     status.className = `host-player-status${player.online && player.status === 'ready' ? ' ready' : ''}`;
     status.textContent = player.online ? (player.status === 'ready' ? '已准备' : '在线') : '离线';
-    row.append(dot, name, status);
+    const kick = document.createElement('button');
+    kick.type = 'button';
+    kick.className = 'host-player-kick';
+    kick.textContent = hostPlayerKickPending.has(player.playerId) ? '移出中…' : '移出';
+    kick.disabled = !player.playerId || hostPlayerKickPending.has(player.playerId);
+    kick.title = `断开「${player.name || '未命名玩家'}」的当前连接`;
+    kick.setAttribute('aria-label', kick.title);
+    kick.addEventListener('click', () => kickHostPlayer(player));
+    row.append(dot, name, status, kick);
     list.appendChild(row);
   });
 }
@@ -8040,6 +8469,7 @@ function updateStreamUi() {
     else connection.textContent = `已联机 · ${playerCount} 人`;
   }
   renderHostRoom();
+  updateBgmStatus();
 }
 
 async function refreshStreamPlayers() {
@@ -8122,7 +8552,7 @@ async function toggleStream() {
     streamInfo = null;
     streamPlayers = [];
     updateStreamUi();
-    toast('📡 服务器未启动：请双击项目里的「启动桑多尔之歌」一键启动，再点一次开启');
+    toast('📡 服务器未启动：请双击项目里的「启动桑哆尔之歌」一键启动，再点一次开启');
   }
 }
 
@@ -9314,208 +9744,6 @@ function saveLibEditor() {
   toast(`已保存「${name}」`);
 }
 
-/* ==================== 格子交互 ==================== */
-
-function pointerToCell(e) {
-  const m = activeMap();
-  if (!m) return null;
-  const rect = board.getBoundingClientRect();
-  const wx = (e.clientX - rect.left - m.cam.x) / m.cam.zoom;
-  const wy = (e.clientY - rect.top - m.cam.y) / m.cam.zoom;
-  const col = Math.floor(wx / m.gridSize);
-  const row = Math.floor(wy / m.gridSize);
-  const maxCol = Math.floor(m.mapW / m.gridSize);
-  const maxRow = Math.floor(m.mapH / m.gridSize);
-  if (col < 0 || row < 0 || col >= maxCol || row >= maxRow) return null;
-  return { col, row };
-}
-
-// 点击可交互格子切换自身状态，例如门的关闭、打开与上锁。
-function cycleCell(col, row, dir = 1) {
-  const m = activeMap();
-  if (!m || !m.cells) return;
-  const tile = m.cells[row] && m.cells[row][col];
-  if (!tile) return;
-  const key = `${col},${row}`;
-  const defs = cellStateDefs(tile);
-  if (!defs || !defs.length) return; // 没有多状态的格子点击不变化
-  const cur = m.cellStates[key] || defs[0].key;
-  const idx = defs.findIndex((d) => d.key === cur);
-  const next = defs[(idx + dir + defs.length) % defs.length];
-  m.cellStates[key] = next.key;
-  m.mapData = renderCellsToDataUrl(m.cells, m.cellStates, m.gridSize, m.cellVariants);
-  updateWorldBackground();
-  scheduleAutosave();
-  const def = INTERACT_TYPES[tile];
-  toast(`${def ? def.name : '格子'}：${next.label}`);
-}
-
-/* ==================== 轻便地图编辑 ==================== */
-
-function editableMap() {
-  const m = activeMap();
-  if (!m) return null;
-  if (!Array.isArray(m.cells) || !m.cells.length) {
-    toast('这张地图是图片地图，请到「地图工坊」重画后导出');
-    return null;
-  }
-  return m;
-}
-
-function paintCellAt(e) {
-  const m = editableMap();
-  if (!m) return;
-  const cell = pointerToCell(e);
-  if (!cell) return;
-  const { col, row } = cell;
-  const key = `${col},${row}`;
-  const isErase = editTile === 'void';
-  // 清除 = 只还原编辑器涂过的格子：回到原始底图（没涂过的格子不动，不破坏原地图）
-  const target = isErase
-    ? ((m.baseCells && m.baseCells[row] && typeof m.baseCells[row][col] === 'string') ? m.baseCells[row][col] : 'void')
-    : editTile;
-  const currentVariant = normalizeMaterialVariant(m.cells[row][col], (m.cellVariants || {})[key]);
-  const targetVariant = isErase
-    ? normalizeMaterialVariant(target, (m.baseCellVariants || {})[key])
-    : normalizeMaterialVariant(target, editVariant);
-  const hasState = Object.prototype.hasOwnProperty.call(m.cellStates || {}, key);
-  if (m.cells[row][col] === target && currentVariant === targetVariant) {
-    // 同一地块也允许切换材质样式；只有样式和状态均未变化时才跳过。
-    if ((!isErase && !hasState) || (isErase && cellMatchesBase(m, col, row))) return;
-  }
-  mapEditHistory.push({
-    id: m.id,
-    col,
-    row,
-    old: m.cells[row][col],
-    oldState: Object.prototype.hasOwnProperty.call(m.cellStates || {}, key) ? m.cellStates[key] : undefined,
-    oldVariant: Object.prototype.hasOwnProperty.call(m.cellVariants || {}, key) ? m.cellVariants[key] : undefined,
-  });
-  if (mapEditHistory.length > 200) mapEditHistory.shift();
-  m.cells[row][col] = target;
-  if (isErase) {
-    restoreCellState(m, col, row);
-    restoreCellVariant(m, col, row);
-  } else {
-    delete (m.cellStates || {})[key];
-    setCellVariant(m, key, target, editVariant);
-  }
-  m.mapData = renderCellsToDataUrl(m.cells, m.cellStates, m.gridSize, m.cellVariants);
-  updateWorldBackground();
-  scheduleAutosave();
-}
-
-function cellMatchesBase(m, col, row) {
-  const key = `${col},${row}`;
-  const cur = m.cellStates || {};
-  const base = m.baseCellStates || {};
-  const curHas = Object.prototype.hasOwnProperty.call(cur, key);
-  const baseHas = Object.prototype.hasOwnProperty.call(base, key);
-  const tile = m.cells[row] && m.cells[row][col];
-  const currentVariant = normalizeMaterialVariant(tile, (m.cellVariants || {})[key]);
-  const baseVariant = normalizeMaterialVariant(tile, (m.baseCellVariants || {})[key]);
-  return curHas === baseHas && (!curHas || cur[key] === base[key]) && currentVariant === baseVariant;
-}
-
-function restoreCellState(m, col, row) {
-  const key = `${col},${row}`;
-  const bs = m.baseCellStates || {};
-  if (Object.prototype.hasOwnProperty.call(bs, key)) {
-    if (!m.cellStates) m.cellStates = {};
-    m.cellStates[key] = bs[key];
-  } else {
-    delete (m.cellStates || {})[key];
-  }
-}
-
-function setCellVariant(m, key, tile, variant) {
-  const normalized = normalizeMaterialVariant(tile, variant);
-  if (normalized === null) {
-    delete (m.cellVariants || {})[key];
-    return;
-  }
-  if (!m.cellVariants) m.cellVariants = {};
-  m.cellVariants[key] = normalized;
-}
-
-function restoreCellVariant(m, col, row) {
-  const key = `${col},${row}`;
-  const tile = m.cells[row] && m.cells[row][col];
-  setCellVariant(m, key, tile, (m.baseCellVariants || {})[key]);
-}
-
-function mapPaintUndo() {
-  const m = activeMap();
-  if (!m) return;
-  while (mapEditHistory.length) {
-    const h = mapEditHistory.pop();
-    if (h.id !== m.id) continue;
-    m.cells[h.row][h.col] = h.old;
-    const key = `${h.col},${h.row}`;
-    if (h.oldState !== undefined) {
-      if (!m.cellStates) m.cellStates = {};
-      m.cellStates[key] = h.oldState;
-    } else {
-      delete (m.cellStates || {})[key];
-    }
-    if (h.oldVariant !== undefined) {
-      if (!m.cellVariants) m.cellVariants = {};
-      m.cellVariants[key] = h.oldVariant;
-    } else {
-      delete (m.cellVariants || {})[key];
-    }
-    m.mapData = renderCellsToDataUrl(m.cells, m.cellStates, m.gridSize, m.cellVariants);
-    updateWorldBackground();
-    scheduleAutosave();
-    toast('已撤销一步');
-    return;
-  }
-  toast('没有可撤销的修改');
-}
-
-function buildEditPalettes() {
-  const tileBox = $('#map-edit-tiles');
-  tileBox.innerHTML = '';
-  EDIT_GROUPS.forEach((group) => {
-    const head = document.createElement('div');
-    head.className = 'tile-group-head';
-    head.textContent = group.name;
-    tileBox.appendChild(head);
-    const row = document.createElement('div');
-    row.className = 'tile-row';
-    group.tiles.flatMap(editTileOptions).forEach((option) => {
-      const { id, variant, label: optionLabel } = option;
-      const b = document.createElement('button');
-      b.className = 'tile-btn';
-      b.dataset.tile = id;
-      b.dataset.variant = variant ?? '';
-      b.title = optionLabel;
-      const cv = document.createElement('canvas');
-      cv.width = 40;
-      cv.height = 40;
-      drawCell(cv.getContext('2d'), 2, 2, 36, id, null, { variant });
-      const label = document.createElement('span');
-      label.className = 'tile-label';
-      label.textContent = option.label;
-      b.append(cv, label);
-      b.addEventListener('click', () => {
-        if (editTile === id && editVariant === variant && boardTool === 'tile-paint') boardTool = null;
-        else { editTile = id; editVariant = variant; boardTool = 'tile-paint'; }
-        syncBoardTools();
-      });
-      row.appendChild(b);
-    });
-    tileBox.appendChild(row);
-  });
-}
-
-function syncPalettes() {
-  document.querySelectorAll('#map-edit-tiles .tile-btn').forEach((b) => {
-    const variant = b.dataset.variant === '' ? null : Number(b.dataset.variant);
-    b.classList.toggle('active', boardTool === 'tile-paint' && b.dataset.tile === editTile && variant === editVariant);
-  });
-}
-
 /* ==================== 战术涂鸦 ==================== */
 
 function doodleCtx() {
@@ -9727,7 +9955,401 @@ function syncBoardTools() {
   document.querySelectorAll('.board-tool').forEach((b) => {
     b.classList.toggle('active', b.dataset.tool === boardTool);
   });
-  syncPalettes();
+}
+
+/* ==================== 战役资料库（主控台私有） ==================== */
+
+let campaignDocuments = [];
+let campaignDocumentsCatalogKey = '';
+let campaignDocumentsRequest = 0;
+let campaignDocumentsLoading = false;
+let campaignDocumentsError = '';
+let campaignDocumentSelectedId = '';
+let campaignDocumentPreviewId = '';
+let campaignDocumentPreviewRequest = 0;
+
+function currentCampaignDocumentsKey() {
+  if (!state.campaignId) return '';
+  return `${state.campaignId}|${state.campaignName || ''}`;
+}
+
+function safeCampaignDocumentEndpoint(raw, prefix, documentId) {
+  const expected = `${prefix}${documentId}`;
+  const candidate = String(raw || '');
+  const relative = candidate === expected || candidate.startsWith(expected + '?') ? candidate : expected;
+  return `${serverApiBase()}${relative}`;
+}
+
+function normalizeCampaignDocument(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const id = String(raw.id || '').toLowerCase();
+  const type = String(raw.type || '').toLowerCase();
+  if (!/^[0-9a-f]{32}$/.test(id) || !['docx', 'pdf'].includes(type)) return null;
+  const title = String(raw.title || raw.fileName || '未命名资料').trim().slice(0, 200) || '未命名资料';
+  const fileName = String(raw.fileName || `${title}.${type}`).trim().slice(0, 240);
+  const previewPrefix = type === 'pdf' ? '/api/document-stream/' : '/api/document-preview/';
+  return {
+    id,
+    type,
+    title,
+    fileName,
+    size: Math.max(0, Number(raw.size) || 0),
+    mtime: Math.max(0, Number(raw.mtime) || 0),
+    previewUrl: safeCampaignDocumentEndpoint(raw.previewUrl, previewPrefix, id),
+    downloadUrl: safeCampaignDocumentEndpoint(raw.downloadUrl, '/api/document-download/', id),
+  };
+}
+
+function formatCampaignDocumentSize(size) {
+  const bytes = Math.max(0, Number(size) || 0);
+  if (bytes < 1024) return `${Math.round(bytes)} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(bytes < 10 * 1024 ? 1 : 0)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0)} MB`;
+}
+
+function campaignDocumentById(documentId = campaignDocumentSelectedId) {
+  return campaignDocuments.find((item) => item.id === documentId) || null;
+}
+
+function campaignDocumentMeta(documentItem) {
+  if (!documentItem) return '';
+  return `${documentItem.type.toUpperCase()} · ${formatCampaignDocumentSize(documentItem.size)}`;
+}
+
+function setCampaignDocumentStatus(message, kind = '') {
+  const status = $('#campaign-document-status');
+  const docx = $('#campaign-document-docx');
+  const pdf = $('#campaign-document-pdf');
+  status.textContent = message;
+  status.hidden = false;
+  if (kind) status.dataset.state = kind;
+  else delete status.dataset.state;
+  docx.hidden = true;
+  pdf.hidden = true;
+}
+
+function clearCampaignDocumentPreview(message = '从左侧选择 Word 或 PDF 文件开始预览。', kind = '') {
+  ++campaignDocumentPreviewRequest;
+  campaignDocumentPreviewId = '';
+  $('#campaign-document-docx').replaceChildren();
+  const pdf = $('#campaign-document-pdf');
+  pdf.removeAttribute('src');
+  setCampaignDocumentStatus(message, kind);
+}
+
+function renderCampaignDocumentSelectionHeader() {
+  const selected = campaignDocumentById();
+  const original = $('#campaign-document-original');
+  $('#campaign-document-viewer-title').textContent = selected?.title || '选择一份资料';
+  $('#campaign-document-viewer-meta').textContent = selected
+    ? `${campaignDocumentMeta(selected)} · ${selected.fileName}`
+    : 'Word 会显示为只读页面，PDF 会在这里打开。';
+  if (selected) {
+    original.href = selected.downloadUrl;
+    original.hidden = false;
+  } else {
+    original.removeAttribute('href');
+    original.hidden = true;
+  }
+}
+
+function makeCampaignDocumentsMessage(text, kind = '') {
+  const paragraph = document.createElement('p');
+  paragraph.className = 'campaign-documents-empty';
+  paragraph.textContent = text;
+  if (kind) paragraph.dataset.state = kind;
+  return paragraph;
+}
+
+function renderCampaignDocumentsUi() {
+  const hasCampaign = Boolean(state.campaignId);
+  const selected = campaignDocumentById();
+  const count = $('#campaign-documents-count');
+  const current = $('#campaign-documents-current');
+  const campaignName = $('#campaign-documents-campaign-name');
+  const quick = $('#campaign-document-quick-select');
+  const list = $('#campaign-documents-list');
+  const refreshButtons = [$('#btn-campaign-documents-refresh'), $('#btn-campaign-documents-dialog-refresh')];
+
+  count.textContent = `${campaignDocuments.length} 份`;
+  current.textContent = hasCampaign
+    ? `当前战役：${state.campaignName || '未命名战役'}`
+    : '选择正式战役后读取 Word / PDF 资料。';
+  campaignName.textContent = hasCampaign ? (state.campaignName || '未命名战役') : '尚未选择战役';
+  refreshButtons.forEach((button) => { button.disabled = !hasCampaign || campaignDocumentsLoading; });
+
+  quick.replaceChildren();
+  const placeholder = document.createElement('option');
+  placeholder.value = '';
+  placeholder.textContent = campaignDocumentsLoading ? '正在读取资料…'
+    : campaignDocumentsError ? '资料读取失败'
+      : campaignDocuments.length ? '选择一份资料' : '暂无资料';
+  quick.append(placeholder);
+  campaignDocuments.forEach((documentItem) => {
+    const option = document.createElement('option');
+    option.value = documentItem.id;
+    option.textContent = `${documentItem.type.toUpperCase()} · ${documentItem.title}`;
+    quick.append(option);
+  });
+  quick.value = selected?.id || '';
+  quick.disabled = !hasCampaign || campaignDocumentsLoading || !campaignDocuments.length;
+  $('#btn-campaign-document-preview').disabled = !selected || campaignDocumentsLoading;
+
+  list.replaceChildren();
+  if (!hasCampaign) {
+    list.append(makeCampaignDocumentsMessage('请先选择或新建一个正式战役。'));
+  } else if (campaignDocumentsLoading) {
+    list.append(makeCampaignDocumentsMessage('正在读取当前战役资料…'));
+  } else if (campaignDocumentsError) {
+    list.append(makeCampaignDocumentsMessage(campaignDocumentsError, 'error'));
+  } else if (!campaignDocuments.length) {
+    list.append(makeCampaignDocumentsMessage('当前战役还没有 Word 或 PDF 资料。'));
+  } else {
+    campaignDocuments.forEach((documentItem) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'campaign-document-item';
+      button.dataset.documentId = documentItem.id;
+      button.setAttribute('aria-pressed', String(documentItem.id === campaignDocumentSelectedId));
+      const title = document.createElement('strong');
+      title.textContent = documentItem.title;
+      const meta = document.createElement('span');
+      meta.textContent = campaignDocumentMeta(documentItem);
+      button.append(title, meta);
+      button.addEventListener('click', () => selectCampaignDocument(documentItem.id, { open: true, preview: true }));
+      list.append(button);
+    });
+  }
+  renderCampaignDocumentSelectionHeader();
+}
+
+function selectCampaignDocument(documentId, options = {}) {
+  const selected = campaignDocumentById(String(documentId || ''));
+  const nextId = selected?.id || '';
+  if (nextId !== campaignDocumentSelectedId) {
+    campaignDocumentSelectedId = nextId;
+    clearCampaignDocumentPreview(selected ? '点击“预览选中文件”读取内容。' : undefined);
+  }
+  renderCampaignDocumentsUi();
+  if (options.open) openCampaignDocumentsDialog();
+  if (options.preview && selected) return previewCampaignDocument(selected.id);
+  return Promise.resolve(Boolean(selected));
+}
+
+function appendCampaignDocumentTextBlock(container, tagName, text, className = '') {
+  const element = document.createElement(tagName);
+  if (className) element.className = className;
+  element.textContent = String(text || '');
+  container.append(element);
+}
+
+function renderCampaignDocumentBlocks(blocks) {
+  const container = $('#campaign-document-docx');
+  container.replaceChildren();
+  let rendered = 0;
+  (Array.isArray(blocks) ? blocks : []).slice(0, 5000).forEach((block) => {
+    if (!block || typeof block !== 'object') return;
+    if (block.type === 'heading') {
+      const level = Math.max(1, Math.min(6, Math.trunc(Number(block.level) || 1)));
+      appendCampaignDocumentTextBlock(container, `h${level}`, block.text);
+      rendered++;
+    } else if (block.type === 'paragraph') {
+      appendCampaignDocumentTextBlock(container, 'p', block.text);
+      rendered++;
+    } else if (block.type === 'list') {
+      appendCampaignDocumentTextBlock(container, 'p', block.text, 'document-list-item');
+      rendered++;
+    } else if (block.type === 'pageBreak') {
+      const divider = document.createElement('div');
+      divider.className = 'document-page-break';
+      divider.setAttribute('aria-hidden', 'true');
+      container.append(divider);
+      rendered++;
+    } else if (block.type === 'table' && Array.isArray(block.rows)) {
+      const table = document.createElement('table');
+      const body = document.createElement('tbody');
+      block.rows.slice(0, 1000).forEach((rawRow) => {
+        if (!Array.isArray(rawRow)) return;
+        const row = document.createElement('tr');
+        rawRow.slice(0, 100).forEach((rawCell) => {
+          const cell = document.createElement('td');
+          cell.textContent = String(rawCell || '');
+          row.append(cell);
+        });
+        if (row.children.length) body.append(row);
+      });
+      if (body.children.length) {
+        table.append(body);
+        container.append(table);
+        rendered++;
+      }
+    }
+  });
+  return rendered;
+}
+
+async function previewCampaignDocument(documentId = campaignDocumentSelectedId) {
+  const selected = campaignDocumentById(documentId);
+  const requestedKey = currentCampaignDocumentsKey();
+  if (!requestedKey || !selected) {
+    clearCampaignDocumentPreview(requestedKey ? '请选择一份资料。' : '请先选择或新建一个正式战役。');
+    return false;
+  }
+  campaignDocumentSelectedId = selected.id;
+  const request = ++campaignDocumentPreviewRequest;
+  campaignDocumentPreviewId = selected.id;
+  renderCampaignDocumentsUi();
+  setCampaignDocumentStatus(selected.type === 'pdf' ? '正在检查 PDF 预览…' : '正在读取 Word 预览…');
+  try {
+    if (selected.type === 'pdf') {
+      const response = await fetch(selected.previewUrl, { method: 'HEAD', cache: 'no-store' });
+      if (request !== campaignDocumentPreviewRequest
+        || requestedKey !== currentCampaignDocumentsKey()
+        || campaignDocumentSelectedId !== selected.id) return false;
+      if (!response.ok) {
+        throw new Error(response.status === 404 ? 'PDF 文件不存在，请刷新资料库'
+          : response.status === 403 ? '无权读取这份 PDF 资料' : 'PDF 预览读取失败');
+      }
+      const pdf = $('#campaign-document-pdf');
+      pdf.src = selected.previewUrl;
+      pdf.hidden = false;
+      $('#campaign-document-status').hidden = true;
+      return true;
+    }
+
+    const response = await fetch(selected.previewUrl, { cache: 'no-store' });
+    const data = await response.json().catch(() => ({}));
+    if (request !== campaignDocumentPreviewRequest
+      || requestedKey !== currentCampaignDocumentsKey()
+      || campaignDocumentSelectedId !== selected.id) return false;
+    if (!response.ok || data.ok === false || !Array.isArray(data.document?.blocks)) {
+      throw new Error(data.error || 'Word 预览读取失败');
+    }
+    const rendered = renderCampaignDocumentBlocks(data.document.blocks);
+    if (!rendered) {
+      setCampaignDocumentStatus('这份 Word 资料没有可显示的文字内容。');
+      return true;
+    }
+    $('#campaign-document-status').hidden = true;
+    $('#campaign-document-pdf').hidden = true;
+    $('#campaign-document-docx').hidden = false;
+    return true;
+  } catch (error) {
+    if (request !== campaignDocumentPreviewRequest
+      || requestedKey !== currentCampaignDocumentsKey()
+      || campaignDocumentSelectedId !== selected.id) return false;
+    campaignDocumentPreviewId = '';
+    setCampaignDocumentStatus('预览失败：' + (error.message || error), 'error');
+    return false;
+  }
+}
+
+async function loadCampaignDocumentLibrary(options = {}) {
+  const request = ++campaignDocumentsRequest;
+  const requestedKey = currentCampaignDocumentsKey();
+  if (!requestedKey) {
+    campaignDocumentsCatalogKey = '';
+    campaignDocuments = [];
+    campaignDocumentsLoading = false;
+    campaignDocumentsError = '';
+    campaignDocumentSelectedId = '';
+    clearCampaignDocumentPreview('请先选择或新建一个正式战役。');
+    renderCampaignDocumentsUi();
+    return false;
+  }
+
+  const campaignChanged = requestedKey !== campaignDocumentsCatalogKey;
+  campaignDocumentsCatalogKey = requestedKey;
+  campaignDocumentsLoading = true;
+  campaignDocumentsError = '';
+  if (campaignChanged) {
+    campaignDocuments = [];
+    campaignDocumentSelectedId = '';
+  }
+  clearCampaignDocumentPreview('正在读取当前战役资料…');
+  renderCampaignDocumentsUi();
+  try {
+    const query = new URLSearchParams({ campaignId: state.campaignId || '', campaignName: state.campaignName || '' });
+    const response = await fetch(`${serverApiBase()}/api/document-library?${query}`, { cache: 'no-store' });
+    const data = await response.json().catch(() => ({}));
+    if (request !== campaignDocumentsRequest || requestedKey !== currentCampaignDocumentsKey()) return false;
+    if (!response.ok || data.ok === false || !Array.isArray(data.documents)) {
+      throw new Error(data.error || '资料库读取失败');
+    }
+    const previousSelectedId = campaignDocumentSelectedId;
+    campaignDocuments = data.documents.map(normalizeCampaignDocument).filter(Boolean);
+    campaignDocumentSelectedId = campaignDocuments.some((item) => item.id === previousSelectedId)
+      ? previousSelectedId : (campaignDocuments[0]?.id || '');
+    campaignDocumentsError = '';
+    setCampaignDocumentStatus(campaignDocuments.length
+      ? '选择资料后点击预览。'
+      : '当前战役还没有 Word 或 PDF 资料。');
+    if (!options.silent) toast(`战役资料已刷新：${campaignDocuments.length} 份`);
+    return true;
+  } catch (error) {
+    if (request !== campaignDocumentsRequest || requestedKey !== currentCampaignDocumentsKey()) return false;
+    campaignDocuments = [];
+    campaignDocumentSelectedId = '';
+    campaignDocumentsError = '资料库读取失败：' + (error.message || error);
+    setCampaignDocumentStatus(campaignDocumentsError, 'error');
+    if (!options.silent) toast(campaignDocumentsError);
+    return false;
+  } finally {
+    if (request === campaignDocumentsRequest && requestedKey === currentCampaignDocumentsKey()) {
+      campaignDocumentsLoading = false;
+      renderCampaignDocumentsUi();
+    }
+  }
+}
+
+function ensureCampaignDocumentsForCampaign() {
+  const key = currentCampaignDocumentsKey();
+  if (!key) {
+    if (campaignDocumentsCatalogKey || campaignDocuments.length || campaignDocumentsLoading) loadCampaignDocumentLibrary({ silent: true });
+    else renderCampaignDocumentsUi();
+    return;
+  }
+  if (key !== campaignDocumentsCatalogKey) loadCampaignDocumentLibrary({ silent: true });
+  else renderCampaignDocumentsUi();
+}
+
+function openCampaignDocumentsDialog() {
+  const dialog = $('#campaign-documents-dialog');
+  if (!dialog.open) dialog.showModal();
+  renderCampaignDocumentsUi();
+}
+
+function closeCampaignDocumentsDialog() {
+  $('#campaign-documents-dialog').close();
+}
+
+function initCampaignDocumentsUi() {
+  const dialog = $('#campaign-documents-dialog');
+  if (dialog.dataset.bound === 'true') return;
+  dialog.dataset.bound = 'true';
+  $('#btn-campaign-documents-refresh').addEventListener('click', () => loadCampaignDocumentLibrary());
+  $('#btn-campaign-documents-dialog-refresh').addEventListener('click', () => loadCampaignDocumentLibrary());
+  $('#btn-campaign-documents-open').addEventListener('click', openCampaignDocumentsDialog);
+  $('#btn-campaign-documents-close').addEventListener('click', closeCampaignDocumentsDialog);
+  $('#btn-campaign-document-preview').addEventListener('click', () => {
+    openCampaignDocumentsDialog();
+    return previewCampaignDocument();
+  });
+  $('#campaign-document-quick-select').addEventListener('change', (event) => selectCampaignDocument(event.target.value));
+  dialog.addEventListener('click', (event) => {
+    if (event.target !== dialog) return;
+    const box = dialog.getBoundingClientRect();
+    if (event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom) {
+      closeCampaignDocumentsDialog();
+    }
+  });
+  $('#campaign-document-pdf').addEventListener('error', () => {
+    if (campaignDocumentPreviewId && campaignDocumentById(campaignDocumentPreviewId)?.type === 'pdf') {
+      campaignDocumentPreviewId = '';
+      setCampaignDocumentStatus('PDF 预览加载失败，请打开原文件。', 'error');
+    }
+  });
+  renderCampaignDocumentsUi();
 }
 
 /* ==================== 启动 ==================== */
@@ -9735,6 +10357,8 @@ function syncBoardTools() {
 preloadConditionPixels();
 bindEvents();
 initCoverThemePicker();
+initCampaignDocumentsUi();
+ensureCampaignDocumentsForCampaign();
 loadProjectMusicLibrary({ silent: true });
 try {
   const hdMigration = localStorage.getItem('sangduoer-hd-default-v2');
@@ -9848,7 +10472,7 @@ function initMapQuickTools() {
   document.querySelectorAll('[data-toggle-target]').forEach((button) => {
     const target = document.getElementById(button.dataset.toggleTarget);
     if (!target) return;
-    const sync = () => button.classList.toggle('active', target.checked);
+    const sync = () => syncToggleTargetButtons(target);
     button.addEventListener('click', () => target.click());
     target.addEventListener('change', sync);
     sync();
@@ -9857,6 +10481,7 @@ function initMapQuickTools() {
 
 initWorkspaceTabs();
 initMapQuickTools();
+syncActiveMapGridSetting();
 renderEncounter();
 clearInterval(encounterClockTimer);
 encounterClockTimer = setInterval(() => {

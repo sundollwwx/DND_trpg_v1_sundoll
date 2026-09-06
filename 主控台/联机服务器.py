@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-桑多尔之歌 · 简易联机服务器（零依赖，Python 3.6+）
+桑哆尔之歌 · 简易联机服务器（零依赖，Python 3.7+）
 用法：在项目根目录运行  python3 主控台/联机服务器.py [端口]
       或运行  python3 start_server.py --port 8092 --bind 0.0.0.0
 默认端口 8090。启动后：
@@ -9,8 +9,9 @@
               在「📡 联机 → 开启玩家模式」开启推送。
   玩家：同一 WiFi 下用浏览器打开 http://<本机IP>:端口/主控台/玩家.html
 """
-import os, sys, json, time, socket, threading, re, base64, hashlib, math, random, secrets, shutil, copy
-from urllib.parse import urlparse, parse_qs, unquote_to_bytes
+import os, sys, json, time, socket, threading, re, base64, hashlib, math, random, secrets, shutil, copy, zipfile
+import xml.etree.ElementTree as ET
+from urllib.parse import urlparse, parse_qs, unquote_to_bytes, quote
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
 def cli_options():
@@ -103,6 +104,19 @@ MUSIC_MIME_TYPES = {
     '.ogg': 'audio/ogg', '.flac': 'audio/flac', '.aac': 'audio/aac',
     '.opus': 'audio/ogg', '.webm': 'audio/webm',
 }
+DOCUMENT_LIBRARY_ROOT = os.path.join(ROOT, 'asset', '文档')
+DOCUMENT_LIBRARY_INDEX = {}
+DOCUMENT_EXTS = ('.pdf', '.docx')
+MAX_DOCUMENT_LIBRARY_FILES = 500
+MAX_DOCUMENT_SOURCE_BYTES = 64 * 1024 * 1024
+MAX_DOCX_ZIP_ENTRIES = 2048
+MAX_DOCX_UNCOMPRESSED_BYTES = 160 * 1024 * 1024
+MAX_DOCX_XML_BYTES = 32 * 1024 * 1024
+MAX_DOCX_COMPRESSION_RATIO = 200
+MAX_DOCX_PREVIEW_BLOCKS = 5000
+MAX_DOCX_PREVIEW_CHARS = 2 * 1024 * 1024
+DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+WORDPROCESSING_NS = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
 # 地图和头像转换为内容哈希 URL，浏览器可长期缓存；资源同时写入磁盘，
 # 不再把 Base64 地图和头像塞进每一条 SSE 消息。
 ASSETS = {}           # {sha256: (mime, bytes)}
@@ -110,7 +124,7 @@ DATA_URL_RE = re.compile(r'^data:([^;,]+)?(;base64)?,(.*)$', re.S)
 
 SESSION_ID = secrets.token_hex(8)
 ROOM_CODE = secrets.token_hex(3).upper()
-SERVER_PROTOCOL_VERSION = 7
+SERVER_PROTOCOL_VERSION = 9
 STATE_REVISION = 0
 SESSIONS = {}         # {sessionToken: {playerId, name, status, lastSeen}}
 ACTION_IDS = {}       # {actionId: seq}，防止网络重试重复执行
@@ -796,7 +810,8 @@ def music_library_catalog(root=None, campaign_id='', campaign_name=''):
             return
         try:
             relative = os.path.relpath(path, root).replace(os.sep, '/')
-            size = os.path.getsize(path)
+            stat = os.stat(path)
+            size = stat.st_size
         except OSError:
             return
         track_id = hashlib.sha256(relative.encode('utf-8')).hexdigest()[:32]
@@ -811,7 +826,7 @@ def music_library_catalog(root=None, campaign_id='', campaign_name=''):
             'collection': '当前战役' if scope == 'campaign' else '通用',
             'category': category,
             'size': size,
-            'url': '/api/music-stream/' + track_id,
+            'url': '/api/music-stream/' + track_id + '?v=%x-%x' % (stat.st_mtime_ns, size),
         })
         index[track_id] = path
 
@@ -876,6 +891,374 @@ def refresh_music_library(campaign_id='', campaign_name=''):
         MUSIC_LIBRARY_INDEX.clear()
         MUSIC_LIBRARY_INDEX.update(index)
     return catalog
+
+
+class DocumentPreviewError(ValueError):
+    pass
+
+
+class DocumentTooLargeError(DocumentPreviewError):
+    pass
+
+
+def _path_within(root, path):
+    """同时按书写路径和真实路径校验，避免 ``..`` 与软链接逃逸。"""
+    root = os.path.abspath(root)
+    path = os.path.abspath(path)
+    try:
+        if os.path.commonpath([root, path]) != root:
+            return False
+        real_root = os.path.realpath(root)
+        real_path = os.path.realpath(path)
+        return os.path.commonpath([real_root, real_path]) == real_root
+    except (OSError, ValueError):
+        return False
+
+
+def _path_written_or_resolved_within(root, path):
+    """静态封锁同时识别目录原路径和从别处指向目录的软链接别名。"""
+    root = os.path.abspath(root)
+    path = os.path.abspath(path)
+    try:
+        written_inside = os.path.commonpath([root, path]) == root
+        real_root = os.path.realpath(root)
+        real_path = os.path.realpath(path)
+        resolved_inside = os.path.commonpath([real_root, real_path]) == real_root
+        return written_inside or resolved_inside
+    except (OSError, ValueError):
+        return False
+
+
+def _document_path_is_safe(root, path):
+    if not _path_within(root, path):
+        return False
+    root = os.path.abspath(root)
+    path = os.path.abspath(path)
+    if os.path.lexists(root) and os.path.islink(root):
+        return False
+    relative = os.path.relpath(path, root)
+    if relative == os.pardir or relative.startswith(os.pardir + os.sep):
+        return False
+    cursor = root
+    for part in (() if relative == '.' else relative.split(os.sep)):
+        cursor = os.path.join(cursor, part)
+        if os.path.lexists(cursor) and os.path.islink(cursor):
+            return False
+    return True
+
+
+def _walk_document_files(root, start):
+    if not os.path.isdir(start) or not _document_path_is_safe(root, start):
+        return
+    for directory, subdirs, files in os.walk(start):
+        subdirs[:] = [name for name in subdirs
+                      if not name.startswith('.')
+                      and _document_path_is_safe(root, os.path.join(directory, name))]
+        for name in files:
+            path = os.path.join(directory, name)
+            extension = os.path.splitext(name)[1].lower()
+            if (name.startswith('.') or name.startswith('~$') or extension not in DOCUMENT_EXTS
+                    or not _document_path_is_safe(root, path)
+                    or not os.path.isfile(path)):
+                continue
+            yield path
+
+
+def document_library_catalog(root=None, campaign_id='', campaign_name=''):
+    """只索引当前战役的 PDF/DOCX，并用不含物理路径的内容 ID 对外引用。"""
+    root = os.path.abspath(root or DOCUMENT_LIBRARY_ROOT)
+    campaign_id = re.sub(r'[^\w\-]', '', str(campaign_id or ''))[:80]
+    campaign_name = _safe_music_campaign_name(campaign_name)[:120]
+    documents = []
+    index = {}
+    campaigns_root = os.path.join(root, '战役')
+    folder_names = []
+    if os.path.isdir(campaigns_root) and _document_path_is_safe(root, campaigns_root):
+        try:
+            folder_names = [name for name in os.listdir(campaigns_root)
+                            if os.path.isdir(os.path.join(campaigns_root, name))
+                            and _document_path_is_safe(root, os.path.join(campaigns_root, name))]
+        except OSError:
+            folder_names = []
+    expected = ((campaign_id + '-' + campaign_name) if campaign_id and campaign_name else '')
+    candidates = sorted(folder_names, key=lambda name: (
+        0 if expected and name == expected else
+        1 if campaign_id and name == campaign_id else
+        2 if campaign_id and name.startswith(campaign_id + '-') else
+        3 if campaign_name and name == campaign_name else 4,
+        name,
+    ))
+    selected = next((name for name in candidates if (
+        (expected and name == expected)
+        or (campaign_id and (name == campaign_id or name.startswith(campaign_id + '-')))
+        or (campaign_name and name == campaign_name)
+    )), '')
+    if selected:
+        campaign_root = os.path.join(campaigns_root, selected)
+        for path in _walk_document_files(root, campaign_root):
+            if len(documents) >= MAX_DOCUMENT_LIBRARY_FILES:
+                break
+            try:
+                stat = os.stat(path)
+                size = stat.st_size
+                if size <= 0 or size > MAX_DOCUMENT_SOURCE_BYTES:
+                    continue
+                relative = os.path.relpath(path, root).replace(os.sep, '/')
+            except OSError:
+                continue
+            document_id = hashlib.sha256(relative.encode('utf-8')).hexdigest()[:32]
+            extension = os.path.splitext(path)[1].lower()
+            version = '?v=%x-%x' % (stat.st_mtime_ns, size)
+            preview_endpoint = ('/api/document-stream/' if extension == '.pdf'
+                                else '/api/document-preview/')
+            documents.append({
+                'id': document_id,
+                'title': os.path.splitext(os.path.basename(path))[0],
+                'fileName': os.path.basename(path),
+                'type': extension[1:],
+                'size': size,
+                'mtime': int(stat.st_mtime * 1000),
+                'previewUrl': preview_endpoint + document_id + version,
+                'downloadUrl': '/api/document-download/' + document_id + version,
+            })
+            index[document_id] = path
+    documents.sort(key=lambda item: (item['title'].lower(), item['type']))
+    return {
+        'ok': True,
+        'campaignId': campaign_id,
+        'campaignName': campaign_name,
+        'documents': documents,
+        '_index': index,
+    }
+
+
+def refresh_document_library(campaign_id='', campaign_name=''):
+    catalog = document_library_catalog(DOCUMENT_LIBRARY_ROOT, campaign_id, campaign_name)
+    index = catalog.pop('_index')
+    with LOCK:
+        DOCUMENT_LIBRARY_INDEX.clear()
+        DOCUMENT_LIBRARY_INDEX.update(index)
+    return catalog
+
+
+def document_request_allowed(handler):
+    """战役文档只对同源的本机主控台开放，反向隧道和跨站页面均拒绝。"""
+    if not is_local_request(handler):
+        return False
+    host_header = str(handler.headers.get('Host') or '').strip()
+    try:
+        host_url = urlparse('//' + host_header)
+        host_name = (host_url.hostname or '').lower().rstrip('.')
+        host_port = host_url.port
+    except ValueError:
+        return False
+    allowed_hosts = {'localhost', '127.0.0.1', '::1'}
+    try:
+        allowed_hosts.update(str(item).lower().split('%', 1)[0] for item in get_ips())
+    except Exception:
+        pass
+    if not host_name or host_name not in allowed_hosts or host_port not in (None, PORT):
+        return False
+    origin = str(handler.headers.get('Origin') or '').strip()
+    if origin:
+        try:
+            origin_url = urlparse(origin)
+            if (origin_url.scheme != 'http'
+                    or (origin_url.hostname or '').lower().rstrip('.') != host_name
+                    or origin_url.port not in (None, PORT)):
+                return False
+        except ValueError:
+            return False
+    fetch_site = str(handler.headers.get('Sec-Fetch-Site') or '').strip().lower()
+    if fetch_site and fetch_site not in ('same-origin', 'none'):
+        return False
+    return True
+
+
+def _validate_docx_member_name(name):
+    raw = str(name or '')
+    if not raw or '\x00' in raw or raw.startswith(('/', '\\')) or '\\' in raw:
+        raise DocumentPreviewError('DOCX 包含非法路径')
+    parts = [part for part in raw.split('/') if part]
+    if any(part in ('.', '..') for part in parts) or (parts and re.match(r'^[A-Za-z]:', parts[0])):
+        raise DocumentPreviewError('DOCX 包含非法路径')
+
+
+def _validate_docx_archive(archive):
+    infos = archive.infolist()
+    if len(infos) > MAX_DOCX_ZIP_ENTRIES:
+        raise DocumentTooLargeError('DOCX 内部文件过多')
+    total_size = 0
+    total_compressed = 0
+    seen_names = set()
+    for info in infos:
+        _validate_docx_member_name(info.filename)
+        if info.filename in seen_names:
+            raise DocumentPreviewError('DOCX 包含重复内部文件')
+        seen_names.add(info.filename)
+        if info.flag_bits & 1:
+            raise DocumentPreviewError('不支持加密 DOCX')
+        total_size += max(0, int(info.file_size))
+        total_compressed += max(0, int(info.compress_size))
+        ratio = info.file_size / max(1, info.compress_size)
+        if info.file_size > 1024 and ratio > MAX_DOCX_COMPRESSION_RATIO:
+            raise DocumentTooLargeError('DOCX 压缩率异常')
+    if total_size > MAX_DOCX_UNCOMPRESSED_BYTES:
+        raise DocumentTooLargeError('DOCX 解压后过大')
+    if total_size > 1024 and total_size / max(1, total_compressed) > MAX_DOCX_COMPRESSION_RATIO:
+        raise DocumentTooLargeError('DOCX 压缩率异常')
+    names = {info.filename for info in infos}
+    if 'word/document.xml' not in names:
+        raise DocumentPreviewError('DOCX 缺少正文')
+    document_info = archive.getinfo('word/document.xml')
+    if document_info.file_size > MAX_DOCX_XML_BYTES:
+        raise DocumentTooLargeError('DOCX 正文过大')
+
+
+def _read_zip_member_limited(archive, name, limit):
+    try:
+        with archive.open(name) as handle:
+            raw = handle.read(limit + 1)
+    except KeyError:
+        return None
+    if len(raw) > limit:
+        raise DocumentTooLargeError('DOCX XML 过大')
+    if b'<!DOCTYPE' in raw.upper() or b'<!ENTITY' in raw.upper():
+        raise DocumentPreviewError('DOCX XML 声明不安全')
+    return raw
+
+
+def _docx_text_pieces(element):
+    namespace = '{' + WORDPROCESSING_NS + '}'
+    pieces = []
+    current = []
+    for node in element.iter():
+        if node.tag == namespace + 't':
+            current.append(node.text or '')
+        elif node.tag == namespace + 'tab':
+            current.append('\t')
+        elif node.tag in (namespace + 'lastRenderedPageBreak', namespace + 'br'):
+            is_page = (node.tag == namespace + 'lastRenderedPageBreak'
+                       or node.get(namespace + 'type') == 'page')
+            if is_page:
+                pieces.append(''.join(current).strip())
+                pieces.append(None)
+                current = []
+            else:
+                current.append('\n')
+    pieces.append(''.join(current).strip())
+    return pieces
+
+
+def _docx_style_map(archive):
+    raw = _read_zip_member_limited(archive, 'word/styles.xml', 4 * 1024 * 1024)
+    if not raw:
+        return {}
+    try:
+        root = ET.fromstring(raw)
+    except ET.ParseError:
+        return {}
+    namespace = '{' + WORDPROCESSING_NS + '}'
+    styles = {}
+    for style in root.findall('.//' + namespace + 'style'):
+        style_id = style.get(namespace + 'styleId') or ''
+        name_element = style.find('./' + namespace + 'name')
+        outline_element = style.find('.//' + namespace + 'outlineLvl')
+        styles[style_id] = {
+            'name': (name_element.get(namespace + 'val') if name_element is not None else '') or '',
+            'outline': (outline_element.get(namespace + 'val') if outline_element is not None else None),
+        }
+    return styles
+
+
+def _docx_paragraph_kind(paragraph, styles):
+    namespace = '{' + WORDPROCESSING_NS + '}'
+    style_element = paragraph.find('./' + namespace + 'pPr/' + namespace + 'pStyle')
+    style_id = style_element.get(namespace + 'val') if style_element is not None else ''
+    style = styles.get(style_id, {})
+    label = (style_id + ' ' + str(style.get('name') or '')).lower()
+    match = re.search(r'(?:heading|标题)\s*([1-6])', label)
+    if match:
+        return 'heading', int(match.group(1))
+    try:
+        outline = int(style.get('outline'))
+        if 0 <= outline <= 5:
+            return 'heading', outline + 1
+    except (TypeError, ValueError):
+        pass
+    if paragraph.find('./' + namespace + 'pPr/' + namespace + 'numPr') is not None:
+        return 'list', None
+    return 'paragraph', None
+
+
+def parse_docx_preview(path):
+    try:
+        size = os.path.getsize(path)
+    except OSError:
+        raise DocumentPreviewError('文档不存在')
+    if size <= 0 or size > MAX_DOCUMENT_SOURCE_BYTES:
+        raise DocumentTooLargeError('DOCX 文件大小超出限制')
+    try:
+        archive = zipfile.ZipFile(path)
+    except (OSError, zipfile.BadZipFile):
+        raise DocumentPreviewError('DOCX 文件已损坏')
+    with archive:
+        _validate_docx_archive(archive)
+        raw = _read_zip_member_limited(archive, 'word/document.xml', MAX_DOCX_XML_BYTES)
+        try:
+            root = ET.fromstring(raw)
+        except (TypeError, ET.ParseError):
+            raise DocumentPreviewError('DOCX 正文无法解析')
+        styles = _docx_style_map(archive)
+
+    namespace = '{' + WORDPROCESSING_NS + '}'
+    body = root.find('.//' + namespace + 'body')
+    if body is None:
+        raise DocumentPreviewError('DOCX 缺少正文')
+    blocks = []
+    character_count = 0
+
+    def append_block(block):
+        nonlocal character_count
+        if len(blocks) >= MAX_DOCX_PREVIEW_BLOCKS:
+            raise DocumentTooLargeError('DOCX 预览内容过多')
+        if block.get('type') == 'table':
+            added = sum(len(cell) for row in block.get('rows', []) for cell in row)
+        else:
+            added = len(block.get('text') or '')
+        character_count += added
+        if character_count > MAX_DOCX_PREVIEW_CHARS:
+            raise DocumentTooLargeError('DOCX 预览文字过多')
+        blocks.append(block)
+
+    for child in body:
+        if child.tag == namespace + 'p':
+            block_type, level = _docx_paragraph_kind(child, styles)
+            pieces = _docx_text_pieces(child)
+            for index, text_value in enumerate(pieces):
+                if text_value:
+                    block = {'type': block_type, 'text': text_value}
+                    if block_type == 'heading':
+                        block['level'] = level
+                    append_block(block)
+                if index < len(pieces) - 1 and pieces[index + 1] is None:
+                    append_block({'type': 'pageBreak'})
+        elif child.tag == namespace + 'tbl':
+            rows = []
+            for row in child.findall('./' + namespace + 'tr'):
+                cells = []
+                for cell in row.findall('./' + namespace + 'tc'):
+                    paragraphs = []
+                    for paragraph in cell.findall('./' + namespace + 'p'):
+                        text_value = ''.join(piece or '' for piece in _docx_text_pieces(paragraph)).strip()
+                        if text_value:
+                            paragraphs.append(text_value)
+                    cells.append('\n'.join(paragraphs))
+                if cells:
+                    rows.append(cells)
+            if rows:
+                append_block({'type': 'table', 'rows': rows})
+    return blocks
 
 
 def parse_http_byte_range(header, size):
@@ -1407,6 +1790,34 @@ def movement_anchor(m, token):
     return token
 
 
+def empty_turn_path():
+    return {'mapId': None, 'tokenId': None, 'points': [], 'segmentEnds': []}
+
+
+def normalize_turn_path_segment_ends(raw_ends, point_count):
+    """把每次鼠标松开的位置整理成严格递增的路径索引。"""
+    try:
+        last_point_index = max(0, int(point_count) - 1)
+    except (TypeError, ValueError):
+        last_point_index = 0
+    if last_point_index < 1:
+        return []
+    ends = []
+    for raw in raw_ends if isinstance(raw_ends, list) else []:
+        if isinstance(raw, bool):
+            continue
+        number = finite_number(raw)
+        if number is None or int(number) != number:
+            continue
+        end = int(number)
+        if 1 <= end <= last_point_index and (not ends or end > ends[-1]):
+            ends.append(end)
+    # 升级前的路径只有 points；兼容时把整条旧路径视为一次已经完成的拖动。
+    if not ends or ends[-1] != last_point_index:
+        ends.append(last_point_index)
+    return ends
+
+
 def encounter_state(state):
     encounter = (state or {}).get('encounter')
     if isinstance(encounter, dict):
@@ -1414,7 +1825,14 @@ def encounter_state(state):
             encounter['playMode'] = 'prepare'
             encounter['currentEntryId'] = None
             encounter['round'] = 1
-            encounter['turnPath'] = {'mapId': None, 'tokenId': None, 'points': []}
+            encounter['turnPath'] = empty_turn_path()
+        path = encounter.get('turnPath')
+        if not isinstance(path, dict):
+            encounter['turnPath'] = empty_turn_path()
+        else:
+            points = path.get('points') if isinstance(path.get('points'), list) else []
+            path['points'] = points
+            path['segmentEnds'] = normalize_turn_path_segment_ends(path.get('segmentEnds'), len(points))
         return encounter
     if isinstance(state, dict):
         state['encounter'] = {}
@@ -1899,12 +2317,12 @@ def apply_action(state, action):
         path_removed = path.get('tokenId') == token_id
         if removed_entry_ids or path_removed:
             encounter['turnSerial'] = encounter_turn_serial(state) + 1
-            encounter['turnPath'] = {'mapId': None, 'tokenId': None, 'points': []}
+            encounter['turnPath'] = empty_turn_path()
         if encounter.get('playMode') == 'turn' and not encounter['entries']:
             encounter['playMode'] = 'prepare'
             encounter['currentEntryId'] = None
             encounter['round'] = 1
-            encounter['turnPath'] = {'mapId': None, 'tokenId': None, 'points': []}
+            encounter['turnPath'] = empty_turn_path()
         action['detachedRiderIds'] = [item for item in detached if item]
         action['removedEntryIds'] = [item for item in removed_entry_ids if item]
         action['currentEntryId'] = encounter.get('currentEntryId')
@@ -1944,7 +2362,7 @@ def apply_action(state, action):
         initiative_changed = reconcile_mounted_initiative_entries(state)
         if encounter.get('playMode') != 'free' and (invalidates_turn or initiative_changed):
             encounter['turnSerial'] = encounter_turn_serial(state) + 1
-            encounter['turnPath'] = {'mapId': None, 'tokenId': None, 'points': []}
+            encounter['turnPath'] = empty_turn_path()
 
         action['x'] = rider.get('x')
         action['y'] = rider.get('y')
@@ -1953,7 +2371,7 @@ def apply_action(state, action):
         action['encounterPlayMode'] = encounter.get('playMode')
         action['round'] = max(1, int(finite_number(encounter.get('round')) or 1))
         action['turnSerial'] = encounter_turn_serial(state)
-        action['turnPath'] = copy.deepcopy(encounter.get('turnPath') or {'mapId': None, 'tokenId': None, 'points': []})
+        action['turnPath'] = copy.deepcopy(encounter.get('turnPath') or empty_turn_path())
         return True
     if op == PLAYER_DISMOUNT_ACTION:
         map_obj, rider = find_token(state, action.get('tokenId'))
@@ -2061,7 +2479,7 @@ def apply_action(state, action):
         target['order'] = target_after
         sort_initiative_entries(encounter)
         encounter['turnSerial'] = next_serial
-        encounter['turnPath'] = {'mapId': None, 'tokenId': None, 'points': []}
+        encounter['turnPath'] = empty_turn_path()
         return True
     if op == 'endTurn':
         encounter = encounter_state(state)
@@ -2078,7 +2496,7 @@ def apply_action(state, action):
         encounter['currentEntryId'] = next_id
         encounter['round'] = max(1, int(finite_number(action.get('round')) or encounter.get('round', 1)))
         encounter['turnSerial'] = max(1, int(next_serial))
-        encounter['turnPath'] = {'mapId': None, 'tokenId': None, 'points': []}
+        encounter['turnPath'] = empty_turn_path()
         world = encounter.setdefault('worldTime', {})
         old_total = max(0, int(finite_number(world.get('totalSeconds')) or 0))
         encounter['weather'] = normalize_weather(encounter.get('weather'), old_total)
@@ -2170,8 +2588,10 @@ def apply_action(state, action):
             return False
         if canonical_replay:
             raw_points = action.get('path')
+            raw_segment_ends = action.get('segmentEnds')
         else:
             raw_points = existing.get('points', []) or []
+            raw_segment_ends = existing.get('segmentEnds')
         points = []
         for raw_point in raw_points:
             if not isinstance(raw_point, dict):
@@ -2181,19 +2601,29 @@ def apply_action(state, action):
                 return False
             if not points or not same_point(points[-1], normalized):
                 points.append(normalized)
+        segment_ends = normalize_turn_path_segment_ends(raw_segment_ends, len(points))
         if not canonical_replay:
             if len(points) < 2:
                 return False
-            points = points[:-1] if op == 'turnPathUndo' else points[:1]
+            if op == 'turnPathUndo':
+                previous_segment_end = segment_ends[-2] if len(segment_ends) > 1 else 0
+                points = points[:previous_segment_end + 1]
+                segment_ends = segment_ends[:-1]
+            else:
+                points = points[:1]
+                segment_ends = []
             action['pathMode'] = 'replace'
             action['path'] = [dict(candidate) for candidate in points]
+            action['segmentEnds'] = list(segment_ends)
         if not points or len(points) > MAX_TURN_PATH_POINTS:
             return False
+        segment_ends = normalize_turn_path_segment_ends(segment_ends, len(points))
         target = points[-1]
         encounter['turnPath'] = {
             'mapId': m.get('id'),
             'tokenId': t.get('id'),
             'points': [dict(candidate) for candidate in points],
+            'segmentEnds': list(segment_ends),
         }
         t['x'] = target['x']
         t['y'] = target['y']
@@ -2253,29 +2683,43 @@ def apply_action(state, action):
                 fragment = fragment[:MAX_MOVE_POINTS - 1] + [fragment[-1]]
             existing = encounter.get('turnPath')
             existing_points = []
+            existing_segment_ends = []
             if isinstance(existing, dict) and existing.get('mapId') == m.get('id') and existing.get('tokenId') == t.get('id'):
                 for raw_point in existing.get('points', []) or []:
                     if isinstance(raw_point, dict):
                         normalized = clamp_token_point(m, t, raw_point)
                         if normalized is not None:
                             existing_points.append(normalized)
+                existing_segment_ends = normalize_turn_path_segment_ends(
+                    existing.get('segmentEnds'), len(existing_points)
+                )
+            if existing_points and not same_point(existing_points[-1], fragment[0]):
+                existing_points = []
+                existing_segment_ends = []
             combined = existing_points[:]
+            segment_ends = existing_segment_ends[:]
+            previous_length = len(combined)
             for candidate in fragment:
                 if not combined or not same_point(combined[-1], candidate):
                     combined.append(candidate)
+            if len(combined) > previous_length:
+                segment_ends.append(len(combined) - 1)
             if len(combined) > MAX_TURN_PATH_POINTS:
                 combined = combined[:MAX_TURN_PATH_POINTS - 1] + [combined[-1]]
+                segment_ends = [end for end in segment_ends if end < MAX_TURN_PATH_POINTS - 1]
+                segment_ends.append(MAX_TURN_PATH_POINTS - 1)
             encounter['turnPath'] = {
                 'mapId': m.get('id'),
                 'tokenId': t.get('id'),
                 'points': combined,
+                'segmentEnds': normalize_turn_path_segment_ends(segment_ends, len(combined)),
             }
             t['x'] = point['x']
             t['y'] = point['y']
             action['turnSerial'] = serial
             action['path'] = fragment
         else:
-            encounter['turnPath'] = {'mapId': None, 'tokenId': None, 'points': []}
+            encounter['turnPath'] = empty_turn_path()
             action.pop('path', None)
             t['x'] = point['x']
             t['y'] = point['y']
@@ -2329,6 +2773,24 @@ def online_players():
     return result
 
 
+def revoke_player_sessions(player_id):
+    """撤销一个玩家身份的全部会话；调用方在共享服务器状态下须持有 LOCK。"""
+    target = str(player_id or '').strip()
+    if not target:
+        return []
+    removed = []
+    for token, session in list(SESSIONS.items()):
+        if str(session.get('playerId') or '') != target:
+            continue
+        public_session = dict(session)
+        public_session.pop('token', None)
+        removed.append(public_session)
+        SESSIONS.pop(token, None)
+        ACTION_RATE.pop(token, None)
+        REACTION_RATE.pop(token, None)
+    return removed
+
+
 def sse_bytes(event, event_id=None):
     lines = []
     if event_id is not None:
@@ -2338,13 +2800,16 @@ def sse_bytes(event, event_id=None):
 
 def get_ips():
     ips = set()
+    s = None
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.connect(('8.8.8.8', 80))
         ips.add(s.getsockname()[0])
-        s.close()
     except Exception:
         pass
+    finally:
+        if s is not None:
+            s.close()
     try:
         ips.update(socket.gethostbyname_ex(socket.gethostname())[2])
     except Exception:
@@ -2391,6 +2856,160 @@ class Handler(SimpleHTTPRequestHandler):
         self._cors()
         self.end_headers()
         self.wfile.write(body)
+
+    def _send_document_json(self, obj, code=200, head_only=False):
+        body = json.dumps(obj, ensure_ascii=False).encode('utf-8')
+        self.send_response(code)
+        self.send_header('Content-Type', 'application/json; charset=utf-8')
+        self.send_header('Content-Length', str(len(body)))
+        self.send_header('Cache-Control', 'no-store')
+        self.send_header('X-Content-Type-Options', 'nosniff')
+        self.send_header('Referrer-Policy', 'no-referrer')
+        self.send_header('Cross-Origin-Resource-Policy', 'same-origin')
+        self.end_headers()
+        if not head_only:
+            self.wfile.write(body)
+
+    def _document_path(self, document_id):
+        if not re.fullmatch(r'[0-9a-f]{32}', str(document_id or '')):
+            return None
+        with LOCK:
+            path = DOCUMENT_LIBRARY_INDEX.get(document_id)
+            snapshot = STATE if isinstance(STATE, dict) else {}
+            campaign_id = snapshot.get('campaignId') or ''
+            campaign_name = snapshot.get('campaignName') or ''
+        if not path:
+            refresh_document_library(campaign_id, campaign_name)
+            with LOCK:
+                path = DOCUMENT_LIBRARY_INDEX.get(document_id)
+        if (not path or not _document_path_is_safe(DOCUMENT_LIBRARY_ROOT, path)
+                or not os.path.isfile(path)
+                or os.path.splitext(path)[1].lower() not in DOCUMENT_EXTS):
+            return None
+        return path
+
+    def _document_static_request(self, request_path):
+        try:
+            translated = self.translate_path(request_path)
+        except (OSError, ValueError):
+            return False
+        return _path_written_or_resolved_within(DOCUMENT_LIBRARY_ROOT, translated)
+
+    def _send_pdf_document(self, document_id, head_only=False):
+        path = self._document_path(document_id)
+        if not path or os.path.splitext(path)[1].lower() != '.pdf':
+            self._send_document_json({'ok': False, 'error': 'document not found'}, 404, head_only)
+            return
+        try:
+            stat = os.stat(path)
+            size = stat.st_size
+            if size <= 0 or size > MAX_DOCUMENT_SOURCE_BYTES:
+                raise DocumentTooLargeError('PDF 文件大小超出限制')
+            byte_range = parse_http_byte_range(self.headers.get('Range'), size)
+        except DocumentTooLargeError as error:
+            self._send_document_json({'ok': False, 'error': str(error)}, 413, head_only)
+            return
+        except ValueError:
+            self.send_response(416)
+            self.send_header('Content-Range', 'bytes */%d' % max(0, size))
+            self.send_header('Accept-Ranges', 'bytes')
+            self.send_header('Cache-Control', 'no-store')
+            self.send_header('X-Content-Type-Options', 'nosniff')
+            self.send_header('Referrer-Policy', 'no-referrer')
+            self.send_header('Cross-Origin-Resource-Policy', 'same-origin')
+            self.end_headers()
+            return
+        except OSError:
+            self._send_document_json({'ok': False, 'error': 'document not found'}, 404, head_only)
+            return
+        start, end = byte_range if byte_range else (0, size - 1)
+        length = max(0, end - start + 1)
+        encoded_name = quote(os.path.basename(path), safe='')
+        self.send_response(206 if byte_range else 200)
+        self.send_header('Content-Type', 'application/pdf')
+        self.send_header('Content-Length', str(length))
+        self.send_header('Accept-Ranges', 'bytes')
+        self.send_header('Cache-Control', 'private, max-age=3600')
+        self.send_header('ETag', '"%x-%x"' % (stat.st_mtime_ns, size))
+        self.send_header('Content-Disposition', "inline; filename=\"document.pdf\"; filename*=UTF-8''" + encoded_name)
+        self.send_header('X-Content-Type-Options', 'nosniff')
+        self.send_header('Referrer-Policy', 'no-referrer')
+        self.send_header('Cross-Origin-Resource-Policy', 'same-origin')
+        if byte_range:
+            self.send_header('Content-Range', 'bytes %d-%d/%d' % (start, end, size))
+        self.end_headers()
+        if head_only:
+            return
+        try:
+            with open(path, 'rb') as handle:
+                handle.seek(start)
+                remaining = length
+                while remaining > 0:
+                    chunk = handle.read(min(128 * 1024, remaining))
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+                    remaining -= len(chunk)
+        except (OSError, BrokenPipeError, ConnectionResetError):
+            pass
+
+    def _send_document_download(self, document_id, head_only=False):
+        path = self._document_path(document_id)
+        if not path:
+            self._send_document_json({'ok': False, 'error': 'document not found'}, 404, head_only)
+            return
+        extension = os.path.splitext(path)[1].lower()
+        try:
+            stat = os.stat(path)
+            size = stat.st_size
+        except OSError:
+            self._send_document_json({'ok': False, 'error': 'document not found'}, 404, head_only)
+            return
+        if size <= 0 or size > MAX_DOCUMENT_SOURCE_BYTES:
+            self._send_document_json({'ok': False, 'error': 'document too large'}, 413, head_only)
+            return
+        encoded_name = quote(os.path.basename(path), safe='')
+        mime = 'application/pdf' if extension == '.pdf' else DOCX_MIME
+        fallback = 'document.pdf' if extension == '.pdf' else 'document.docx'
+        self.send_response(200)
+        self.send_header('Content-Type', mime)
+        self.send_header('Content-Length', str(size))
+        self.send_header('Content-Disposition', "attachment; filename=\"%s\"; filename*=UTF-8''%s" % (fallback, encoded_name))
+        self.send_header('Cache-Control', 'private, no-store')
+        self.send_header('X-Content-Type-Options', 'nosniff')
+        self.send_header('Referrer-Policy', 'no-referrer')
+        self.send_header('Cross-Origin-Resource-Policy', 'same-origin')
+        self.end_headers()
+        if head_only:
+            return
+        try:
+            with open(path, 'rb') as handle:
+                shutil.copyfileobj(handle, self.wfile, 128 * 1024)
+        except (OSError, BrokenPipeError, ConnectionResetError):
+            pass
+
+    def _send_docx_preview(self, document_id):
+        path = self._document_path(document_id)
+        if not path or os.path.splitext(path)[1].lower() != '.docx':
+            self._send_document_json({'ok': False, 'error': 'document not found'}, 404)
+            return
+        try:
+            blocks = parse_docx_preview(path)
+        except DocumentTooLargeError as error:
+            self._send_document_json({'ok': False, 'error': str(error)}, 413)
+            return
+        except (DocumentPreviewError, OSError, zipfile.BadZipFile) as error:
+            self._send_document_json({'ok': False, 'error': str(error) or 'DOCX 无法预览'}, 422)
+            return
+        self._send_document_json({
+            'ok': True,
+            'document': {
+                'id': document_id,
+                'title': os.path.splitext(os.path.basename(path))[0],
+                'type': 'docx',
+                'blocks': blocks,
+            },
+        })
 
     def _send_music_track(self, track_id):
         if not re.match(r'^[0-9a-f]{32}$', str(track_id or '')):
@@ -2467,13 +3086,66 @@ class Handler(SimpleHTTPRequestHandler):
             pass
 
     def do_OPTIONS(self):
+        if urlparse(self.path).path.startswith('/api/document'):
+            if not document_request_allowed(self):
+                self._send_document_json({'ok': False, 'error': 'document library is host-only'}, 403)
+                return
+            self.send_response(204)
+            self.send_header('Allow', 'GET, HEAD, OPTIONS')
+            self.send_header('Cache-Control', 'no-store')
+            self.send_header('X-Content-Type-Options', 'nosniff')
+            self.send_header('Cross-Origin-Resource-Policy', 'same-origin')
+            self.end_headers()
+            return
         self.send_response(204)
         self._cors()
         self.end_headers()
 
+    def do_HEAD(self):
+        path = urlparse(self.path).path
+        if path.startswith('/api/document-stream/'):
+            if not document_request_allowed(self):
+                self._send_document_json({'ok': False, 'error': 'document library is host-only'}, 403, True)
+                return
+            self._send_pdf_document(path.rsplit('/', 1)[-1], True)
+        elif path.startswith('/api/document-download/'):
+            if not document_request_allowed(self):
+                self._send_document_json({'ok': False, 'error': 'document library is host-only'}, 403, True)
+                return
+            self._send_document_download(path.rsplit('/', 1)[-1], True)
+        elif self._document_static_request(path):
+            self.send_error(404, 'File not found')
+        else:
+            super().do_HEAD()
+
     def do_GET(self):
         path = urlparse(self.path).path
-        if path == '/api/music-library':
+        if path == '/api/document-library':
+            if not document_request_allowed(self):
+                self._send_document_json({'ok': False, 'error': 'document library is host-only'}, 403)
+                return
+            query = parse_qs(urlparse(self.path).query)
+            with LOCK:
+                snapshot = STATE if isinstance(STATE, dict) else {}
+                campaign_id = (query.get('campaignId') or [snapshot.get('campaignId') or ''])[0]
+                campaign_name = (query.get('campaignName') or [snapshot.get('campaignName') or ''])[0]
+            self._send_document_json(refresh_document_library(campaign_id, campaign_name))
+        elif path.startswith('/api/document-preview/'):
+            if not document_request_allowed(self):
+                self._send_document_json({'ok': False, 'error': 'document library is host-only'}, 403)
+                return
+            self._send_docx_preview(path.rsplit('/', 1)[-1])
+        elif path.startswith('/api/document-stream/'):
+            if not document_request_allowed(self):
+                self._send_document_json({'ok': False, 'error': 'document library is host-only'}, 403)
+                return
+            self._send_pdf_document(path.rsplit('/', 1)[-1])
+        elif path.startswith('/api/document-download/'):
+            if not document_request_allowed(self):
+                self._send_document_json({'ok': False, 'error': 'document library is host-only'}, 403)
+                return
+            self._send_document_download(path.rsplit('/', 1)[-1])
+        elif path == '/api/music-library':
             if not is_local_request(self):
                 self._send_json({'ok': False, 'error': 'music library is host-only'}, 403)
                 return
@@ -2538,7 +3210,7 @@ class Handler(SimpleHTTPRequestHandler):
                 'port': PORT,
                 'bind': BIND_HOST,
                 'ips': get_ips(),
-                'name': '桑多尔之歌联机',
+                'name': '桑哆尔之歌联机',
                 'protocolVersion': SERVER_PROTOCOL_VERSION,
                 'sessionId': SESSION_ID,
                 'roomCode': ROOM_CODE,
@@ -2577,14 +3249,16 @@ class Handler(SimpleHTTPRequestHandler):
             host = 'http://localhost:%d/主控台/主控台.html' % PORT
             viewer = 'http://localhost:%d/主控台/玩家.html' % PORT
             self.wfile.write((
-                '<meta charset="utf-8"><title>桑多尔之歌联机服务器</title>'
+                '<meta charset="utf-8"><title>桑哆尔之歌联机服务器</title>'
                 '<body style="background:#101218;color:#e8eaf0;font-family:sans-serif;padding:40px">'
-                '<h2>🖥️ 桑多尔之歌联机服务器已启动（端口 %d）</h2>'
+                '<h2>🖥️ 桑哆尔之歌联机服务器已启动（端口 %d）</h2>'
                 '<p>主机：<a href="%s" style="color:#e0b34c">%s</a></p>'
                 '<p>玩家模式：<a href="%s" style="color:#e0b34c">%s</a></p>'
                 '<p>同一 WiFi 下的玩家，把 localhost 换成下面的 IP：<br>%s</p>'
                 '</body>'
             ) % (PORT, host, host, viewer, viewer, '、'.join(get_ips())))
+        elif self._document_static_request(path):
+            self.send_error(404, 'File not found')
         else:
             super().do_GET()
 
@@ -2699,6 +3373,36 @@ class Handler(SimpleHTTPRequestHandler):
                 players = online_players()
             broadcast({'type': 'presence', 'players': players})
             self._send_json({'ok': True, 'players': players})
+        elif self.path == '/api/players/kick':
+            if not is_local_request(self):
+                self._send_json({'ok': False, 'error': 'kick api is host-only'}, 403)
+                return
+            try:
+                data = self._read_json_body(64 * 1024)
+            except OverflowError:
+                self._send_json({'ok': False, 'error': '请求过大'}, 413)
+                return
+            except (ValueError, TypeError, json.JSONDecodeError):
+                self._send_json({'ok': False, 'error': '玩家信息无效'}, 400)
+                return
+            player_id = str((data or {}).get('playerId') or '').strip()[:64]
+            if not re.fullmatch(r'[A-Za-z0-9_-]{2,64}', player_id):
+                self._send_json({'ok': False, 'error': '玩家标识无效'}, 400)
+                return
+            with LOCK:
+                removed = revoke_player_sessions(player_id)
+                players = online_players()
+            if not removed:
+                self._send_json({'ok': False, 'error': '玩家连接已经不存在'}, 404)
+                return
+            player_name = str(removed[0].get('name') or '玩家')[:24]
+            broadcast({
+                'type': 'sessionRevoked',
+                'playerId': player_id,
+                'reason': '已被主控台移出房间',
+            })
+            broadcast({'type': 'presence', 'players': players})
+            self._send_json({'ok': True, 'playerId': player_id, 'name': player_name, 'players': players})
         elif urlparse(self.path).path == '/api/webrtc-signal':
             try:
                 data = self._read_json_body(192 * 1024)
@@ -3081,6 +3785,7 @@ class Handler(SimpleHTTPRequestHandler):
                             # 路径结果只能由服务器从当前权威路径推导；客户端不能自带替换内容。
                             action.pop('path', None)
                             action.pop('pathMode', None)
+                            action.pop('segmentEnds', None)
                     elif not can_control(STATE, tok, player):
                         self._send_json({'ok': False, 'error': '只能操作自己名下的棋子'}, 403)
                         return
@@ -3181,7 +3886,7 @@ if __name__ == '__main__':
     os.chdir(ROOT)
     srv = Server((BIND_HOST, PORT), Handler)
     print('=' * 56)
-    print('桑多尔之歌联机服务器已启动，端口 %d，监听 %s' % (PORT, BIND_HOST))
+    print('桑哆尔之歌联机服务器已启动，端口 %d，监听 %s' % (PORT, BIND_HOST))
     for ip in get_ips():
         if ip != '127.0.0.1':
             print('  玩家请打开:  http://%s:%d/主控台/玩家.html' % (ip, PORT))

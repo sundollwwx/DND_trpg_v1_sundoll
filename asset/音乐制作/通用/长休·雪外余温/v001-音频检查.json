@@ -1,0 +1,26 @@
+{
+  "title": "长休·雪外余温",
+  "version": "v001",
+  "gainDB": 25.492,
+  "targetRMSDBFS": -24,
+  "master": {
+    "seconds": 4.4,
+    "sampleRate": 44100,
+    "channels": 2,
+    "samplePeakDBFS": -7.693,
+    "rmsDBFS": -24.0,
+    "clippedSamples": 0,
+    "boundaryJump": 0.0
+  },
+  "decodedAAC": {
+    "seconds": 4.4,
+    "sampleRate": 44100,
+    "channels": 2,
+    "samplePeakDBFS": -7.682,
+    "rmsDBFS": -24.002,
+    "clippedSamples": 0,
+    "boundaryJump": 0.0
+  },
+  "finalBytes": 133959,
+  "finalPath": "asset/界面/休息动画/音频/长休·雪外余温.m4a"
+}
