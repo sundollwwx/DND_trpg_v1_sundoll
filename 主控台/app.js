@@ -80,7 +80,7 @@ const $ = (sel) => document.querySelector(sel);
 const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
 const snapToCell = (v, grid) => Math.round(v / grid - 0.5) * grid + grid / 2;
 // 1×1 吸附到格心；2×2 及更大吸附到网格线交点（正好占 4 格）
-const snapTokenCenter = (v, grid, size) => (size >= 2 ? Math.round(v / grid) * grid : snapToCell(v, grid));
+const snapTokenCenter = (v, grid, size, offset = 0) => offset + (size >= 2 ? Math.round((v - offset) / grid) * grid : snapToCell(v - offset, grid));
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => (
   { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
 ));
@@ -1756,6 +1756,13 @@ function syncActiveMapGridSetting() {
   const map = activeMap();
   const toggle = $('#grid-toggle');
   if (!toggle) return;
+  for (const [id, key, fallback] of [['grid-size-control','gridSize',50], ['grid-width-control','gridLineWidth',2], ['grid-x-control','gridOffsetX',0], ['grid-y-control','gridOffsetY',0]]) {
+    const input = $('#' + id);
+    if (!input) continue;
+    input.value = String(map?.[key] ?? fallback);
+    input.disabled = !map || (Array.isArray(map.cells) && key !== 'gridLineWidth');
+  }
+  if ($('#grid-position-reset')) $('#grid-position-reset').disabled = !map || Array.isArray(map.cells);
   toggle.checked = mapGridVisible(map);
   toggle.disabled = !map;
   syncToggleTargetButtons(toggle);
@@ -1782,6 +1789,7 @@ function makeMapEntry(name, dataUrl, w, h, gridSize, cells, cellVariants, gridVi
     mapW: w || 1400,
     mapH: h || 900,
     gridSize: gridSize || 50,
+    gridLineWidth: 2, gridOffsetX: 0, gridOffsetY: 0,
     gridVisible: gridVisible !== false,
     cells: Array.isArray(cells) ? cells.map((r) => r.slice()) : null,
     cellVariants: cellVariants && typeof cellVariants === 'object' ? { ...cellVariants } : {},
@@ -2174,7 +2182,7 @@ function setMapGridVisibility(mapId, visible) {
 function setMapGridSize(mapId, value) {
   const map = mapById(mapId);
   if (!map || Array.isArray(map.cells)) return;
-  const next = clamp(Math.round(Number(value) || map.gridSize || 50), 10, 300);
+  const next = clamp(Number(value) || map.gridSize || 50, 10, 300);
   if (next === map.gridSize) {
     renderMapBrowser();
     return;
@@ -3047,6 +3055,7 @@ function updateCoverContinue() {
 // 全新战役：空白开始（不继承上次的地图/棋子）
 function newCampaignState(name, id) {
   return {
+    journal: CampaignJournal.normalize(null, id),
     maps: [],
     activeMapId: null,
     snap: true,
@@ -3517,11 +3526,14 @@ function updateWorldBackground() {
   const g = m ? m.gridSize : 50;
   const hasMap = !!m && !!m.mapData;
   const showGrid = mapGridVisible(m);
+  const lineWidth = clamp(Number(m?.gridLineWidth) || 2, .5, 8);
+  const pos = `${Number(m?.gridOffsetX) || 0}px ${Number(m?.gridOffsetY) || 0}px`;
+  world.style.backgroundPosition = showGrid ? `${pos}, ${pos}, ${pos}, ${pos}, 0 0` : '0 0';
   const gridLayer =
-    `repeating-linear-gradient(to right, rgba(255,255,255,.78) 0, rgba(255,255,255,.78) 2px, transparent 2px, transparent ${g}px),` +
-    `repeating-linear-gradient(to bottom, rgba(255,255,255,.78) 0, rgba(255,255,255,.78) 2px, transparent 2px, transparent ${g}px),` +
-    `repeating-linear-gradient(to right, rgba(0,0,0,.16) 0, rgba(0,0,0,.16) 2px, transparent 2px, transparent ${g}px),` +
-    `repeating-linear-gradient(to bottom, rgba(0,0,0,.16) 0, rgba(0,0,0,.16) 2px, transparent 2px, transparent ${g}px)`;
+    `repeating-linear-gradient(to right, rgba(255,255,255,.78) 0, rgba(255,255,255,.78) ${lineWidth}px, transparent ${lineWidth}px, transparent ${g}px),` +
+    `repeating-linear-gradient(to bottom, rgba(255,255,255,.78) 0, rgba(255,255,255,.78) ${lineWidth}px, transparent ${lineWidth}px, transparent ${g}px),` +
+    `repeating-linear-gradient(to right, rgba(0,0,0,.16) 0, rgba(0,0,0,.16) ${lineWidth}px, transparent ${lineWidth}px, transparent ${g}px),` +
+    `repeating-linear-gradient(to bottom, rgba(0,0,0,.16) 0, rgba(0,0,0,.16) ${lineWidth}px, transparent ${lineWidth}px, transparent ${g}px)`;
   world.style.backgroundColor = hasMap ? 'transparent' : (showGrid ? '#ddd6c2' : '#0f1116');
   if (hasMap) {
     world.style.backgroundImage = showGrid ? `${gridLayer}, url("${m.mapData}")` : `url("${m.mapData}")`;
@@ -3534,7 +3546,6 @@ function updateWorldBackground() {
     world.style.backgroundSize = showGrid ? `${g}px ${g}px, ${g}px ${g}px, ${g}px ${g}px, ${g}px ${g}px` : '';
     world.style.backgroundRepeat = showGrid ? 'repeat' : 'no-repeat';
   }
-  world.style.backgroundPosition = '0 0';
 }
 
 function fitView() {
@@ -4131,6 +4142,8 @@ function normalizeSheet(t) {
     size: t.size >= 2 ? 2 : 1,
     hp,
     hpMax,
+    tempHp: Math.max(0, Math.min(99999, parseInt(t.tempHp, 10) || 0)),
+    tempHpMax: Math.max(0, Math.min(99999, parseInt(t.tempHpMax ?? t.tempHp, 10) || 0)),
     ac: Math.max(0, Math.min(99, Number.isFinite(parseInt(t.ac, 10)) ? parseInt(t.ac, 10) : 10)),
     spellRange: normalizeSpellRange(t.spellRange),
     conditions: Array.isArray(t.conditions) ? t.conditions.slice(0, 20).map(normalizeCondition) : [],
@@ -4465,8 +4478,8 @@ function moveToken(id, x, y, { persist = true } = {}) {
   x = clamp(x, 0, m.mapW);
   y = clamp(y, 0, m.mapH);
   if (state.snap) {
-    x = snapTokenCenter(x, m.gridSize, t.size);
-    y = snapTokenCenter(y, m.gridSize, t.size);
+    x = snapTokenCenter(x, m.gridSize, t.size, Number(m.gridOffsetX) || 0);
+    y = snapTokenCenter(y, m.gridSize, t.size, Number(m.gridOffsetY) || 0);
     const margin = t.size >= 2 ? m.gridSize : m.gridSize / 2;
     x = clamp(x, margin, m.mapW - margin);
     y = clamp(y, margin, m.mapH - margin);
@@ -5069,6 +5082,11 @@ function syncDetailDraftInput(input, value, tokenId) {
 function updateDetailVitals(t) {
   syncDetailDraftInput($('#detail-hp-current'), t.hp, t.id);
   syncDetailDraftInput($('#detail-hp-max'), t.hpMax, t.id);
+  syncDetailDraftInput($('#detail-temp-hp'), t.tempHp || 0, t.id);
+  syncDetailDraftInput($('#detail-temp-hp-max'), t.tempHpMax || 0, t.id);
+  $('#detail-temp-hp-summary').textContent = `${t.tempHp || 0} / ${t.tempHpMax || 0}`;
+  $('#detail-temp-hp-track').hidden = !(t.tempHp > 0);
+  $('#detail-temp-hp-bar').style.width = clamp((t.tempHp || 0) / Math.max(1, t.tempHpMax || 0) * 100, 0, 100) + '%';
   syncDetailDraftInput($('#detail-ac-input'), t.ac, t.id);
   const pct = t.hpMax > 0 ? clamp((t.hp / t.hpMax) * 100, 0, 100) : 0;
   const bar = $('#detail-hp-bar');
@@ -5080,6 +5098,7 @@ function updateDetailVitals(t) {
   percent.style.borderColor = `${hpColor(pct)}66`;
   const undo = $('#btn-detail-hp-undo');
   undo.disabled = !detailHpUndo || detailHpUndo.tokenId !== t.id;
+  $('#btn-temp-hp-undo').disabled = undo.disabled;
 }
 
 function updateDetailContext(t) {
@@ -5213,7 +5232,7 @@ function flushDetailTextSave() {
 }
 
 function rememberDetailHp(t) {
-  detailHpUndo = { tokenId: t.id, hp: t.hp, hpMax: t.hpMax };
+  detailHpUndo = { tokenId: t.id, hp: t.hp, hpMax: t.hpMax, tempHp: t.tempHp || 0, tempHpMax: t.tempHpMax || 0 };
 }
 
 function commitDetailNumberInput(input, property, min, max) {
@@ -5232,11 +5251,11 @@ function commitDetailNumberInput(input, property, min, max) {
     input.value = next;
     return false;
   }
-  if (property === 'hp' || property === 'hpMax') rememberDetailHp(t);
+  if (['hp', 'hpMax', 'tempHp', 'tempHpMax'].includes(property)) rememberDetailHp(t);
   t[property] = next;
   input.value = next;
   if (state.selectedId === t.id) updateDetailVitals(t);
-  if (property === 'hp' || property === 'hpMax') renderTokens();
+  if (['hp', 'hpMax', 'tempHp', 'tempHpMax'].includes(property)) renderTokens();
   scheduleAutosave();
   return true;
 }
@@ -5267,15 +5286,29 @@ function applyDetailHpChange(mode) {
   const t = state.selectedId ? findToken(state.selectedId) : null;
   if (!t) return;
   const amount = mode === 'full' ? 0 : detailHpAmount();
+  const absorbed = mode === 'damage' ? Math.min(t.tempHp || 0, amount) : 0;
   const next = mode === 'full'
     ? t.hpMax
-    : clamp(t.hp + (mode === 'heal' ? amount : -amount), 0, t.hpMax);
-  if (next === t.hp) return;
+    : clamp(t.hp + (mode === 'heal' ? amount : -(amount - absorbed)), 0, t.hpMax);
+  if (next === t.hp && !absorbed) return;
   rememberDetailHp(t);
+  t.tempHp = (t.tempHp || 0) - absorbed;
   t.hp = next;
   updateDetailVitals(t);
   renderTokens();
   scheduleAutosave();
+}
+
+function adjustTemporaryHp(mode) {
+  const t = state.selectedId ? findToken(state.selectedId) : null;
+  if (!t) return;
+  const amount = clamp(parseInt($('#detail-temp-hp-delta').value, 10) || 1, 1, 99999);
+  const capacity = t.tempHpMax || 0;
+  const next = mode === 'full' ? capacity : clamp((t.tempHp || 0) + (mode === 'increase' ? amount : -amount), 0, capacity);
+  if (next === (t.tempHp || 0)) return;
+  rememberDetailHp(t);
+  t.tempHp = next;
+  updateDetailVitals(t); renderTokens(); scheduleAutosave();
 }
 
 function undoDetailHpChange() {
@@ -5287,6 +5320,8 @@ function undoDetailHpChange() {
   }
   t.hp = detailHpUndo.hp;
   t.hpMax = detailHpUndo.hpMax;
+  t.tempHp = detailHpUndo.tempHp || 0;
+  t.tempHpMax = detailHpUndo.tempHpMax || 0;
   detailHpUndo = null;
   if (state.selectedId === t.id) updateDetailVitals(t);
   renderTokens();
@@ -5304,6 +5339,36 @@ function closeDetailPanel() {
   $('#unit-card')?.classList.add('collapsed');
 }
 
+function tokenPortraitVariants(t) {
+  const preset = state.library.find(p => p.id === t.presetId)
+    || state.library.find(p => p.name === t.name || (p.iconImgPath && p.iconImgPath === t.iconImgPath));
+  return preset?.portraitVariants?.length ? preset.portraitVariants : (t.portraitVariants || []);
+}
+function applyTokenPortrait(t, v) {
+  t.portraitVariants = tokenPortraitVariants(t).map(item => ({ ...item }));
+  for (const key of ['iconImgPath', 'iconImg', 'iconImgHd', 'iconImgId']) t[key] = v[key] || null;
+}
+function renderTokenPortraitSelect(t) {
+  const select = $('#detail-portrait');
+  select.replaceChildren(new Option((t.iconImgPath || t.iconImg || t.iconImgHd || t.iconImgId) ? '自定义 / 当前立绘' : '文字图标', ''));
+  tokenPortraitVariants(t).forEach((v, i) => select.add(new Option(v.name, String(i))));
+  const selected = tokenPortraitVariants(t).findIndex(v => v.iconImgPath ? v.iconImgPath === t.iconImgPath : v.iconImg === t.iconImg);
+  if (selected >= 0) select.value = String(selected);
+  select.disabled = select.options.length < 2;
+  $('#detail-appearance-status').textContent = '当前：' + select.options[select.selectedIndex].textContent
+    + (select.disabled ? '。暂无预设，可上传图片或在棋子库中添加。' : '。选择即生效，只修改当前地图棋子。');
+}
+$('#detail-portrait').addEventListener('change', e => {
+  const t = state.selectedId && findToken(state.selectedId);
+  if (!t || e.target.value === '') return;
+  const variants = tokenPortraitVariants(t), v = variants[Number(e.target.value)];
+  if (!v) return;
+  t.portraitVariants = variants.map(v => ({ ...v }));
+  t.portraitVariant = Number(e.target.value);
+  applyTokenPortrait(t, v);
+  renderTokens(); updateDetail(); scheduleAutosave();
+});
+
 function updateDetail() {
   const t = state.selectedId ? findToken(state.selectedId) : null;
   $('#detail-empty').hidden = !!t;
@@ -5319,6 +5384,7 @@ function updateDetail() {
     closeConditionEditor();
   }
   lastSelId = t.id;
+  renderTokenPortraitSelect(t);
   updateDetailHeader(t);
   updateDetailVitals(t);
   populateDetailOwnerOptions(t);
@@ -5469,6 +5535,7 @@ function browserStorageIssue(error) {
 }
 
 function cacheLoadedStateInBrowser() {
+  try { if (state.campaignId) localStorage.setItem('dnd-board-last-campaign-id', state.campaignId); } catch (e) { /* 正式存档仍可读取 */ }
   try {
     localStorage.setItem(STORAGE_KEY, stateStorageJson());
     localStorage.setItem('dnd-board-local-save-at', String(Date.now()));
@@ -5582,6 +5649,7 @@ function queueCurrentFolderSave(options = {}) {
     try {
       await writeLibraryFile(loadLibrary());
       const record = await campaignPut(campaignId, campaignName, snapshot, { backup: makeBackup });
+      await rememberCampaignSelection(campaignId);
       lastFolderSaveAt = Number(record?.savedAt) || Date.now();
       try { localStorage.setItem('dnd-board-last-folder-save-at', String(lastFolderSaveAt)); } catch (e) { /* 忽略 */ }
       updateSaveStatus(`文件夹已保存 ${new Date(lastFolderSaveAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`, 'ok');
@@ -5590,7 +5658,7 @@ function queueCurrentFolderSave(options = {}) {
       return true;
     } catch (error) {
       console.warn('写入存档文件夹失败', error);
-      updateSaveStatus('写入失败 · 浏览器恢复点已保存', 'error');
+      updateSaveStatus(`保存未完成：${error.message || '写入失败'} · 请保留当前页面`, 'error');
       return false;
     }
   });
@@ -5600,6 +5668,7 @@ function queueCurrentFolderSave(options = {}) {
 async function loadFolderSave(item, confirmLoad = true) {
   if (!item?.path) return false;
   try {
+    await folderSaveQueue;
     const text = await readBoundText(item.path);
     const data = parseCampaignFile(text, item.folderName || '');
     if (!data?.state) {
@@ -5613,6 +5682,7 @@ async function loadFolderSave(item, confirmLoad = true) {
     loadLinks();
     renderLinks();
     const browserCache = cacheLoadedStateInBrowser();
+    await rememberCampaignSelection(state.campaignId);
     if (browserCache.ok) {
       updateSaveStatus(`已读取 ${item.name}`, 'ok');
       toast(`已读取存档「${item.name}」`);
@@ -5638,9 +5708,19 @@ async function restoreFolderIfAvailable() {
     updateSaveStatus('“存档”文件夹待授权', 'error');
     return;
   }
-  if (!state.campaignId) {
-    updateSaveStatus('存档文件夹已连接', 'ok');
-    return;
+  let lastCampaignId = '';
+  try { lastCampaignId = localStorage.getItem('dnd-board-last-campaign-id') || ''; } catch (e) { /* 使用当前进度 */ }
+  try { const index = JSON.parse(await readBoundText(SAVE_INDEX_FILE) || '{}'); lastCampaignId = index.lastCampaignId || lastCampaignId; } catch (e) { /* 兼容旧索引 */ }
+  if (!state.campaignId || (lastCampaignId && lastCampaignId !== state.campaignId)) {
+    const records = await readCampaignRecords(true);
+    const latest = records.find(item => item.id === lastCampaignId) || (!state.campaignId ? records[0] : null);
+    if (latest?.state) {
+      applySavedState(latest.state); applyAllState(); loadLinks(); renderLinks(); cacheLoadedStateInBrowser();
+      updateSaveStatus(`已恢复上次战役「${latest.name}」`, 'ok');
+      streamDirty = true;
+      return;
+    }
+    if (!state.campaignId) { updateSaveStatus('存档文件夹已连接', 'ok'); return; }
   }
   const record = await campaignGet(state.campaignId);
   if (!record?.state) {
@@ -5745,6 +5825,7 @@ function saveNow(options = {}) {
 }
 
 async function saveNowWithFeedback() {
+  flushDetailTextSave();
   if (!(await ensureSaveFolderAccess(true))) return;
   if (!state.campaignId) {
     const name = prompt('给这个存档起个名字', `战役 ${new Date().toLocaleDateString('zh-CN')}`);
@@ -5757,7 +5838,7 @@ async function saveNowWithFeedback() {
     return;
   }
   const ok = await folderSaveQueue;
-  toast(ok ? `✅ 已保存「${state.campaignName}」` : '仅保存了浏览器恢复点；请重新授权“存档”文件夹');
+  toast(ok ? `✅ 已保存「${state.campaignName}」` : ($('#save-status')?.textContent || '保存未完成，请保留当前页面'));
 }
 
 function loadSaved() {
@@ -5801,6 +5882,7 @@ function applySavedState(s) {
     state.sharedResources = Array.isArray(s.sharedResources)
       ? s.sharedResources.map(normalizeLink).filter(Boolean) : [];
     state.sharedNotes = typeof s.sharedNotes === 'string' ? s.sharedNotes.slice(0, 4000) : '';
+    state.journal = CampaignJournal.normalize(s.journal, state.campaignId);
     userLinks = state.sharedResources.slice();
     state.selectedId = null;
     state.encounter = normalizeEncounter(s.encounter);
@@ -5827,6 +5909,7 @@ function applySavedState(s) {
       }
       if (typeof t.size !== 'number') t.size = 1;
       if (typeof t.hp !== 'number') t.hp = t.hpMax || 10;
+      t.tempHp = clamp(parseInt(t.tempHp, 10) || 0, 0, 99999);
       if (typeof t.ac !== 'number') t.ac = 10;
       normalizeSheet(t);
       return t;
@@ -5840,6 +5923,9 @@ function applySavedState(s) {
         mapW: m.mapW || 1400,
         mapH: m.mapH || 900,
         gridSize: m.gridSize || 50,
+        gridLineWidth: clamp(Number(m.gridLineWidth) || 2, .5, 8),
+        gridOffsetX: clamp(Number(m.gridOffsetX) || 0, -3000, 3000),
+        gridOffsetY: clamp(Number(m.gridOffsetY) || 0, -3000, 3000),
         gridVisible: typeof m.gridVisible === 'boolean' ? m.gridVisible : s.showGrid !== false,
         cells: Array.isArray(m.cells) ? m.cells.map((r) => r.slice()) : null,
         cellVariants: m.cellVariants && typeof m.cellVariants === 'object' ? { ...m.cellVariants } : {},
@@ -5894,6 +5980,8 @@ function applySavedState(s) {
 }
 
 function applyAllState() {
+  renderEncounter();
+  updateCoverContinue();
   $('#names-toggle').checked = state.showNames;
   $('#snap-toggle').checked = state.snap;
   syncActiveMapGridSetting();
@@ -6148,12 +6236,14 @@ function bindEvents() {
       const id = 'c' + (uid++);
       const snap = newCampaignState(name, id);
       await campaignPut(id, name, snap, { backup: false });
+      await rememberCampaignSelection(id);
       state.maps = [];
       state.activeMapId = null;
       state.campaignId = id;
       state.campaignName = name;
       state.sharedResources = snap.sharedResources;
       state.sharedNotes = snap.sharedNotes;
+      state.journal = CampaignJournal.normalize(snap.journal, state.campaignId);
       state.selectedId = null;
       state.snap = true;
       state.showNames = true;
@@ -6232,6 +6322,25 @@ function bindEvents() {
     if (tag === 'input' || tag === 'textarea') return;
     const item = [...(e.clipboardData?.items || [])].find((i) => i.type.startsWith('image/'));
     if (item) appendDirectMapImages([item.getAsFile()]);
+  });
+
+  for (const [id, key, min, max] of [['grid-size-control','gridSize',10,300], ['grid-width-control','gridLineWidth',.5,8], ['grid-x-control','gridOffsetX',-3000,3000], ['grid-y-control','gridOffsetY',-3000,3000]]) {
+    $('#' + id).addEventListener('input', (event) => {
+      const map = activeMap();
+      if (!map || event.target.value === '' || !Number.isFinite(event.target.valueAsNumber)) return;
+      if (Array.isArray(map.cells) && key !== 'gridLineWidth') return;
+      map[key] = clamp(event.target.valueAsNumber, min, max);
+      updateWorldBackground();
+      if (key === 'gridSize') { renderTokens(); }
+      scheduleAutosave();
+    });
+    $('#' + id).addEventListener('change', syncActiveMapGridSetting);
+  }
+  $('#grid-position-reset').addEventListener('click', () => {
+    const map = activeMap();
+    if (!map || Array.isArray(map.cells)) return;
+    map.gridOffsetX = 0; map.gridOffsetY = 0;
+    syncActiveMapGridSetting(); updateWorldBackground(); scheduleAutosave();
   });
 
   // 网格、名字与吸附
@@ -6543,10 +6652,8 @@ function bindEvents() {
       if (!res) { toast('图标读取失败，请换一张图片'); return; }
       const id = 'a' + (uid++);
       storeAvatar(id, res.hd).then(() => {
-        t.iconImgId = id;
-        t.iconImg = res.thumb;
-        t.iconImgHd = res.display;
-        t.iconImgPath = null;
+        applyTokenPortrait(t, { iconImgId: id, iconImg: res.thumb, iconImgHd: res.display });
+        delete t.portraitVariant;
         renderTokens();
         updateDetail();
         scheduleAutosave();
@@ -6557,10 +6664,8 @@ function bindEvents() {
   $('#btn-detail-icon-remove').addEventListener('click', () => {
     const t = state.selectedId && findToken(state.selectedId);
     if (!t) return;
-    t.iconImg = null;
-    t.iconImgHd = null;
-    t.iconImgPath = null;
-    t.iconImgId = null;
+    applyTokenPortrait(t, {});
+    delete t.portraitVariant;
     renderTokens();
     updateDetail();
     scheduleAutosave();
@@ -6691,6 +6796,8 @@ function bindEvents() {
   [
     ['detail-hp-current', 'hp', 0, 99999],
     ['detail-hp-max', 'hpMax', 1, 99999],
+    ['detail-temp-hp', 'tempHp', 0, 99999],
+    ['detail-temp-hp-max', 'tempHpMax', 0, 99999],
     ['detail-ac-input', 'ac', 0, 99],
   ].forEach(([id, property, min, max]) => {
     const input = $(`#${id}`);
@@ -6712,7 +6819,7 @@ function bindEvents() {
     const t = state.selectedId && findToken(state.selectedId);
     if (!t) return;
     t.icon = e.target.value.slice(0, 4);
-    $('#detail-icon').textContent = t.icon || TYPE_META[t.type].defaultIcon;
+    updateDetailHeader(t);
     renderTokens();
     scheduleAutosave();
   });
@@ -6722,6 +6829,19 @@ function bindEvents() {
   $('#detail-hp-delta').addEventListener('input', () => setDetailHpAmount($('#detail-hp-delta').value));
   $('#btn-detail-damage').addEventListener('click', () => applyDetailHpChange('damage'));
   $('#btn-detail-heal').addEventListener('click', () => applyDetailHpChange('heal'));
+  $('#btn-temp-hp-decrease').addEventListener('click', () => adjustTemporaryHp('decrease'));
+  $('#btn-temp-hp-increase').addEventListener('click', () => adjustTemporaryHp('increase'));
+  $('#btn-temp-hp-full').addEventListener('click', () => adjustTemporaryHp('full'));
+  $('#btn-temp-hp-undo').addEventListener('click', undoDetailHpChange);
+  const syncTempHpAmount = () => {
+    const amount = Number($('#detail-temp-hp-delta').value);
+    document.querySelectorAll('[data-temp-hp-amount]').forEach(button => button.classList.toggle('active', Number(button.dataset.tempHpAmount) === amount));
+  };
+  document.querySelectorAll('[data-temp-hp-amount]').forEach(button => button.addEventListener('click', () => {
+    $('#detail-temp-hp-delta').value = button.dataset.tempHpAmount;
+    syncTempHpAmount();
+  }));
+  $('#detail-temp-hp-delta').addEventListener('input', syncTempHpAmount);
   $('#btn-detail-hp-full').addEventListener('click', () => applyDetailHpChange('full'));
   $('#btn-detail-hp-undo').addEventListener('click', undoDetailHpChange);
   $('#btn-detail-delete').addEventListener('click', () => {
@@ -6915,6 +7035,7 @@ function bindEvents() {
     $(`#${id}`).addEventListener('keydown', (event) => { if (event.key === 'Enter') setWorldTimeFromInputs(); });
   });
   $('#btn-time-reset').addEventListener('click', () => {
+    if (!confirm('确定将战役时间重置到第 1 年 · 第 1 周 · 第 1 天 08:00 吗？计时将暂停，天气会重新计算；已有日志日期不会改写。')) return;
     const e = encounterState();
     materializeWorldTime(e);
     e.worldTime.totalSeconds = 8 * 60 * 60;
@@ -6999,8 +7120,8 @@ function placeToken() {
   const py = rect.top + rect.height / 2;
   const x = clamp((px - rect.left - m.cam.x) / m.cam.zoom, 0, m.mapW);
   const y = clamp((py - rect.top - m.cam.y) / m.cam.zoom, 0, m.mapH);
-  const finalX = state.snap ? snapTokenCenter(x, m.gridSize, size) : x;
-  const finalY = state.snap ? snapTokenCenter(y, m.gridSize, size) : y;
+  const finalX = state.snap ? snapTokenCenter(x, m.gridSize, size, Number(m.gridOffsetX) || 0) : x;
+  const finalY = state.snap ? snapTokenCenter(y, m.gridSize, size, Number(m.gridOffsetY) || 0) : y;
   const margin = size >= 2 ? m.gridSize : m.gridSize / 2;
 
   const token = {
@@ -7813,6 +7934,8 @@ function buildStreamPayload() {
         iconImg: token.iconImg,
         iconImgHd: token.iconImgHd,
         iconImgPath: token.iconImgPath,
+        portraitVariants: tokenPortraitVariants(token),
+        portraitVariant: token.portraitVariant,
         size: token.size,
         x: token.x,
         y: token.y,
@@ -7827,6 +7950,8 @@ function buildStreamPayload() {
       if (friendly) {
         publicToken.hp = token.hp;
         publicToken.hpMax = token.hpMax;
+        publicToken.tempHp = token.tempHp || 0;
+        publicToken.tempHpMax = token.tempHpMax ?? token.tempHp ?? 0;
         publicToken.ac = token.ac;
       }
       publicTokenEntries.push(publicToken);
@@ -7844,6 +7969,7 @@ function buildStreamPayload() {
     mapW: m.mapW,
     mapH: m.mapH,
     gridSize: m.gridSize,
+    gridLineWidth: m.gridLineWidth ?? 2, gridOffsetX: m.gridOffsetX || 0, gridOffsetY: m.gridOffsetY || 0,
     gridVisible: mapGridVisible(m),
     doodles: ensureDoodleIds(m).map((stroke) => ({ ...stroke })),
     tokens: publicTokenEntries,
@@ -7858,6 +7984,7 @@ function buildStreamPayload() {
     campaignName: state.campaignName,
     sharedResources: (userLinks || []).map((link) => ({ ...link })),
     sharedNotes: String(state.sharedNotes || '').slice(0, 4000),
+    journal: CampaignJournal.normalize(state.journal, state.campaignId),
     encounter: publicEncounterState(visibleTokenIds),
   };
   // 兼容旧版玩家页面；新页面使用 sharedResources。
@@ -7877,6 +8004,12 @@ function buildStreamPayload() {
 // 玩家动作到达主机：服务器已立即广播，不再回声式发送整张状态。
 function applyRemoteAction(a) {
   if (!a) return;
+  if (a.op === 'journalEdit') {
+    if (a.campaignId !== state.campaignId) return;
+    const incomingJournal = CampaignJournal.normalize(a.journal, state.campaignId);
+    if ((state.journal?.revision || 0) < incomingJournal.revision) state.journal = incomingJournal;
+    CampaignJournal.refresh(); scheduleAutosave(false); return;
+  }
   if (a.op === 'endTurn') {
     const e = encounterState();
     if (Number(e.turnSerial) !== Number(a.turnSerial)) return;
@@ -8112,7 +8245,11 @@ function applyRemoteAction(a) {
     if (state.selectedId === t.id) updateDetail();
   } else if (a.op === 'patchToken') {
     const p = a.patch || {};
-    const allowed = ['hp', 'hpMax', 'ac', 'spellRange'];
+    if (Number.isInteger(p.portraitVariant)) {
+      const v = tokenPortraitVariants(t)[p.portraitVariant];
+      if (v) { applyTokenPortrait(t, v); t.portraitVariant = p.portraitVariant; }
+    }
+    const allowed = ['hp', 'hpMax', 'tempHp', 'tempHpMax', 'ac', 'spellRange'];
     allowed.forEach((k) => { if (k in p) t[k] = p[k]; });
     const playerUpdatedConditions = Object.prototype.hasOwnProperty.call(p, 'conditions');
     if (playerUpdatedConditions) t.conditions = mergePlayerPublicConditions(t.conditions, p.conditions);
@@ -8166,6 +8303,9 @@ async function mergePlayerStateFromServer() {
     });
     let changed = false;
     const remoteMaps = new Map(s.maps.map((map) => [map.id, map]));
+    if (s.campaignId === state.campaignId && (s.journal?.revision || 0) > (state.journal?.revision || 0)) {
+      state.journal = CampaignJournal.normalize(s.journal, state.campaignId); changed = true; CampaignJournal.refresh();
+    }
     (state.maps || []).forEach((map) => {
       const remoteMap = remoteMaps.get(map.id);
       if (!remoteMap) return;
@@ -8215,9 +8355,13 @@ async function mergePlayerStateFromServer() {
       if (rs && remoteControlledIds.has(rs.id)) {
         t.x = rs.x;
         t.y = rs.y;
-        ['hp', 'hpMax', 'ac', 'spellRange'].forEach((k) => {
+        ['hp', 'hpMax', 'tempHp', 'tempHpMax', 'ac', 'spellRange'].forEach((k) => {
           if (k in rs) t[k] = rs[k];
         });
+        if (Number.isInteger(rs.portraitVariant)) {
+          const v = tokenPortraitVariants(t)[rs.portraitVariant];
+          if (v) { applyTokenPortrait(t, v); t.portraitVariant = rs.portraitVariant; }
+        }
         if ('conditions' in rs) t.conditions = mergePlayerPublicConditions(t.conditions, rs.conditions);
         t.spellRange = normalizeSpellRange(t.spellRange);
         if (t.size >= 2) syncRiderData(t);
@@ -8667,6 +8811,7 @@ function normalizeLibPreset(p) {
     // 已有项目原图时不再把缩略图和 IndexedDB id 重复写进正式棋子库。
     iconImg: isPathBacked ? null : (p.iconImg || null),
     iconImgHd: isPathBacked ? null : (p.iconImgHd || null),
+    portraitVariants: Array.isArray(p.portraitVariants) ? p.portraitVariants.filter(v => v && typeof v.name === 'string' && (v.iconImgPath || v.iconImg || v.iconImgHd)).map(v => ({ ...v })) : [],
     iconImgPath: portraitPath,
     iconImgId: isPathBacked ? null : (p.iconImgId || null),
     size: p.size === 2 ? 2 : 1,
@@ -9149,10 +9294,13 @@ async function copyCampaignHistory(sourceFolder, targetFolder) {
 }
 
 async function writeSaveIndex(records) {
+  let previous = {};
+  try { previous = JSON.parse(await readBoundText(SAVE_INDEX_FILE) || '{}'); } catch (e) { /* 旧索引 */ }
   const campaigns = Array.isArray(records) ? records : await readCampaignRecords();
   const data = {
     format: 'sangduoer-save-index',
     schemaVersion: 2,
+    lastCampaignId: previous.lastCampaignId || null,
     updatedAt: Date.now(),
     campaigns: campaigns.map((item) => ({
       id: item.id,
@@ -9162,7 +9310,24 @@ async function writeSaveIndex(records) {
       cover: item.coverFile || null,
     })),
   };
-  await writeBoundText(SAVE_INDEX_FILE, JSON.stringify(data, null, 2));
+  if (!(await writeBoundText(SAVE_INDEX_FILE, JSON.stringify(data, null, 2)))) throw new Error('存档索引写入失败');
+}
+
+async function writeVerifiedCampaign(path, packageData) {
+  const expected = JSON.stringify(packageData, null, 2);
+  if (!(await writeBoundText(path, expected))) throw new Error('战役文件写入失败');
+  const actual = await readBoundText(path);
+  if (actual !== expected) throw new Error('存档回读校验失败：文件未更新或被其他窗口改写');
+}
+
+async function rememberCampaignSelection(id) {
+  if (!id) return;
+  const raw = await readBoundText(SAVE_INDEX_FILE);
+  const index = raw ? JSON.parse(raw) : {format:'sangduoer-save-index',schemaVersion:2,campaigns:[]};
+  index.lastCampaignId = id;
+  index.lastOpenedAt = Date.now();
+  await writeVerifiedCampaign(SAVE_INDEX_FILE, index);
+  try { localStorage.setItem('dnd-board-last-campaign-id', id); } catch (e) { /* 磁盘记录为准 */ }
 }
 
 async function writeCampaignRecord(id, name, snapshot, options = {}) {
@@ -9178,7 +9343,7 @@ async function writeCampaignRecord(id, name, snapshot, options = {}) {
     await writeBoundText(`${SAVE_CAMPAIGN_DIR}/${folderName}/自动备份/${savedAt}.json`, previousText);
   }
   const packageData = campaignPackage(cleanId, cleanName, snapshot, savedAt);
-  if (!(await writeBoundText(currentPath, JSON.stringify(packageData, null, 2)))) throw new Error('write failed');
+  await writeVerifiedCampaign(currentPath, packageData);
   if (existing && existing._folderName !== folderName) {
     await copyCampaignHistory(existing._folderName, folderName);
     await deleteBoundEntry(`${SAVE_CAMPAIGN_DIR}/${existing._folderName}`, true);
@@ -9564,12 +9729,14 @@ function placePresetOnMap(id) {
   const py = rect.top + rect.height / 2;
   const x = clamp((px - rect.left - m.cam.x) / m.cam.zoom, 0, m.mapW);
   const y = clamp((py - rect.top - m.cam.y) / m.cam.zoom, 0, m.mapH);
-  const finalX = state.snap ? snapTokenCenter(x, m.gridSize, p.size) : x;
-  const finalY = state.snap ? snapTokenCenter(y, m.gridSize, p.size) : y;
+  const finalX = state.snap ? snapTokenCenter(x, m.gridSize, p.size, Number(m.gridOffsetX) || 0) : x;
+  const finalY = state.snap ? snapTokenCenter(y, m.gridSize, p.size, Number(m.gridOffsetY) || 0) : y;
   const margin = p.size >= 2 ? m.gridSize : m.gridSize / 2;
   const token = {
     id: 't' + (uid++),
     name: p.name,
+    presetId: p.id,
+    portraitVariants: p.portraitVariants || [],
     type: p.type,
     icon: p.icon,
     iconImg: p.iconImg,
@@ -9730,6 +9897,7 @@ function saveLibEditor() {
     size: parseInt($('#lib-size').value, 10) === 2 ? 2 : 1,
     hpMax: Math.max(1, parseInt($('#lib-hp').value, 10) || 10),
     ac: Math.max(0, parseInt($('#lib-ac').value, 10) || 10),
+    portraitVariants: existingPreset?.portraitVariants || [],
     spellRange: normalizeSpellRange(existingPreset?.spellRange),
   };
   if (libEditorId === 'new') {
@@ -10410,7 +10578,7 @@ if (sharedLib.length) {
 libRecentIds = loadLibraryRecentIds();
 setUnitSource('library', false);
 renderLibrary();
-restoreStreamFromStorage();
+// 等正式存档恢复完成后再联机，避免把启动时的旧浏览器缓存推到房间。
 // 左侧面板默认全部折叠
 document.querySelectorAll('#left-panel .card').forEach((c) => c.classList.add('collapsed'));
 loadLinks();
@@ -10433,6 +10601,7 @@ renderLinks();
     updateSaveStatus(projectDirHandle ? '“存档”文件夹待授权' : '仅浏览器缓存 · 请连接“存档”文件夹', 'error');
   }
   await refreshHostHome({ forceRecords: true });
+  await restoreStreamFromStorage();
 })();
 // 人物卡默认收起，选中棋子时自动展开
 const unitCard = document.querySelector('#unit-card');
@@ -10453,11 +10622,16 @@ function activateWorkspace(workspace) {
   tabs.forEach((tab) => tab.classList.toggle('active', tab.dataset.workspaceTab === workspace));
   const visible = cards.filter((card) => card.dataset.workspace === workspace);
   cards.forEach((card) => { card.hidden = card.dataset.workspace !== workspace; });
+  if (workspace === 'units') {
+    // “单位”页默认服务于掷骰：每次切回展开骰子，收起棋子库等其他单位功能。
+    // “/” 快捷键仍会明确打开并聚焦棋子库搜索。
+    const dice = visible.find((card) => card.querySelector('#btn-roll'));
+    visible.forEach((card) => card.classList.toggle('collapsed', card !== dice));
+    dice?.classList.remove('collapsed');
+    return;
+  }
   if (visible.length && visible.every((card) => card.classList.contains('collapsed'))) {
-    const preferred = workspace === 'units'
-      ? visible.find((card) => card.classList.contains('unit-browser-card'))
-      : null;
-    (preferred || visible[0]).classList.remove('collapsed');
+    visible[0].classList.remove('collapsed');
   }
 }
 
@@ -10497,3 +10671,38 @@ encounterClockTimer = setInterval(() => {
 }, 500);
 updateCoverContinue();
 setTimeout(() => { prewarmAvatarCache(); }, 1000);
+window.journalBridge = {
+  isDM: true,
+  actorName: () => 'DM',
+  worldTime: () => worldTimeNow(),
+  read: () => state.journal,
+  campaign: () => state.campaignId,
+  mutate: async (mutation, revision, campaignId) => {
+    if (!campaignId) throw new Error('请先建立或读取战役');
+    let result;
+    if (streamOn) {
+      const response = await fetch(`${serverApiBase()}/api/journal`, {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({...mutation, revision, campaignId}),
+      });
+      const data = await CampaignJournal.readSaveResponse(response);
+      if (state.campaignId !== campaignId) throw new Error('战役已切换');
+      if ((state.journal?.revision || 0) <= data.journal.revision) state.journal = CampaignJournal.normalize(data.journal, campaignId);
+      result = {journal: state.journal, entryId: data.entryId};
+    } else {
+      const current = CampaignJournal.normalize(state.journal, campaignId);
+      if (revision !== current.revision) throw new Error('日志已更新，请重新打开');
+      result = CampaignJournal.localMutation(current, mutation, {
+        author: 'DM', isDM: true, campaignId, at: Date.now(), worldSeconds: worldTimeNow(),
+      });
+      state.journal = CampaignJournal.normalize(result.journal, campaignId);
+      result.journal = state.journal;
+    }
+    const cached = saveNow();
+    const diskSaved = projectDirHandle ? await folderSaveQueue : false;
+    const saveNotice = diskSaved ? '' : cached
+      ? '日志已更新，仅保留浏览器恢复点；请连接存档文件夹。'
+      : '日志已更新，但未写入存档；请立即检查存档文件夹。';
+    return {...result, journal: state.journal, saveNotice};
+  }
+};

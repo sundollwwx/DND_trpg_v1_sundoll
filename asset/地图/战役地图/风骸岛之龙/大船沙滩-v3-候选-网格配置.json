@@ -1,0 +1,10 @@
+{
+  "mapW": 2400,
+  "mapH": 1600,
+  "gridSize": 40,
+  "gridOffsetX": 15.625,
+  "gridOffsetY": 0,
+  "gridLineWidth": 1,
+  "feetPerCell": 5,
+  "status": "候选，尚未写入存档"
+}

@@ -29,8 +29,8 @@ class FakeResponse:
 
 
 class LauncherProtocolTests(unittest.TestCase):
-    def test_document_library_requires_protocol_nine(self):
-        self.assertEqual(LAUNCHER.SERVER_PROTOCOL_VERSION, 9)
+    def test_campaign_bound_journal_requires_protocol_sixteen(self):
+        self.assertEqual(LAUNCHER.SERVER_PROTOCOL_VERSION, 16)
 
     def response(self, protocol=None):
         payload = {'name': LAUNCHER.SERVER_NAME, 'port': 8090}
@@ -39,17 +39,17 @@ class LauncherProtocolTests(unittest.TestCase):
         return FakeResponse(payload)
 
     def test_only_current_protocol_server_is_reused(self):
-        with mock.patch.object(LAUNCHER.urllib.request, 'urlopen', return_value=self.response()):
+        with mock.patch.object(LAUNCHER.LOCAL_URL_OPENER, 'open', return_value=self.response()):
             self.assertIsNone(LAUNCHER.server_info(8090))
         with mock.patch.object(
-            LAUNCHER.urllib.request,
-            'urlopen',
+            LAUNCHER.LOCAL_URL_OPENER,
+            'open',
             return_value=self.response(LAUNCHER.SERVER_PROTOCOL_VERSION - 1),
         ):
             self.assertIsNone(LAUNCHER.server_info(8090))
         with mock.patch.object(
-            LAUNCHER.urllib.request,
-            'urlopen',
+            LAUNCHER.LOCAL_URL_OPENER,
+            'open',
             return_value=self.response(LAUNCHER.SERVER_PROTOCOL_VERSION),
         ):
             self.assertEqual(LAUNCHER.server_info(8090)['protocolVersion'], LAUNCHER.SERVER_PROTOCOL_VERSION)
@@ -57,8 +57,15 @@ class LauncherProtocolTests(unittest.TestCase):
     def test_previous_brand_name_remains_reusable_during_upgrade(self):
         response = self.response(LAUNCHER.SERVER_PROTOCOL_VERSION)
         response.payload['name'] = '桑哆尔联机'
-        with mock.patch.object(LAUNCHER.urllib.request, 'urlopen', return_value=response):
+        with mock.patch.object(LAUNCHER.LOCAL_URL_OPENER, 'open', return_value=response):
             self.assertEqual(LAUNCHER.server_info(8090)['protocolVersion'], LAUNCHER.SERVER_PROTOCOL_VERSION)
+
+    def test_local_probe_never_uses_system_proxy_urlopen(self):
+        response = self.response(LAUNCHER.SERVER_PROTOCOL_VERSION)
+        with mock.patch.object(LAUNCHER.urllib.request, 'urlopen', side_effect=AssertionError('system proxy used')), \
+                mock.patch.object(LAUNCHER.LOCAL_URL_OPENER, 'open', return_value=response) as direct_open:
+            self.assertEqual(LAUNCHER.server_info(8090)['protocolVersion'], LAUNCHER.SERVER_PROTOCOL_VERSION)
+        direct_open.assert_called_once_with('http://127.0.0.1:8090/api/info', timeout=0.45)
 
     def test_protocol_marker_is_shared_by_server_launcher_and_player(self):
         server_source = SERVER_PATH.read_text(encoding='utf-8')

@@ -57,8 +57,11 @@ function fixture(options = {}) {
   };
   const context = vm.createContext({
     STORAGE_KEY: 'dnd-board-state-v1',
+    SAVE_INDEX_FILE: '存档索引.json',
+    rememberCampaignSelection: async () => {},
     state,
     streamDirty: false,
+    folderSaveQueue: Promise.resolve(true),
     browserStateCacheFailed: false,
     projectDirHandle: options.projectDirHandle ?? {},
     localStorage,
@@ -69,7 +72,7 @@ function fixture(options = {}) {
     confirm: () => true,
     toast: (message) => toasts.push(message),
     updateSaveStatus: (message, kind) => statuses.push({ message, kind }),
-    readBoundText: async () => JSON.stringify({ state: targetState }),
+    readBoundText: async (file) => file === '存档索引.json' ? JSON.stringify(options.diskIndex || {}) : JSON.stringify({ state: targetState }),
     parseCampaignFile: (text) => JSON.parse(text),
     folderSaveSnapshot: () => JSON.parse(JSON.stringify(state)),
     writeRecoverySnapshot: async () => { recoveryWrites++; return true; },
@@ -84,6 +87,7 @@ function fixture(options = {}) {
     stateStorageJson: () => JSON.stringify(state),
     hasSaveFolderPermission: async () => true,
     campaignGet: async () => record,
+    readCampaignRecords: async () => [record],
     queueCurrentFolderSave: async () => true,
   });
   vm.runInContext(cacheSource + '\n' + loadSource, context);
@@ -116,6 +120,35 @@ test('a large formal campaign still loads when localStorage exceeds quota', asyn
   assert.match(f.toasts.at(-1), /正式文件仍可使用/);
   assert.doesNotMatch(f.toasts.at(-1), /读取存档失败/);
   assert.equal(f.warnings.length, 1);
+});
+
+test('continue restores last campaign even when full browser cache belongs to an older campaign', async () => {
+  const f = fixture({
+    initialState: {campaignId:'old', maps:[]},
+    storage: [['dnd-board-last-campaign-id','c184'], ['dnd-board-state-v1','old-cache']],
+  });
+  await f.run('restoreFolderIfAvailable()');
+  assert.equal(f.state.campaignId, 'c184');
+  assert.equal(f.quotaErrors(), 1);
+  assert.match(f.statuses.at(-1).message, /已恢复上次战役/);
+});
+
+test('disk last campaign wins over obsolete browser selection', async () => {
+  const f = fixture({initialState:{campaignId:'old',maps:[]},storage:[['dnd-board-last-campaign-id','old']],diskIndex:{lastCampaignId:'c184'}});
+  await f.run('restoreFolderIfAvailable()');
+  assert.equal(f.state.campaignId,'c184');
+});
+
+test('fresh browser can restore most recent formal campaign', async () => {
+  const f = fixture();
+  await f.run('restoreFolderIfAvailable()');
+  assert.equal(f.state.campaignId, 'c184');
+});
+
+test('applying loaded state refreshes world clock and continue card', () => {
+  const body = source.slice(source.indexOf('function applyAllState()'), source.indexOf('function applyActiveMap()'));
+  assert.match(body, /renderEncounter\(\)/);
+  assert.match(body, /updateCoverContinue\(\)/);
 });
 
 test('newer-folder restore also survives localStorage quota failure', async () => {

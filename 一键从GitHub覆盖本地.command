@@ -24,7 +24,7 @@ if [ -z "${PYTHON_BIN}" ]; then
   echo "请先安装可用的 Python 3，然后重新双击本文件。"
   DOWNLOAD_STATUS=1
 else
-  "${PYTHON_BIN}" "download_github.py" "$@"
+  "${PYTHON_BIN}" "github_sync.py" download "$@"
   DOWNLOAD_STATUS=$?
 fi
 

@@ -1,7 +1,7 @@
 {
   "format": "sangduoer-campaign",
   "schemaVersion": 4,
-  "savedAt": 1788681313269,
+  "savedAt": 1788927818503,
   "campaignId": "c184",
   "campaignName": "烬鳞讨伐-2026.8.8",
   "state": {
@@ -13,6 +13,10 @@
         "mapW": 1000,
         "mapH": 700,
         "gridSize": 50,
+        "gridLineWidth": 2,
+        "gridOffsetX": 0,
+        "gridOffsetY": 0,
+        "gridVisible": true,
         "cells": [
           [
             "woodwall",
@@ -400,6 +404,10 @@
         "mapW": 1500,
         "mapH": 1000,
         "gridSize": 50,
+        "gridLineWidth": 2,
+        "gridOffsetX": 0,
+        "gridOffsetY": 0,
+        "gridVisible": true,
         "cells": [
           [
             "grass",
@@ -1239,6 +1247,10 @@
         "mapW": 1800,
         "mapH": 1200,
         "gridSize": 50,
+        "gridLineWidth": 2,
+        "gridOffsetX": 0,
+        "gridOffsetY": 0,
+        "gridVisible": true,
         "cells": [
           [
             "fence",
@@ -2690,6 +2702,10 @@
         "mapW": 2000,
         "mapH": 1400,
         "gridSize": 50,
+        "gridLineWidth": 2,
+        "gridOffsetX": 0,
+        "gridOffsetY": 0,
+        "gridVisible": true,
         "cells": [
           [
             "wall",
@@ -4025,17 +4041,137 @@
             "hiddenFromPlayers": false,
             "x": 1100,
             "y": 750,
-            "owner": "",
+            "owner": "桑哆尔",
             "mountId": null,
             "groupKey": "妖精马",
+            "playerCreated": false,
+            "createdByPlayer": ""
+          },
+          {
+            "id": "t287",
+            "name": "青年红龙",
+            "type": "enemy",
+            "icon": "",
+            "iconImg": null,
+            "iconImgHd": null,
+            "iconImgPath": "立绘/龙类/红龙/青年红龙.png",
+            "iconImgId": null,
+            "size": 2,
+            "hp": 178,
+            "hpMax": 178,
+            "ac": 18,
+            "spellRange": {
+              "shape": "off",
+              "feet": 30,
+              "direction": 0
+            },
+            "conditions": [],
+            "publicNote": "",
+            "gmNote": "",
+            "hiddenFromPlayers": false,
+            "x": 1150,
+            "y": 650,
+            "owner": "",
+            "mountId": null,
+            "groupKey": "青年红龙",
+            "playerCreated": false,
+            "createdByPlayer": ""
+          },
+          {
+            "id": "t290",
+            "name": "蟹",
+            "type": "ally",
+            "icon": "🦀",
+            "iconImg": null,
+            "iconImgHd": null,
+            "iconImgPath": "立绘/魔宠/寻找魔宠/蟹.png",
+            "iconImgId": null,
+            "size": 1,
+            "hp": 2,
+            "hpMax": 2,
+            "ac": 11,
+            "spellRange": {
+              "shape": "off",
+              "feet": 30,
+              "direction": 0
+            },
+            "conditions": [],
+            "publicNote": "",
+            "gmNote": "",
+            "hiddenFromPlayers": false,
+            "x": 875,
+            "y": 775,
+            "owner": "",
+            "mountId": null,
+            "groupKey": "蟹",
+            "playerCreated": false,
+            "createdByPlayer": ""
+          },
+          {
+            "id": "t291",
+            "name": "隼",
+            "type": "ally",
+            "icon": "🦅",
+            "iconImg": null,
+            "iconImgHd": null,
+            "iconImgPath": "立绘/魔宠/寻找魔宠/隼.png",
+            "iconImgId": null,
+            "size": 1,
+            "hp": 1,
+            "hpMax": 1,
+            "ac": 13,
+            "spellRange": {
+              "shape": "off",
+              "feet": 30,
+              "direction": 0
+            },
+            "conditions": [],
+            "publicNote": "",
+            "gmNote": "",
+            "hiddenFromPlayers": false,
+            "x": 925,
+            "y": 775,
+            "owner": "",
+            "mountId": null,
+            "groupKey": "隼",
+            "playerCreated": false,
+            "createdByPlayer": ""
+          },
+          {
+            "id": "t292",
+            "name": "海马",
+            "type": "ally",
+            "icon": "🪸",
+            "iconImg": null,
+            "iconImgHd": null,
+            "iconImgPath": "立绘/魔宠/寻找魔宠/海马.png",
+            "iconImgId": null,
+            "size": 1,
+            "hp": 1,
+            "hpMax": 1,
+            "ac": 11,
+            "spellRange": {
+              "shape": "off",
+              "feet": 30,
+              "direction": 0
+            },
+            "conditions": [],
+            "publicNote": "",
+            "gmNote": "",
+            "hiddenFromPlayers": false,
+            "x": 875,
+            "y": 725,
+            "owner": "",
+            "mountId": null,
+            "groupKey": "海马",
             "playerCreated": false,
             "createdByPlayer": ""
           }
         ],
         "cam": {
-          "x": -276.8450054075241,
-          "y": -172.85071310452315,
-          "zoom": 0.7691220273694408
+          "x": -3402.2108651934545,
+          "y": -2776.648339542238,
+          "zoom": 4
         }
       },
       {
@@ -4045,6 +4181,10 @@
         "mapW": 1600,
         "mapH": 1200,
         "gridSize": 50,
+        "gridLineWidth": 2,
+        "gridOffsetX": 0,
+        "gridOffsetY": 0,
+        "gridVisible": true,
         "cells": [
           [
             "void",
@@ -4986,10 +5126,10 @@
     "encounter": {
       "collapsed": false,
       "panel": "initiative",
-      "playMode": "free",
+      "playMode": "turn",
       "round": 1,
-      "currentEntryId": null,
-      "turnSerial": 218,
+      "currentEntryId": "i282",
+      "turnSerial": 224,
       "secondsPerRound": 6,
       "entries": [
         {
@@ -4999,6 +5139,38 @@
           "color": "#5b8cff",
           "tokenId": "t281",
           "order": 1788495957884
+        },
+        {
+          "id": "i285",
+          "name": "黑胡桃",
+          "value": 3,
+          "color": "#5b8cff",
+          "tokenId": "t280",
+          "order": 1788798299539
+        },
+        {
+          "id": "i284",
+          "name": "拉斐尔",
+          "value": 2,
+          "color": "#5b8cff",
+          "tokenId": "t278",
+          "order": 1788798295405
+        },
+        {
+          "id": "i286",
+          "name": "忒修斯",
+          "value": 2,
+          "color": "#5b8cff",
+          "tokenId": "t279",
+          "order": 1788798304107
+        },
+        {
+          "id": "i288",
+          "name": "青年红龙",
+          "value": 2,
+          "color": "#ef476f",
+          "tokenId": "t287",
+          "order": 1788798320258
         }
       ],
       "worldTime": {
@@ -5015,9 +5187,16 @@
         "generatedDay": 1
       },
       "lastEvent": {
-        "label": "已切换为自由模式",
-        "at": 1788681269277
+        "label": "加入先攻单位：青年红龙（2）",
+        "at": 1788798320254
       }
+    },
+    "journal": {
+      "text": "",
+      "worldSeconds": null,
+      "revision": 0,
+      "author": "",
+      "history": []
     }
   }
 }

@@ -23,17 +23,17 @@ set "UPLOAD_STATUS=1"
 goto finish
 
 :use_py
-py -3 "upload_github.py"
+py -3 "github_sync.py" upload %*
 set "UPLOAD_STATUS=%ERRORLEVEL%"
 goto finish
 
 :use_python
-python "upload_github.py"
+python "github_sync.py" upload %*
 set "UPLOAD_STATUS=%ERRORLEVEL%"
 goto finish
 
 :use_python3
-python3 "upload_github.py"
+python3 "github_sync.py" upload %*
 set "UPLOAD_STATUS=%ERRORLEVEL%"
 
 :finish

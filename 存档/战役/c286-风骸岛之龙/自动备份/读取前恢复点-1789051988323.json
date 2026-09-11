@@ -1,0 +1,85 @@
+{
+  "format": "sangduoer-campaign",
+  "schemaVersion": 4,
+  "savedAt": 1789051988323,
+  "campaignId": "c286",
+  "campaignName": "风骸岛之龙",
+  "state": {
+    "maps": [
+      {
+        "id": "m284",
+        "name": "地图 1",
+        "mapData": null,
+        "mapW": 1400,
+        "mapH": 900,
+        "gridSize": 50,
+        "gridLineWidth": 2,
+        "gridOffsetX": 0,
+        "gridOffsetY": 0,
+        "gridVisible": true,
+        "cells": null,
+        "cellVariants": {},
+        "doodles": [],
+        "tokens": [],
+        "cam": {
+          "x": 0,
+          "y": 0,
+          "zoom": 1
+        }
+      }
+    ],
+    "activeMapId": "m284",
+    "snap": true,
+    "showNames": true,
+    "campaignId": "c286",
+    "campaignName": "风骸岛之龙",
+    "sharedResources": [
+      {
+        "id": "builtin-trpgcard",
+        "name": "车卡器",
+        "url": "https://www.trpgcard.com/share/INV-U8NL"
+      },
+      {
+        "id": "link1",
+        "name": "5E 不全书",
+        "url": "https://5echm.kagangtuya.top/"
+      }
+    ],
+    "sharedNotes": "",
+    "selectedId": null,
+    "encounter": {
+      "collapsed": true,
+      "panel": "initiative",
+      "playMode": "free",
+      "round": 1,
+      "currentEntryId": null,
+      "turnSerial": 1,
+      "secondsPerRound": 6,
+      "entries": [],
+      "worldTime": {
+        "totalSeconds": 28800,
+        "runningSince": null,
+        "rate": 1,
+        "resumeAfterTurn": false
+      },
+      "weather": {
+        "climate": "temperate",
+        "condition": "clear",
+        "temperature": 18,
+        "wind": "breeze",
+        "generatedDay": 0
+      },
+      "lastEvent": null
+    },
+    "journal": {
+      "schemaVersion": 2,
+      "campaignId": "c286",
+      "revision": 0,
+      "entries": [],
+      "text": "",
+      "author": "",
+      "worldSeconds": null,
+      "history": []
+    }
+  }
+}

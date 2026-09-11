@@ -226,6 +226,9 @@ main { flex:1; display:flex; min-height:0; }
       <img id="icon-preview" alt="图标预览">
       <button id="btn-icon-clear" class="small">移除图片</button>
     </div>
+    <label>立绘预设<select id="ed-portrait-variant"></select></label>
+    <div class="row"><button id="btn-portrait-snapshot" type="button">＋ 保存当前图片为立绘预设</button><button id="btn-portrait-remove-variant" type="button">移除所选预设</button></div>
+    <p class="hint">上传图片后可保存为预设；选择后点击「保存」生效。不会修改已放到地图上的单位。</p>
     <div class="actions">
       <button id="btn-cancel">取消</button>
       <button id="btn-save" class="primary">💾 保存</button>
@@ -255,6 +258,14 @@ main { flex:1; display:flex; min-height:0; }
         <option value="厚涂概念设计">厚涂概念设计</option>
       </select>
     </div>
+    <label>等级背景
+      <select id="portrait-background" title="按角色等级选择背景">
+        <option value="ordinary">1–5级 · 普通羊皮纸底</option>
+        <option value="adventurer">6–10级 · 精致场景背景</option>
+        <option value="legendary">11–16级 · 传奇背景</option>
+        <option value="epic">17–20级 · 超级传奇背景</option>
+      </select>
+    </label>
     <textarea id="portrait-notes" placeholder="外观补充，例如：灰绿色皮肤，破旧皮甲，右手弯刀，警惕神情"></textarea>
     <textarea id="portrait-prompt" readonly></textarea>
     <div class="row">
@@ -316,6 +327,7 @@ let filterType = 'all';
 let searchText = '';
 let editorId = null;
 let avatar = null;
+let editorPortraitVariants = [];
 let uid = 1;
 
 /* ==================== 高清头像（IndexedDB 存储） ==================== */
@@ -412,16 +424,21 @@ function processAvatarFile(file, cb) {
   reader.readAsDataURL(file);
 }
 
+const PORTRAIT_LOAD_REVISION = Date.now().toString(36);
+function freshPortraitUrl(path) {
+  return path ? `${path}${path.includes('?') ? '&' : '?'}v=${PORTRAIT_LOAD_REVISION}` : '';
+}
+
 function portraitLodUrl(path, tier = AVATAR_LOW_MAX) {
   const normalized = canonicalPortraitPath(path);
   if (!normalized || !normalized.startsWith('立绘/')) return normalized || '';
   const relative = normalized.slice(3).replace(/\.[^./]+$/, '.webp');
-  return `显示缓存/${tier === AVATAR_DISPLAY_MAX ? AVATAR_DISPLAY_MAX : AVATAR_LOW_MAX}/${relative}`;
+  return freshPortraitUrl(`显示缓存/${tier === AVATAR_DISPLAY_MAX ? AVATAR_DISPLAY_MAX : AVATAR_LOW_MAX}/${relative}`);
 }
 
 function applyPortraitBackground(el, path, tier = AVATAR_LOW_MAX) {
-  const original = canonicalPortraitPath(path);
-  const candidate = portraitLodUrl(original, tier);
+  const original = freshPortraitUrl(canonicalPortraitPath(path));
+  const candidate = portraitLodUrl(path, tier);
   el.dataset.portraitUrl = candidate;
   el.style.backgroundImage = `url("${candidate}")`;
   const known = portraitLodProbes.get(candidate);
@@ -446,8 +463,8 @@ function applyPortraitBackground(el, path, tier = AVATAR_LOW_MAX) {
 }
 
 function applyPortraitImage(el, path, tier = AVATAR_DISPLAY_MAX) {
-  const original = canonicalPortraitPath(path);
-  const candidate = portraitLodUrl(original, tier);
+  const original = freshPortraitUrl(canonicalPortraitPath(path));
+  const candidate = portraitLodUrl(path, tier);
   el.dataset.portraitUrl = candidate;
   el.onerror = () => {
     if (el.dataset.portraitUrl !== candidate) return;
@@ -598,11 +615,13 @@ function normalize(p) {
   return {
     id: p.id || 'l' + (uid++),
     name: p.name || '未命名',
+    ...(Number.isInteger(Number(p.level)) && Number(p.level) >= 1 && Number(p.level) <= 20 ? { level: Number(p.level) } : {}),
     type: ['pc', 'enemy', 'npc', 'ally'].includes(p.type) ? p.type : 'npc',
     category: (p.category || '').trim() || '其他',
     icon: p.icon || '',
     iconImg: isPathBacked ? null : (p.iconImg || null),
     iconImgHd: isPathBacked ? null : (p.iconImgHd || null),
+    portraitVariants: Array.isArray(p.portraitVariants) ? p.portraitVariants.filter(v => v && typeof v.name === 'string' && (v.iconImgPath || v.iconImg || v.iconImgHd)).map(v => ({ ...v })) : [],
     iconImgPath: portraitPath,
     iconImgId: isPathBacked ? null : (p.iconImgId || null),
     size: p.size === 2 ? 2 : 1,
@@ -767,7 +786,19 @@ async function syncLibraryWithFolder() {
 }
 
 async function initLibPersistStatus() {
-  await syncLibraryWithFolder();
+  if (await syncLibraryWithFolder()) return;
+  // HTTP 打开时直接读取当前项目的正式棋子库，无需先授权文件夹。
+  // file:// 或服务器不可用时保留现有离线数据，不写回或覆盖磁盘。
+  if (!/^https?:$/.test(location.protocol)) return;
+  try {
+    const response = await fetch('../../存档/棋子库/棋子库.json', { cache: 'no-store' });
+    if (!response.ok) return;
+    const disk = await response.json();
+    if (disk?.format !== 'sangduoer-library' || !Array.isArray(disk.presets)) return;
+    applyLibraryFromDisk(disk);
+  } catch (error) {
+    console.warn('读取项目棋子库失败，保留离线数据', error);
+  }
 }
 
 function loadLibrary() {
@@ -1055,6 +1086,7 @@ function syncIconPreview() {
 function openEditor(id) {
   editorId = id;
   avatar = null;
+  editorPortraitVariants = (presets.find(p => p.id === id)?.portraitVariants || []).map(v => ({ ...v }));
   $('#editor-modal').hidden = false;
   $('#editor-title').textContent = id === 'new' ? '＋ 新建预设' : '✎ 编辑预设';
   if (id === 'new') {
@@ -1084,8 +1116,36 @@ function openEditor(id) {
       ? { iconImgId: p.iconImgId || null, iconImg: p.iconImg || null, iconImgHd: editPath ? null : (p.iconImgHd || null), iconImgPath: editPath }
       : null;
   }
+  refreshPortraitVariants();
   syncIconPreview();
 }
+
+function refreshPortraitVariants() {
+  const select = $('#ed-portrait-variant');
+  select.replaceChildren(new Option('当前图片', ''));
+  editorPortraitVariants.forEach((v, i) => select.add(new Option(v.name, String(i))));
+}
+$('#ed-portrait-variant').addEventListener('change', (e) => {
+  if (e.target.value === '') return;
+  const v = editorPortraitVariants[Number(e.target.value)];
+  if (!v) return;
+  avatar = { iconImgPath: v.iconImgPath || null, iconImg: v.iconImg || null, iconImgHd: v.iconImgHd || null, iconImgId: v.iconImgId || null };
+  syncIconPreview();
+});
+$('#btn-portrait-snapshot').addEventListener('click', () => {
+  if (!avatar) { toast('请先上传或选择一张图片'); return; }
+  const name = prompt('立绘预设名称，例如：常态、施法、战斗');
+  if (!name?.trim()) return;
+  editorPortraitVariants.push({ ...avatar, name: name.trim().slice(0, 40) });
+  refreshPortraitVariants();
+  $('#ed-portrait-variant').value = String(editorPortraitVariants.length - 1);
+});
+$('#btn-portrait-remove-variant').addEventListener('click', () => {
+  const value = $('#ed-portrait-variant').value;
+  if (value === '') return;
+  editorPortraitVariants.splice(Number(value), 1);
+  refreshPortraitVariants();
+});
 
 function closeEditor() {
   editorId = null;
@@ -1096,6 +1156,8 @@ function closeEditor() {
 function saveEditor() {
   const preset = {
     id: editorId === 'new' ? 'l' + (uid++) : editorId,
+    ...(presets.find((p) => p.id === editorId)?.level ? { level: presets.find((p) => p.id === editorId).level } : {}),
+    portraitVariants: editorPortraitVariants.map(v => ({ ...v })),
     name: $('#ed-name').value.trim() || '未命名',
     type: $('#ed-type').value,
     category: readCatSelects(),
@@ -1252,6 +1314,13 @@ const PORTRAIT_PROMPT_PROFILES = Object.freeze({
   }
 });
 
+const PORTRAIT_BACKGROUND_PROFILES = Object.freeze({
+  ordinary: '1–5级：统一羊皮纸底，遵守《羊皮纸背景一致性规范.md》PARCHMENT-GZ-1。以戈卓-蒙眼常态.png为主参考，戈卓.png和戈卓-睁眼施法.png为辅助；暖蜂蜜金棕纸面、低对比细纹理、自然褐色斑驳旧化边缘，不得偏灰白或橙红。纸面居中，横向约85%、纵向约87%，左右留白约7.5%、上下约6.5%，边界与参考图偏差不超过画布1%。圆外背景纯白，无描边、装饰环或场景。多形态复用同一背景，不随姿态或特效改变纸色与范围。',
+  adventurer: '6–10级：精致场景背景。选择符合人物身份和经历的林地、庭院、城墙或殿堂，以柔和光影和空间层次衬托人物，克制而有质感。',
+  legendary: '11–16级：传奇背景。选择与身份和经历相关的宏伟城塞、古老圣所或奥术遗迹，以远景尺度、风暴天光和强烈但清楚的光影体现传奇气场。',
+  epic: '17–20级：超级传奇背景。选择符合角色主题的位面奇观、星界天幕、神话殿堂或天地异象，以宏大空间和史诗光影表现巅峰力量；只保留一种主要奇观，不堆叠特效。'
+});
+
 function portraitKindFor(p) {
   if (!p) return 'creature';
   const category = String(p.category || '').split('/')[0].trim();
@@ -1263,7 +1332,10 @@ function portraitKindFor(p) {
 }
 
 function syncPortraitKind() {
-  $('#portrait-kind').value = portraitKindFor(portraitSelectedPreset());
+  const p = portraitSelectedPreset();
+  $('#portrait-kind').value = portraitKindFor(p);
+  const level = Number(p?.level);
+  $('#portrait-background').value = level >= 17 ? 'epic' : level >= 11 ? 'legendary' : level >= 6 ? 'adventurer' : 'ordinary';
 }
 
 function portraitPromptFor(p) {
@@ -1279,9 +1351,9 @@ function portraitPromptFor(p) {
     notes ? `外观要求：${notes}。` : '外观要求：依据主体名称和分类建立明确、克制、容易复现的造型。',
     `主体表现：${profile.direction}`,
     `风格：${style}，西幻规则书插画质感，厚涂写实，材质明确，细节服从整体轮廓和识别。`,
-    '圆形棋子适配：输出为 1:1 正方形，并在画布正中央明确画出一个完整圆形底板，底板直径约占画布 86%；界面会把这块底板放大约 116.3% 后裁切成圆形棋子。完整保留头顶、底部、四肢、角、翼、尾、武器和关键特效，全部关键辨识信息必须位于圆形底板内，不得越过底板边缘。',
+    '圆形棋子适配：输出为 1:1 正方形，并在画布正中央明确画出一个完整圆形底板，底板直径约占画布 86%；界面会把这块底板放大约 116.3% 后裁切成圆形棋子。完整保留头顶、底部、四肢、角、翼、尾、武器和关键特效，新绘关键辨识信息优先位于圆形底板内；背景修订必须锁定原主体的大小、位置、姿态、颜色和细节，不得为适应底板而缩小或裁掉主体。用户明确允许尺寸适配时，可对主体、装备及特效统一等比例缩放，不改变造型或身体比例；否则保留原有越界元素。单独检查圆形显示裁切。',
     '小尺寸可读性：以最终圆形裁切效果检查；缩小到 192×192 时边缘、姿态和主要装备不能糊成一团，缩小到 64×64 时仍能辨认主体类别、朝向以及 1—2 个核心特征。使用清楚的剪影、大色块、明暗层级和单一色彩焦点，不依赖细碎纹样、微小饰品或密集粒子。',
-    '背景：圆形底板内部使用低信息量的浅暖旧纸色或柔和中性底，与主体形成清楚的明暗或冷暖对比；底板必须是完整、居中的正圆，边缘干净，可有极细的自然暗边但不要厚重装饰环、徽章框或场景化环境；圆形底板以外使用干净、均匀的纯白色，不要透明棋盘格、纹理或其他内容。',
+    `背景：${PORTRAIT_BACKGROUND_PROFILES[$('#portrait-background').value] || PORTRAIT_BACKGROUND_PROFILES.ordinary} 场景连续铺满圆形底板内部，背景对比和细节密度低于主体，保持头肩、武器与肢体轮廓清楚；不能添加额外角色。底板完整居中，圆外背景均匀纯白（保留已存在的主体和特效叠加），不要厚重装饰环、徽章框或透明棋盘格。`,
     `类型限制：${profile.limits}`,
     '通用限制：不要文字、UI、签名、水印、厚重边框、彩色装饰环或多格排版；不要裁切主体；不要添加未要求的角色、肢体或叙事元素。'
   ].join('\n');
@@ -1350,6 +1422,7 @@ function importPortraitFile(file) {
   });
 }
 
+$('#portrait-background').addEventListener('change', refreshPortraitPrompt);
 $('#btn-portrait-flow').addEventListener('click', openPortraitFlow);
 $('#btn-portrait-close').addEventListener('click', () => { $('#portrait-modal').hidden = true; });
 $('#portrait-modal').addEventListener('click', (e) => { if (e.target === $('#portrait-modal')) $('#portrait-modal').hidden = true; });

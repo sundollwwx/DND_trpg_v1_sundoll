@@ -23,17 +23,17 @@ set "DOWNLOAD_STATUS=1"
 goto finish
 
 :use_py
-py -3 "download_github.py" %*
+py -3 "github_sync.py" download %*
 set "DOWNLOAD_STATUS=%ERRORLEVEL%"
 goto finish
 
 :use_python
-python "download_github.py" %*
+python "github_sync.py" download %*
 set "DOWNLOAD_STATUS=%ERRORLEVEL%"
 goto finish
 
 :use_python3
-python3 "download_github.py" %*
+python3 "github_sync.py" download %*
 set "DOWNLOAD_STATUS=%ERRORLEVEL%"
 
 :finish

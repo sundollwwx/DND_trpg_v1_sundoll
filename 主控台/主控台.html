@@ -6,7 +6,7 @@
   <title>桑哆尔之歌 · 主控台</title>
   <link rel="icon" type="image/png" href="../asset/界面/品牌/桑哆尔之歌-logo.png">
   <link rel="preload" as="image" href="../asset/界面/状态图标-v1.png">
-  <link rel="stylesheet" href="style.css?v=20260906-grid-visibility-v1-m55-music-player-documents-sidebar-v2">
+  <link rel="stylesheet" href="style.css?v=20260909-sidebar-stable-v7">
   <link rel="stylesheet" href="../asset/界面/休息动画/休息动画.css?v=20260905-rest-scenes-v2">
 </head>
 <body>
@@ -25,7 +25,6 @@
         <button id="btn-map-next" type="button" aria-label="下一张地图">›</button>
       </span>
       <div id="map-quick-tools" aria-label="地图快捷工具">
-        <button id="btn-grid-toggle" type="button" data-toggle-target="grid-toggle" title="隐藏当前地图网格" aria-label="网格已开启，点击隐藏当前地图网格" aria-pressed="true">▦<span>网格：开</span></button>
         <button type="button" data-toggle-target="names-toggle" title="显示单位名称">Aa<span>名字</span></button>
         <button type="button" data-toggle-target="snap-toggle" title="棋子吸附网格">⌘<span>吸附</span></button>
         <button type="button" id="btn-map-reaction" title="选择表情后点击地图发送">☺<span>表情</span></button>
@@ -46,7 +45,6 @@
       <span id="app-version" class="app-version">v1.1</span>
     </div>
     <div id="map-settings">
-      <label class="toggle"><input type="checkbox" id="grid-toggle" checked> 网格</label>
       <label class="toggle"><input type="checkbox" id="names-toggle" checked> 名字</label>
       <label class="toggle" title="高清立绘开关：开启后按棋子屏幕尺寸在 192/512px 间自动切换；关闭后固定使用 192px 流畅档"><input type="checkbox" id="hd-toggle-check"> 高清</label>
       <label class="toggle"><input type="checkbox" id="snap-toggle" checked> 吸附</label>
@@ -238,6 +236,24 @@
       <button id="btn-map-browser-open" class="primary" type="button">打开地图列表</button>
     </section>
 
+    <section class="card" data-workspace="map" id="grid-tools">
+      <h2>▦ 网格设置</h2>
+      <label class="toggle"><input type="checkbox" id="grid-toggle" checked> 显示网格</label>
+        <button id="btn-grid-toggle" type="button" data-toggle-target="grid-toggle" title="隐藏当前地图网格" aria-label="网格已开启，点击隐藏当前地图网格" aria-pressed="true">▦<span>网格：开</span></button>
+      <div class="grid-settings-fields">
+        <label>格子大小（像素 / 5尺）<input id="grid-size-control" type="number" min="10" max="300" step="0.1"></label>
+        <label>线宽（像素）<input id="grid-width-control" type="number" min="0.5" max="8" step="0.5"></label>
+        <label>水平偏移（像素）<input id="grid-x-control" type="number" min="-3000" max="3000" step="1"></label>
+        <label>垂直偏移（像素）<input id="grid-y-control" type="number" min="-3000" max="3000" step="1"></label>
+      </div>
+      <button id="grid-position-reset" type="button">位置归零</button>
+      <p class="hint">设置随当前地图保存。正值向右、向下移动；棋子吸附跟随网格。工坊地图锁定格距与位置。</p>
+    </section>
+
+    <section class="card" id="journal-card" data-workspace="resources">
+      <h2>📖 战役日志</h2>
+      <button type="button" onclick="CampaignJournal.open()" aria-haspopup="dialog">打开日志</button>
+    </section>
     <section class="card campaign-documents-card" id="campaign-documents-card" data-workspace="resources">
       <div class="card-head">
         <h2>📄 战役资料</h2>
@@ -449,6 +465,7 @@
                 <div><strong>战斗状态</strong><small>HP 与 AC</small></div>
                 <span id="detail-hp-percent" class="detail-value-badge">100%</span>
               </div>
+              <div class="ordinary-vitals">
               <div class="vitals-row">
                 <label class="vital-input"><span>当前 HP</span><input type="number" id="detail-hp-current" min="0" max="99999" inputmode="numeric"></label>
                 <span class="vital-slash">/</span>
@@ -470,6 +487,29 @@
                 <button id="btn-detail-hp-full" type="button">回满</button>
                 <button id="btn-detail-hp-undo" type="button" disabled>↶ 撤销</button>
               </div>
+              </div>
+              <details class="temporary-vitals">
+                <summary>◇ 临时生命值 <span id="detail-temp-hp-summary">0 / 0</span></summary>
+                <div class="temporary-vitals-inputs">
+                  <label>当前<input id="detail-temp-hp" type="number" min="0" max="99999" inputmode="numeric"></label>
+                  <span>/</span><label>总数<input id="detail-temp-hp-max" type="number" min="0" max="99999" inputmode="numeric"></label>
+                </div>
+                <div class="hp-bar" id="detail-temp-hp-track" hidden><div id="detail-temp-hp-bar" style="background:#a8e6b0"></div></div>
+                <div class="hp-adjust-row">
+                  <label for="detail-temp-hp-delta">变化值</label>
+                  <input id="detail-temp-hp-delta" type="number" min="1" max="99999" value="5" aria-label="临时生命值变化量">
+                  <button id="btn-temp-hp-decrease" class="hp-action damage" type="button">− 伤害</button>
+                  <button id="btn-temp-hp-increase" class="hp-action heal" type="button">＋ 治疗</button>
+                </div>
+                <div class="hp-presets" aria-label="常用临时生命值变化量">
+                  <span>常用</span>
+                  <button type="button" data-temp-hp-amount="1">1</button>
+                  <button type="button" data-temp-hp-amount="5" class="active">5</button>
+                  <button type="button" data-temp-hp-amount="10">10</button>
+                  <button id="btn-temp-hp-full" type="button">回满</button>
+                  <button id="btn-temp-hp-undo" type="button" disabled title="撤销该棋子上一次生命值变化">↶ 撤销</button>
+                </div>
+              </details>
             </section>
 
             <section class="detail-block condition-section">
@@ -559,10 +599,12 @@
 
             <section class="detail-block">
               <div class="detail-block-title"><div><strong>图标与立绘</strong><small>更换地图上的棋子外观</small></div></div>
-              <label class="field"><span>文字图标</span><input id="detail-icon-input" maxlength="4" placeholder="🗡️"></label>
+              <label class="field"><span>备用文字图标</span><input id="detail-icon-input" maxlength="4" placeholder="🗡️"></label>
+              <label class="field"><span>立绘预设</span><select id="detail-portrait" aria-label="切换棋子立绘"></select></label>
+              <p id="detail-appearance-status" class="hint" aria-live="polite"></p>
               <div class="icon-actions">
                 <button id="btn-detail-icon-upload" class="small" type="button">🖼️ 上传立绘</button>
-                <button id="btn-detail-icon-remove" class="small danger" type="button" hidden>移除立绘</button>
+                <button id="btn-detail-icon-remove" class="small danger" type="button" hidden>改用文字图标</button>
               </div>
             </section>
 
@@ -810,9 +852,11 @@
 <script src="../asset/棋子库/默认预设.js?v=20260902-library-cleanup-v3"></script>
 <script src="../asset/界面/休息动画/休息场景.js?v=20260906-rest-audio-v2-library-cleanup"></script>
 <script src="../asset/界面/休息动画/休息音频.js?v=20260906-rest-audio-v2-library-cleanup"></script>
+<link rel="stylesheet" href="journal.css?v=24">
+<script src="journal.js?v=24"></script>
 <script src="../three.min.js"></script>
 <script src="../骰子动画.js?v=20260904-physics-v7-face-lock-continuous-settle-r6-uv-handedness-r7-result-focus-r8-public-skin-r9-d20-tilt-r10"></script>
 <script src="../asset/地图/tile-renderer.js?v=20260902-explicit-variants"></script>
-  <script src="app.js?v=20260906-grid-visibility-v1-music-title-sync-v2-campaign-load-cache-v1"></script>
+  <script src="app.js?v=20260910-campaign-journal-units-v3"></script>
 </body>
 </html>

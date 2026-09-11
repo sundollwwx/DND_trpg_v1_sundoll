@@ -1,0 +1,10 @@
+{
+  "mapW": 2400,
+  "mapH": 1600,
+  "gridSize": 40,
+  "gridOffsetX": 0,
+  "gridOffsetY": 0,
+  "gridLineWidth": 1,
+  "feetPerCell": 5,
+  "status": "候选；未写入战役存档"
+}

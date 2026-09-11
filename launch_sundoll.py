@@ -24,11 +24,12 @@ from urllib.parse import quote, urlencode
 ROOT = Path(__file__).resolve().parent
 SERVER_ENTRY = ROOT / "start_server.py"
 DEFAULT_PORT = 8090
-SERVER_PROTOCOL_VERSION = 9
+SERVER_PROTOCOL_VERSION = 16
 SERVER_NAME = "桑哆尔之歌联机"
 COMPATIBLE_SERVER_NAMES = {SERVER_NAME, "桑哆尔联机"}
 HOST_ROUTE = "/主控台/主控台.html"
 PLAYER_ROUTE = "/主控台/玩家.html"
+LOCAL_URL_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 TUNNEL_URL_RE = re.compile(r"https://[a-z0-9-]+\.trycloudflare\.com", re.I)
 
 
@@ -50,7 +51,9 @@ def page_url(host, port, route, room_code=""):
 def raw_server_info(port, timeout=0.45):
     """读取端口上的桑哆尔之歌服务信息，不在这里判断版本是否兼容。"""
     try:
-        with urllib.request.urlopen(
+        # 本机健康检查固定直连，避免系统 HTTP/HTTPS 代理接管 localhost
+        # 后造成“服务器已启动但等待 12 秒超时”的误判。
+        with LOCAL_URL_OPENER.open(
             "http://127.0.0.1:%d/api/info" % port, timeout=timeout
         ) as response:
             payload = json.loads(response.read().decode("utf-8"))

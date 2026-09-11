@@ -44,7 +44,11 @@ RECENT_ACTIONS = []   # 玩家动作（带自增 seq），用于主机合并
 NEXT_SEQ = 1
 MAX_RECENT = 500
 MAX_BODY = 12 * 1024 * 1024
-PATCH_FIELDS = {'hp', 'hpMax', 'ac', 'spellRange', 'conditions'}
+MAX_JOURNAL_ENTRIES = 100
+MAX_JOURNAL_TITLE = 80
+MAX_JOURNAL_TOTAL_TEXT = 20000
+JOURNAL_ENTRY_ID_RE = re.compile(r'^[A-Za-z0-9_.:-]{1,96}$')
+PATCH_FIELDS = {'portraitVariant', 'hp', 'hpMax', 'tempHp', 'tempHpMax', 'ac', 'spellRange', 'conditions'}
 MAX_TOKEN_CONDITIONS = 20
 CONDITION_ID_RE = re.compile(r'^[A-Za-z0-9_.:-]{1,96}$')
 CONDITION_KEY_RE = re.compile(r'^[A-Za-z0-9_-]{1,32}$')
@@ -124,7 +128,7 @@ DATA_URL_RE = re.compile(r'^data:([^;,]+)?(;base64)?,(.*)$', re.S)
 
 SESSION_ID = secrets.token_hex(8)
 ROOM_CODE = secrets.token_hex(3).upper()
-SERVER_PROTOCOL_VERSION = 9
+SERVER_PROTOCOL_VERSION = 16
 STATE_REVISION = 0
 SESSIONS = {}         # {sessionToken: {playerId, name, status, lastSeen}}
 ACTION_IDS = {}       # {actionId: seq}，防止网络重试重复执行
@@ -1397,6 +1401,233 @@ def finite_number(value):
     return number if math.isfinite(number) else None
 
 
+class JournalMutationError(ValueError):
+    """A client-safe validation error while changing one campaign-log entry."""
+
+
+class JournalPermissionError(JournalMutationError):
+    """The current player tried to change a log entry they do not own."""
+
+
+def journal_clean_title(value, fallback=''):
+    """Keep a title compact and safe for the directory list."""
+    text = '' if value is None else str(value)
+    text = re.sub(r'[\r\n\t]+', ' ', text)
+    text = re.sub(r'\s{2,}', ' ', text).strip()[:MAX_JOURNAL_TITLE]
+    return text or fallback
+
+
+def journal_actor_name(value, fallback=''):
+    return journal_clean_title(value, fallback)[:24]
+
+
+def journal_nonnegative_int(value, default=0):
+    number = finite_number(value)
+    if number is None:
+        return default
+    return max(0, int(number))
+
+
+def journal_world_value(value):
+    number = finite_number(value)
+    return max(0, int(number)) if number is not None else None
+
+
+def journal_entry_id(raw, index, seen):
+    candidate = str((raw or {}).get('id') or '') if isinstance(raw, dict) else ''
+    if not JOURNAL_ENTRY_ID_RE.fullmatch(candidate) or candidate in seen:
+        candidate = 'legacy-%d' % (index + 1)
+    base = candidate
+    suffix = 2
+    while candidate in seen:
+        candidate = '%s-%d' % (base, suffix)
+        suffix += 1
+    seen.add(candidate)
+    return candidate
+
+
+def normalize_journal_entry(raw, index, seen):
+    source = raw if isinstance(raw, dict) else {'text': raw}
+    author = journal_actor_name(source.get('author') or source.get('createdBy'), '未知作者')
+    updated_by = journal_actor_name(source.get('updatedBy') or source.get('editor'), author)
+    body = source.get('text')
+    if not isinstance(body, str):
+        body = '' if body is None else str(body)
+    return {
+        'id': journal_entry_id(source, index, seen),
+        'title': journal_clean_title(source.get('title'), '未命名日志 %d' % (index + 1)),
+        'text': body[:MAX_JOURNAL_TOTAL_TEXT],
+        'author': author,
+        'createdAt': journal_nonnegative_int(source.get('createdAt', source.get('at'))),
+        'createdWorldSeconds': journal_world_value(source.get('createdWorldSeconds', source.get('worldSeconds'))),
+        'updatedBy': updated_by,
+        'updatedAt': journal_nonnegative_int(source.get('updatedAt', source.get('at'))),
+        'updatedWorldSeconds': journal_world_value(source.get('updatedWorldSeconds', source.get('worldSeconds'))),
+    }
+
+
+def normalize_journal(value, expected_campaign_id=''):
+    """Migrate the old single-text book into durable, independently editable entries."""
+    incoming = value if isinstance(value, dict) else {}
+    requested_campaign_id = str(expected_campaign_id or '').strip()
+    stored_campaign_id = str(incoming.get('campaignId') or '').strip()
+    # 不允许一份旧快照里的日志跟着另一个 campaignId 流转。
+    source = {} if requested_campaign_id and stored_campaign_id and requested_campaign_id != stored_campaign_id else incoming
+    seen = set()
+    if isinstance(source.get('entries'), list):
+        raw_entries = source['entries'][:MAX_JOURNAL_ENTRIES]
+    else:
+        legacy_text = source.get('text')
+        if not isinstance(legacy_text, str):
+            legacy_text = '' if legacy_text is None else str(legacy_text)
+        legacy_history = source.get('history')
+        legacy_last = legacy_history[-1] if isinstance(legacy_history, list) and legacy_history else {}
+        legacy_author = journal_actor_name(
+            source.get('author') or (legacy_last or {}).get('author'), 'DM'
+        )
+        raw_entries = [] if not legacy_text else [
+            {
+                'id': 'legacy-%d' % (index + 1),
+                'title': '未命名日志 %d' % (index + 1),
+                'text': page,
+                'author': legacy_author,
+                'createdAt': source.get('at'),
+                'createdWorldSeconds': source.get('worldSeconds'),
+                'updatedBy': legacy_author,
+                'updatedAt': source.get('at'),
+                'updatedWorldSeconds': source.get('worldSeconds'),
+            }
+            for index, page in enumerate(legacy_text[:MAX_JOURNAL_TOTAL_TEXT].split('\f')[:MAX_JOURNAL_ENTRIES])
+        ]
+    entries = [normalize_journal_entry(item, index, seen) for index, item in enumerate(raw_entries)]
+    remaining = MAX_JOURNAL_TOTAL_TEXT
+    for entry in entries:
+        entry['text'] = entry['text'][:remaining]
+        remaining -= len(entry['text'])
+    revision = journal_nonnegative_int(source.get('revision'))
+    history = [copy.deepcopy(item) for item in (source.get('history') or []) if isinstance(item, dict)][-50:]
+    return {
+        'schemaVersion': 2,
+        'campaignId': requested_campaign_id or stored_campaign_id or None,
+        'revision': revision,
+        'entries': entries,
+        # 旧版页面、旧存档恢复工具仍会读取 text，因此保留只读镜像。
+        'text': '\f'.join(entry['text'] for entry in entries),
+        'author': journal_actor_name(source.get('author'), ''),
+        'worldSeconds': journal_world_value(source.get('worldSeconds')),
+        'history': history,
+    }
+
+
+def journal_new_id(entries):
+    existing = {entry.get('id') for entry in entries if isinstance(entry, dict)}
+    while True:
+        candidate = 'journal-' + secrets.token_hex(12)
+        if candidate not in existing:
+            return candidate
+
+
+def journal_incoming_entry(value):
+    if not isinstance(value, dict):
+        raise JournalMutationError('日志标题和正文格式无效')
+    raw_title, raw_text = value.get('title'), value.get('text')
+    if not isinstance(raw_title, str) or not isinstance(raw_text, str):
+        raise JournalMutationError('日志标题和正文必须是文字')
+    if len(raw_title) > MAX_JOURNAL_TITLE:
+        raise JournalMutationError('日志标题最多 %d 字' % MAX_JOURNAL_TITLE)
+    if len(raw_text) > MAX_JOURNAL_TOTAL_TEXT:
+        raise JournalMutationError('日志正文最多 %d 字' % MAX_JOURNAL_TOTAL_TEXT)
+    title = journal_clean_title(raw_title)
+    if not title:
+        raise JournalMutationError('请给日志填写标题')
+    return {'title': title, 'text': raw_text}
+
+
+def current_campaign_world_seconds(state, now_ms=None):
+    world = (state.get('encounter') or {}).get('worldTime') or {}
+    total_seconds = max(0, int(finite_number(world.get('totalSeconds')) or 0))
+    running_since = finite_number(world.get('runningSince'))
+    if running_since:
+        rate = finite_number(world.get('rate'))
+        rate = max(.01, min(60, rate if rate is not None and rate > 0 else 1))
+        if now_ms is None:
+            now_ms = int(time.time() * 1000)
+        total_seconds += max(0, int((now_ms - running_since) * rate / 1000))
+    return total_seconds
+
+
+def mutate_journal(current, mutation, actor, is_dm, at, world_seconds, campaign_id=''):
+    """Apply one server-authorized create/update/delete operation to a normalized journal."""
+    if not isinstance(mutation, dict):
+        raise JournalMutationError('日志操作无效')
+    operation = str(mutation.get('operation') or '')
+    if operation not in ('create', 'update', 'delete'):
+        raise JournalMutationError('日志操作无效')
+    journal = normalize_journal(current, campaign_id)
+    entries = journal['entries']
+    entry_id = str(mutation.get('entryId') or '')
+
+    if operation == 'create':
+        if len(entries) >= MAX_JOURNAL_ENTRIES:
+            raise JournalMutationError('最多可建立 %d 篇日志' % MAX_JOURNAL_ENTRIES)
+        incoming = journal_incoming_entry(mutation.get('entry'))
+        if sum(len(item['text']) for item in entries) + len(incoming['text']) > MAX_JOURNAL_TOTAL_TEXT:
+            raise JournalMutationError('所有日志正文合计最多 %d 字' % MAX_JOURNAL_TOTAL_TEXT)
+        entry_id = journal_new_id(entries)
+        target = {
+            'id': entry_id,
+            'title': incoming['title'],
+            'text': incoming['text'],
+            'author': actor,
+            'createdAt': at,
+            'createdWorldSeconds': world_seconds,
+            'updatedBy': actor,
+            'updatedAt': at,
+            'updatedWorldSeconds': world_seconds,
+        }
+        entries.append(target)
+    else:
+        if not JOURNAL_ENTRY_ID_RE.fullmatch(entry_id):
+            raise JournalMutationError('日志条目不存在')
+        target = next((item for item in entries if item['id'] == entry_id), None)
+        if not target:
+            raise JournalMutationError('这篇日志已不存在，请重新打开日志')
+        if operation == 'delete':
+            if not is_dm and target['author'] != actor:
+                raise JournalPermissionError('只能删除自己创建的日志')
+            entries[:] = [item for item in entries if item['id'] != entry_id]
+        else:
+            if not is_dm and target['author'] != actor:
+                raise JournalPermissionError('只能修改自己创建的日志')
+            incoming = journal_incoming_entry(mutation.get('entry'))
+            total = sum(len(incoming['text']) if item['id'] == entry_id else len(item['text']) for item in entries)
+            if total > MAX_JOURNAL_TOTAL_TEXT:
+                raise JournalMutationError('所有日志正文合计最多 %d 字' % MAX_JOURNAL_TOTAL_TEXT)
+            target.update({
+                'title': incoming['title'],
+                'text': incoming['text'],
+                'updatedBy': actor,
+                'updatedAt': at,
+                'updatedWorldSeconds': world_seconds,
+            })
+
+    journal['campaignId'] = str(campaign_id or journal.get('campaignId') or '').strip() or None
+    journal['revision'] += 1
+    journal['author'] = actor
+    journal['worldSeconds'] = world_seconds
+    journal['text'] = '\f'.join(item['text'] for item in entries)
+    journal['history'] = (journal['history'] + [{
+        'author': actor,
+        'at': at,
+        'worldSeconds': world_seconds,
+        'revision': journal['revision'],
+        'action': operation,
+        'entryId': entry_id,
+        'title': target.get('title') if target else '',
+    }])[-50:]
+    return journal, entry_id
+
+
 def weather_day_index(total_seconds):
     total = max(0, int(finite_number(total_seconds) or 0))
     return int(math.floor((total - WEATHER_ROLLOVER_SECONDS) / float(WORLD_SECONDS_PER_DAY)))
@@ -2259,6 +2490,20 @@ def apply_action(state, action):
     if not isinstance(action, dict):
         return False
     op = action.get('op')
+    if op == 'journalEdit':
+        if not isinstance(state, dict) or action.get('campaignId') != state.get('campaignId'):
+            return False
+        incoming = action.get('journal')
+        if not isinstance(incoming, dict):
+            return False
+        campaign_id = str(state.get('campaignId') or '').strip()
+        if incoming.get('campaignId') and str(incoming.get('campaignId')).strip() != campaign_id:
+            return False
+        current = normalize_journal(state.get('journal'), campaign_id)
+        next_journal = normalize_journal(incoming, campaign_id)
+        if current['revision'] < next_journal['revision']:
+            state['journal'] = copy.deepcopy(next_journal)
+        return True
     if op == PLAYER_SPAWN_ACTION:
         map_obj = find_map(state, action.get('mapId'))
         token = action.get('token')
@@ -2541,7 +2786,18 @@ def apply_action(state, action):
         for k, v in patch.items():
             if k not in PATCH_FIELDS:
                 continue
-            if k == 'hp':
+            if k == 'portraitVariant':
+                variants = t.get('portraitVariants') or []
+                if type(v) is not int or v < 0 or v >= len(variants):
+                    continue
+                variant = variants[v]
+                if not isinstance(variant, dict):
+                    continue
+                for field in ('iconImgPath', 'iconImg', 'iconImgHd', 'iconImgId'):
+                    t[field] = variant.get(field) or None
+                t[k] = v
+                accepted = True
+            elif k in ('hp', 'tempHp', 'tempHpMax'):
                 try:
                     t[k] = max(0, min(99999, int(v)))
                     accepted = True
@@ -3292,7 +3548,73 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         global STATE, STATE_REVISION, NEXT_SEQ
-        if self.path == '/api/local-save':
+        if self.path == '/api/journal':
+            try:
+                data = self._read_json_body(128 * 1024)
+                if not isinstance(data, dict):
+                    raise JournalMutationError('日志格式无效')
+                if not isinstance(data.get('revision'), int) or isinstance(data.get('revision'), bool):
+                    raise JournalMutationError('日志版本无效')
+                if not isinstance(data.get('campaignId'), str) or not data['campaignId']:
+                    raise JournalMutationError('战役信息无效')
+                if data.get('operation') not in ('create', 'update', 'delete'):
+                    raise JournalMutationError('日志操作无效')
+            except (ValueError, TypeError, OverflowError, json.JSONDecodeError):
+                self._send_json({'error': '日志格式无效或过长'}, 400)
+                return
+            with LOCK:
+                session = session_from_request(data)
+                if data.get('sessionToken'):
+                    if not session:
+                        self._send_json({'error': '请重新加入房间'}, 401)
+                        return
+                    author = journal_actor_name(session.get('name'), '玩家')
+                    is_dm = False
+                elif is_local_request(self):
+                    author = 'DM'
+                    is_dm = True
+                else:
+                    self._send_json({'error': '需要有效玩家会话'}, 401)
+                    return
+                if STATE is None or data.get('campaignId') != STATE.get('campaignId'):
+                    self._send_json({'error': '战役已切换或主机尚未同步'}, 409)
+                    return
+                current = normalize_journal(STATE.get('journal'), STATE.get('campaignId'))
+                if data.get('revision') != current['revision']:
+                    self._send_json({'error': '日志已被其他人修改，请保留草稿并重新打开合并'}, 409)
+                    return
+                if not consume_action_slot(str(data.get('sessionToken') or 'journal-dm')):
+                    self._send_json({'error': '保存过于频繁'}, 429)
+                    return
+                now_ms = int(time.time() * 1000)
+                try:
+                    journal, entry_id = mutate_journal(
+                        current,
+                        data,
+                        author,
+                        is_dm,
+                        now_ms,
+                        current_campaign_world_seconds(STATE, now_ms),
+                        STATE.get('campaignId'),
+                    )
+                except JournalPermissionError as error:
+                    self._send_json({'error': str(error)}, 403)
+                    return
+                except JournalMutationError as error:
+                    self._send_json({'error': str(error)}, 400)
+                    return
+                act = {'op': 'journalEdit', 'campaignId': STATE.get('campaignId'), 'journal': journal, 'seq': NEXT_SEQ}
+                apply_action(STATE, act)
+                seq = NEXT_SEQ
+                NEXT_SEQ += 1
+                STATE_REVISION += 1
+                STATE['_streamSeq'] = seq
+                STATE['_stateRevision'] = STATE_REVISION
+                RECENT_ACTIONS.append(act)
+                del RECENT_ACTIONS[:-MAX_RECENT]
+            broadcast({'type': 'action', 'seq': seq, 'action': act}, seq)
+            self._send_json({'ok': True, 'journal': journal, 'entryId': entry_id})
+        elif self.path == '/api/local-save':
             self.handle_local_save()
         elif self.path == '/api/session':
             try:
@@ -3467,6 +3789,7 @@ class Handler(SimpleHTTPRequestHandler):
                 except Exception:
                     seq0 = 0
                 STATE = cache_stream_media(data)
+                STATE['journal'] = normalize_journal(STATE.get('journal'), STATE.get('campaignId'))
                 # 主机快照没包含的玩家动作，重新应用回去（动作都是幂等的）
                 for act in RECENT_ACTIONS:
                     if act.get('seq', 0) > seq0:

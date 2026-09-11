@@ -26,6 +26,7 @@
     #player-name { width:130px; }
     #layout { display:grid; grid-template-columns:250px minmax(0,1fr) 270px; height:calc(100vh - 52px); }
     .panel { overflow:auto; background:var(--panel); border-right:1px solid var(--line); padding:10px; }
+    #left-panel { min-width:0;box-sizing:border-box;scrollbar-gutter:stable;overflow-x:hidden; }
     #right-panel { border-left:1px solid var(--line); border-right:0; }
     .card.player-detail-card { min-height:calc(100% - 2px); margin:0; overflow:hidden; padding:0; background:linear-gradient(180deg,#202633,#171b24); }
     .player-detail-heading { display:flex; align-items:center; justify-content:space-between; padding:10px 11px 8px; border-bottom:1px solid var(--line); }
@@ -130,6 +131,7 @@
     #names-layer .token-name-text { display:block; }
     #names-layer .token-name-hp { position:absolute; left:50%; top:calc(100% + 1px); height:3px; overflow:hidden; transform:translateX(-50%); border:1px solid rgba(0,0,0,.62); border-radius:999px; background:rgba(15,18,24,.9); box-shadow:0 1px 2px rgba(0,0,0,.65); }
     #names-layer .token-name-hp i { display:block; height:100%; border-radius:inherit; }
+    #names-layer .token-name-hp + .token-name-hp { top:calc(100% + 7px); }
     #empty { position:absolute; inset:0; display:grid; place-items:center; color:var(--muted); font-size:16px; }
     #map-controls { position:absolute; right:12px; bottom:12px; display:flex; gap:5px; padding:6px; border:1px solid var(--line); border-radius:9px; background:#171c27dd; }
     .dice-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:5px; }
@@ -533,6 +535,10 @@
         <div class="player-doodle-actions"><button type="button" id="player-doodle-undo">↩ 撤销</button><button type="button" id="player-doodle-clear">🗑 一键清空</button></div>
         <p class="hint">标注会实时同步给主控台和所有玩家；测距仍只在本地显示。</p>
       </section>
+      <section class="card" id="player-journal-card" data-player-workspace="resources">
+        <h2>📖 战役日志</h2>
+        <button type="button" onclick="CampaignJournal.open()" aria-haspopup="dialog">打开日志</button>
+      </section>
       <section class="card" id="player-audio-card" data-player-workspace="resources">
         <h2>🎵 房间音乐</h2>
         <div class="player-audio-now"><span>♪</span><span class="player-audio-copy"><strong id="player-audio-title">尚未播放</strong><span id="player-audio-status">等待主控台</span></span></div>
@@ -575,12 +581,21 @@
         <nav class="player-detail-tabs" role="tablist" aria-label="角色信息分类">
           <button class="active" type="button" role="tab" data-player-detail-tab="status" aria-selected="true">状态</button>
           <button type="button" role="tab" data-player-detail-tab="tactics" aria-selected="false">战术</button>
+          <button type="button" role="tab" data-player-detail-tab="manage" aria-selected="false">管理</button>
           <button type="button" role="tab" data-player-detail-tab="notes" aria-selected="false">笔记</button>
         </nav>
         <div id="detail" hidden>
           <div class="token-head"><div id="detail-icon">🧙</div><div class="token-head-copy"><div id="detail-name"></div><div id="detail-type"></div></div><button id="detail-close" type="button" aria-label="关闭角色详情">✕</button></div>
+          <section class="player-detail-tab-panel" data-player-detail-panel="manage" hidden>
+            <div class="field"><strong>图标与立绘</strong>
+              <label>立绘预设<select id="player-portrait" aria-label="切换棋子立绘"></select></label>
+              <p id="player-appearance-status" class="hint" aria-live="polite"></p>
+              <p class="hint">切换只影响当前棋子；新增图片请在棋子库中配置。</p>
+            </div>
+          </section>
           <section class="player-detail-tab-panel" data-player-detail-panel="status">
             <div class="field player-vitals"><label>生命值</label><div class="three"><input id="hp" type="number" min="0"><span>/</span><input id="hp-max" type="number" min="1"></div><div class="hp-bar"><i id="hp-bar"></i></div><div class="quick"><button data-hp="-5">−5</button><button data-hp="-1">−1</button><button data-hp="1">＋1</button><button data-hp="5">＋5</button><button data-hp="full">回满</button></div></div>
+            <details class="field temporary-vitals"><summary>◇ 临时生命值 <span id="temp-hp-summary">0 / 0</span></summary><div class="three"><label>当前<input id="temp-hp" type="number" min="0" max="99999"></label><span>/</span><label>总数<input id="temp-hp-max" type="number" min="0" max="99999"></label></div><div class="hp-bar" id="temp-hp-track" hidden><i id="temp-hp-fill" style="background:#a8e6b0"></i></div></details>
             <div class="field"><label>护甲等级</label><div class="ac-row"><input id="ac" type="number" min="0" max="99"><span id="ac-hint" class="hint">由你自己维护</span></div></div>
             <section class="player-condition-section">
               <div class="player-condition-heading"><div><strong>状态效果</strong><span>公开并同步给主控台</span></div><button id="player-condition-open" type="button">＋ 添加</button></div>
@@ -638,6 +653,8 @@
     </div>
   </div>
   <div id="toast"></div>
+  <link rel="stylesheet" href="journal.css?v=24">
+  <script src="journal.js?v=24"></script>
   <script src="../three.min.js"></script>
   <script src="../骰子动画.js?v=20260904-physics-v7-face-lock-continuous-settle-r6-uv-handedness-r7-result-focus-r8-public-skin-r9-d20-tilt-r10"></script>
   <script src="../asset/界面/休息动画/休息场景.js?v=20260906-rest-audio-v2-library-cleanup"></script>
@@ -668,7 +685,7 @@
   let state = null, currentMap = null, view = {scale:1,ox:0,oy:0}, myName = '', myPlayerId = '', sessionToken = '', roomCode = '', players = [], presenceStatus = 'online', selectedId = null, drag = null, toastTimer = null, peekTimer = null, restAnimationTimer = null, localRolls = new Set(), lastMapViewKey = '', flowPanel = 'initiative', flowClockAnchor = { localNow: performance.now(), serverNow: Date.now() }, flowTimer = null, measureMode = false, measureDraft = null, doodleTool = null, doodleColor = '#ff4d4f', doodleWidth = 6, doodleDraft = null, presenceTimer = null, streamES = null, streamAppliedSeq = 0, lastStateRevision = 0, spellAimTokenId = null, pendingMapReaction = null, spellRangeRaf = null, initiativePending = false, lastFlowScrollEntryId = null, editingPlayerConditionId = null, activePlayerDetailTab = 'status', diceVisibility = 'public';
   const localReactionIds = new Set();
   const playedRestTransitions = new Set();
-  const REQUIRED_SERVER_PROTOCOL=9,PLAYER_PORTRAIT_SOURCE_LIMIT=12*1024*1024,PLAYER_PORTRAIT_TARGET_BYTES=280*1024;
+  const REQUIRED_SERVER_PROTOCOL=16,PLAYER_PORTRAIT_SOURCE_LIMIT=12*1024*1024,PLAYER_PORTRAIT_TARGET_BYTES=280*1024;
   let playerSpawnPending=false,playerPortraitPending=false,playerDraftPortrait='',playerDeletePending=null,playerMountPending=null,playerDismountPending=null;
   function applyJoinHomeTheme(themeKey){
     const mask=$('#join-mask'),key=Object.prototype.hasOwnProperty.call(PLAYER_HOME_THEMES,themeKey)?themeKey:'a',theme=PLAYER_HOME_THEMES[key];if(!mask||!theme)return;
@@ -766,7 +783,7 @@
     activatePlayerWorkspace(document.querySelector('[data-player-workspace-tab].active')?.dataset.playerWorkspaceTab||'room');
   }
   function activatePlayerDetailTab(tab, revealMobile=true) {
-    activePlayerDetailTab=['status','tactics','notes'].includes(tab)?tab:'status';
+    activePlayerDetailTab=['status','tactics','manage','notes'].includes(tab)?tab:'status';
     document.querySelectorAll('[data-player-detail-tab]').forEach(button=>{const active=button.dataset.playerDetailTab===activePlayerDetailTab;button.classList.toggle('active',active);button.setAttribute('aria-selected',String(active));button.tabIndex=active?0:-1;});
     document.querySelectorAll('[data-player-detail-panel]').forEach(panel=>{panel.hidden=panel.dataset.playerDetailPanel!==activePlayerDetailTab;});
     const right=$('#right-panel');right.dataset.detailTab=activePlayerDetailTab;right.classList.toggle('notes-active',activePlayerDetailTab==='notes');
@@ -890,7 +907,7 @@
     const radius=Math.min(grid*.35,14/scale);
     return Math.hypot(p.x-snapped.x,p.y-snapped.y)<=radius?snapped:p;
   }
-  function snap(x,y,t) { const g=currentMap.gridSize||50, size=t.size||1; const sx=size>=2?Math.round(x/g)*g:Math.round(x/g-.5)*g+g/2; const sy=size>=2?Math.round(y/g)*g:Math.round(y/g-.5)*g+g/2; const margin=size>=2?g:g/2; return {x:clamp(sx,margin,currentMap.mapW-margin),y:clamp(sy,margin,currentMap.mapH-margin)}; }
+  function snap(x,y,t) { const g=currentMap.gridSize||50, size=t.size||1; const ox=Number(currentMap.gridOffsetX)||0,oy=Number(currentMap.gridOffsetY)||0; x-=ox; y-=oy; const sx=size>=2?Math.round(x/g)*g:Math.round(x/g-.5)*g+g/2; const sy=size>=2?Math.round(y/g)*g:Math.round(y/g-.5)*g+g/2; const margin=size>=2?g:g/2; return {x:clamp(sx+ox,margin,currentMap.mapW-margin),y:clamp(sy+oy,margin,currentMap.mapH-margin)}; }
 
   function normalizeSpellRange(raw) {
     const source=raw&&typeof raw==='object'?raw:{},shape=source.shape==='radius'||source.shape==='cone'?source.shape:'off',rawFeet=Number(source.feet),feet=clamp(Math.round((Number.isFinite(rawFeet)?rawFeet:30)/5)*5,SPELL_RANGE_MIN_FEET,SPELL_RANGE_MAX_FEET),rawDirection=Number(source.direction),direction=Number.isFinite(rawDirection)?((Math.round(rawDirection/5)*5)%360+360)%360:0;
@@ -1172,13 +1189,15 @@
   function renderMap(m) {
     const g=m.gridSize||50,hasMap=!!m.mapData;
     const showGrid=typeof m.gridVisible==='boolean'?m.gridVisible:state?.showGrid!==false;
-    const grid='repeating-linear-gradient(to right,rgba(255,255,255,.78) 0,rgba(255,255,255,.78) 2px,transparent 2px,transparent '+g+'px),repeating-linear-gradient(to bottom,rgba(255,255,255,.78) 0,rgba(255,255,255,.78) 2px,transparent 2px,transparent '+g+'px),repeating-linear-gradient(to right,rgba(0,0,0,.16) 0,rgba(0,0,0,.16) 2px,transparent 2px,transparent '+g+'px),repeating-linear-gradient(to bottom,rgba(0,0,0,.16) 0,rgba(0,0,0,.16) 2px,transparent 2px,transparent '+g+'px)';
+    const lw=Math.max(.5,Math.min(8,Number(m.gridLineWidth)||2));
+    const grid='repeating-linear-gradient(to right,rgba(255,255,255,.78) 0,rgba(255,255,255,.78) '+lw+'px,transparent '+lw+'px,transparent '+g+'px),repeating-linear-gradient(to bottom,rgba(255,255,255,.78) 0,rgba(255,255,255,.78) '+lw+'px,transparent '+lw+'px,transparent '+g+'px),repeating-linear-gradient(to right,rgba(0,0,0,.16) 0,rgba(0,0,0,.16) '+lw+'px,transparent '+lw+'px,transparent '+g+'px),repeating-linear-gradient(to bottom,rgba(0,0,0,.16) 0,rgba(0,0,0,.16) '+lw+'px,transparent '+lw+'px,transparent '+g+'px)';
     world.style.width=m.mapW+'px'; world.style.height=m.mapH+'px';
     world.style.backgroundColor=hasMap?'transparent':showGrid?'#ddd6c2':'#0f1116';
     world.style.backgroundImage=hasMap?(showGrid?grid+',url("'+m.mapData+'")':'url("'+m.mapData+'")'):(showGrid?grid:'none');
     world.style.backgroundSize=hasMap?(showGrid?g+'px '+g+'px,'+g+'px '+g+'px,'+g+'px '+g+'px,'+g+'px '+g+'px,100% 100%':'100% 100%'):(showGrid?g+'px '+g+'px,'+g+'px '+g+'px,'+g+'px '+g+'px,'+g+'px '+g+'px':'');
     world.style.backgroundRepeat=showGrid?(hasMap?'repeat,repeat,repeat,repeat,no-repeat':'repeat'):'no-repeat';
-    world.style.backgroundPosition='0 0';
+    const gridPos=(Number(m.gridOffsetX)||0)+'px '+(Number(m.gridOffsetY)||0)+'px';
+    world.style.backgroundPosition=showGrid?[gridPos,gridPos,gridPos,gridPos,'0 0'].join(','):'0 0';
   }
   function cloneDoodleStroke(stroke) {
     if(!stroke||typeof stroke!=='object')return null;
@@ -1291,6 +1310,7 @@
           const pct=clamp(Number(labelToken.hp)/Math.max(1,Number(labelToken.hpMax))*100,0,100), bar=document.createElement('span'), fill=document.createElement('i');
           bar.className='token-name-hp'; bar.style.width=Math.max(28,Math.min(56,(m.gridSize||50)*(labelToken.size||1)*.68))+'px'; bar.title=labelToken.hp+' / '+labelToken.hpMax;
           fill.style.width=pct+'%'; fill.style.background=pct>50?'#4cc38a':pct>25?'#f4a261':'#e74c5e'; bar.appendChild(fill); label.appendChild(bar);
+          if(Number(labelToken.tempHp)>0){const extra=bar.cloneNode(true);extra.title='临时生命值 '+labelToken.tempHp;extra.firstChild.style.width=clamp(Number(labelToken.tempHp)/Math.max(1,Number(labelToken.tempHpMax ?? labelToken.tempHp))*100,0,100)+'%';extra.firstChild.style.background='#a8e6b0';label.appendChild(extra);}
         }
         layer.appendChild(label);
       });
@@ -1464,6 +1484,7 @@
   }
   function render(next) {
     if(!next||typeof next!=='object')return;
+    next.journal=CampaignJournal.normalize(next.journal,next.campaignId);
     const incomingRevision=Number(next._stateRevision)||0;if(incomingRevision&&incomingRevision<lastStateRevision)return;
     const incomingEncounter=next&&next.encounter&&typeof next.encounter==='object'?next.encounter:null;
     if(drag&&drag.kind==='token'&&incomingEncounter&&Number(incomingEncounter.turnSerial)!==Number(drag.turnSerial)){drag=null;toast('⚠ 回合已变化，当前移动已取消');}
@@ -1473,6 +1494,7 @@
     if(previousMapId&&(!currentMap||previousMapId!==currentMap.id)){hideTokenPeek();closeDetail();cancelMapReaction();cancelSpellAim();$('#reaction-layer').innerHTML='';doodleDraft=null;if(drag&&(drag.kind==='doodle'||drag.kind==='doodle-erase'))drag=null;}
     setConnection('已连接',true); $('#campaign').textContent=next.campaignName?'📂 '+next.campaignName:'';applyJoinCampaignCover(next._campaignCoverUrl);
     renderLinks(next.sharedResources || next._links);
+    CampaignJournal.refresh();
     const sharedNote=$('#shared-note'); if(sharedNote){sharedNote.textContent=next.sharedNotes||''; if(!sharedNote.textContent)sharedNote.innerHTML='<span class="hint">等待主控台发布内容</span>';}
     if (!currentMap) { $('#empty').style.display='grid';renderSpellRanges();$('#reaction-layer').innerHTML='';return; }
     $('#empty').style.display='none'; renderMap(currentMap); renderDoodles(); renderTurnPath(); renderTokens(currentMap);renderSpellRanges();
@@ -1633,6 +1655,7 @@
       (t.publicNote?'<div class="public-note">'+esc(t.publicNote)+'</div>':'');
     const icon=peek.querySelector('.token-peek-icon'); icon.style.setProperty('--peek-ring',meta.ring); const hasPortrait=applyPlayerPortrait(icon,t); icon.textContent=hasPortrait?'':(t.icon||'?'); if(!hasPortrait)icon.style.backgroundImage='none';
     peek.querySelector('.token-peek-close').onclick=hideTokenPeek;
+    if(Number(t.tempHp)>0){const block=document.createElement('div');block.textContent='临时生命值 '+t.tempHp;block.style.color='#a8e6b0';const track=document.createElement('div'),fill=document.createElement('i');track.className='hp-bar';fill.style.background='#a8e6b0';fill.style.width=clamp(Number(t.tempHp)/Math.max(1,Number(t.tempHpMax ?? t.tempHp))*100,0,100)+'%';track.append(fill);block.append(track);peek.querySelector('.token-peek-stat').append(block);}
   }
   function showTokenPeek(t,clientX,clientY) {
     if(!t||ownedToken(t)||!friendly(t)||!Number.isFinite(Number(t.hp))){hideTokenPeek();return;}
@@ -1653,8 +1676,14 @@
     const icon=$('#detail-icon'), hasPortrait=applyPlayerPortrait(icon,t); icon.textContent=hasPortrait?'':(t.icon||'?'); if(!hasPortrait)icon.style.backgroundImage='none';
     const deleteButton=$('#player-delete-token'),canDelete=t.playerCreated===true&&t.owner===myName;deleteButton.hidden=!canDelete;deleteButton.disabled=playerDeletePending===t.id;deleteButton.textContent=playerDeletePending===t.id?'正在删除…':'删除这个临时棋子';
     $('#hp').value=t.hp; $('#hp-max').value=t.hpMax; $('#ac').value=t.ac;
+    $('#temp-hp').value=t.tempHp||0; $('#temp-hp-track').hidden=!(t.tempHp>0); $('#temp-hp-fill').style.width=clamp((t.tempHp||0)/Math.max(1,t.tempHpMax ?? t.tempHp)*100,0,100)+'%'; $('#temp-hp-max').value=t.tempHpMax??t.tempHp??0; $('#temp-hp-summary').textContent=(t.tempHp||0)+' / '+(t.tempHpMax??t.tempHp??0);
     const editable=canActWithToken(t), e=encounter();
-    $('#hp').disabled=!editable; $('#hp-max').disabled=!editable; $('#ac').disabled=!editable;
+    const portraitSelect=$('#player-portrait');portraitSelect.replaceChildren(new Option((t.iconImgPath||t.iconImg||t.iconImgHd)?'自定义 / 当前立绘':'文字图标',''));
+    (t.portraitVariants||[]).forEach((v,i)=>portraitSelect.add(new Option(v.name,String(i))));
+    const selectedPortrait=(t.portraitVariants||[]).findIndex(v=>v.iconImgPath?v.iconImgPath===t.iconImgPath:v.iconImg===t.iconImg);if(selectedPortrait>=0)portraitSelect.value=String(selectedPortrait);
+    portraitSelect.disabled=!editable||portraitSelect.options.length<2;
+    $('#player-appearance-status').textContent=!editable?'当前无操作权限，请等待可操作回合':portraitSelect.options.length<2?'暂无可切换预设，请先同步棋子库':'当前：'+portraitSelect.options[portraitSelect.selectedIndex].textContent;
+    $('#hp').disabled=!editable; $('#hp-max').disabled=!editable; $('#ac').disabled=!editable; $('#temp-hp').disabled=!editable; $('#temp-hp-max').disabled=!editable;
     document.querySelectorAll('[data-hp]').forEach(b=>b.disabled=!editable);
     $('#ac-hint').textContent=editable?(e.playMode==='turn'?'✓ 当前回合可修改':e.playMode==='prepare'?'战斗准备阶段可修改':'自由模式可修改'):(e.playMode==='turn'?'🔒 等待你的回合':'请先加入房间');
     syncSpellRangeUi(t,editable);requestSpellRangeRender();
@@ -1662,6 +1691,12 @@
     renderPlayerConditions(t,editable);
     const note=$('#detail-public-note'); note.hidden=!t.publicNote; note.textContent=t.publicNote||'';
   }
+  $('#player-portrait').addEventListener('change',e=>{
+    const t=currentMap&&currentMap.tokens.find(x=>x.id===selectedId);
+    if(!t||!ownedToken(t)||!canActWithToken(t)||e.target.value==='')return;
+    const index=Number(e.target.value);if(!t.portraitVariants?.[index])return;
+    sendPatch(t.id,{portraitVariant:index},{});
+  });
   function updateOwned(field,value) { const t=currentMap && currentMap.tokens.find(x=>x.id===selectedId); if (!t || !ownedToken(t)) return; if(!canActWithToken(t)){openDetail(t.id);toast('🔒 只有轮到该角色时才能修改');return;} const previous=t[field];t[field]=value;sendPatch(t.id,{[field]:value},{[field]:previous});renderNamesLayer(currentMap);openDetail(t.id); }
   function setTokenPosition(t,x,y) {
     const anchor=movementAnchor(t,currentMap);
@@ -1710,6 +1745,7 @@
   function addRoll(who,expr,detail,total) { const row=document.createElement('div'); row.className='roll-line'; row.innerHTML='<span class="roll-who">'+esc(who)+'</span><span>'+esc(expr)+'</span><span>'+esc(detail)+'</span><span class="roll-total">'+total+'</span>'; $('#dice-log').prepend(row); while($('#dice-log').children.length>30) $('#dice-log').lastChild.remove(); $('#dice-result').textContent=expr+' → '+total; }
   function applyAction(a) {
     if (!a) return;
+    if(a.op==='journalEdit'){if(state&&state.campaignId===a.campaignId){const journal=CampaignJournal.normalize(a.journal,state.campaignId);if((state.journal?.revision||0)<journal.revision)state.journal=journal;CampaignJournal.refresh();}return;}
     if(a.op==='restTransition'){playRestTransition(a);return;}
     if(a.op==='mapReaction'){
       if(a.reactionId&&localReactionIds.has(a.reactionId)){localReactionIds.delete(a.reactionId);return;}
@@ -1785,8 +1821,11 @@
       renderTurnPath();updateEndTurnUi();
     }
     if (a.op==='patchToken') {
-      const patch=a.patch||{},conditionsChanged=Array.isArray(patch.conditions);['hp','hpMax','ac'].forEach(k=>{if(k in patch)t[k]=patch[k];});if('spellRange' in patch)t.spellRange=normalizeSpellRange(patch.spellRange);if(conditionsChanged)t.conditions=patch.conditions.slice(0,MAX_TOKEN_CONDITIONS).map(normalizePlayerCondition);
-      if(m===currentMap){if(conditionsChanged)renderTokens(currentMap);else renderNamesLayer(currentMap);requestSpellRangeRender();}
+      const patch=a.patch||{};
+      const portraitChanged=Number.isInteger(patch.portraitVariant)&&!!t.portraitVariants?.[patch.portraitVariant];
+      if(portraitChanged){const v=t.portraitVariants[patch.portraitVariant];for(const k of ['iconImgPath','iconImg','iconImgHd','iconImgId'])t[k]=v[k]||null;t.portraitVariant=patch.portraitVariant;}
+      const conditionsChanged=Array.isArray(patch.conditions);['hp','hpMax','tempHp','tempHpMax','ac'].forEach(k=>{if(k in patch)t[k]=patch[k];});if('spellRange' in patch)t.spellRange=normalizeSpellRange(patch.spellRange);if(conditionsChanged)t.conditions=patch.conditions.slice(0,MAX_TOKEN_CONDITIONS).map(normalizePlayerCondition);
+      if(m===currentMap){if(conditionsChanged||portraitChanged)renderTokens(currentMap);else renderNamesLayer(currentMap);requestSpellRangeRender();}
       const selected=currentMap&&selectedId&&(currentMap.tokens||[]).find(token=>token.id===selectedId);if(selected&&tokenControlGroup(selected).has(t.id))openDetail(selected.id);refreshTokenPeek(t);
     }
   }
@@ -1869,7 +1908,9 @@
   $('#hp').addEventListener('input',()=>updateOwned('hp',clamp(parseInt($('#hp').value,10)||0,0,99999)));
   $('#hp-max').addEventListener('input',()=>updateOwned('hpMax',clamp(parseInt($('#hp-max').value,10)||1,1,99999)));
   $('#ac').addEventListener('input',()=>updateOwned('ac',clamp(parseInt($('#ac').value,10)||0,0,99)));
-  document.querySelectorAll('[data-hp]').forEach(b=>b.onclick=()=>{const t=currentMap&&currentMap.tokens.find(x=>x.id===selectedId);if(!t)return;const v=b.dataset.hp,next=v==='full'?t.hpMax:clamp(t.hp+parseInt(v,10),0,t.hpMax);updateOwned('hp',next);});
+  $('#temp-hp').addEventListener('change',()=>updateOwned('tempHp',clamp(parseInt($('#temp-hp').value,10)||0,0,99999)));
+  $('#temp-hp-max').addEventListener('change',()=>updateOwned('tempHpMax',clamp(parseInt($('#temp-hp-max').value,10)||0,0,99999)));
+  document.querySelectorAll('[data-hp]').forEach(b=>b.onclick=()=>{const t=currentMap&&currentMap.tokens.find(x=>x.id===selectedId);if(!t||!ownedToken(t))return;if(!canActWithToken(t)){toast('🔒 只有轮到该角色时才能修改');return;}const v=b.dataset.hp,delta=parseInt(v,10)||0,absorbed=delta<0?Math.min(t.tempHp||0,-delta):0,previous={hp:t.hp,tempHp:t.tempHp||0};t.hp=v==='full'?t.hpMax:clamp(t.hp+delta+absorbed,0,t.hpMax);t.tempHp=(t.tempHp||0)-absorbed;sendPatch(t.id,{hp:t.hp,tempHp:t.tempHp},previous);renderNamesLayer(currentMap);openDetail(t.id);});
   try{setDiceVisibility(localStorage.getItem('sundoll-dice-visibility-v1')||'public',false);}catch(e){setDiceVisibility('public',false);}
   document.querySelectorAll('[data-dice-visibility]').forEach(button=>button.onclick=()=>setDiceVisibility(button.dataset.diceVisibility));
   document.querySelectorAll('[data-die]').forEach(b=>b.onclick=()=>roll(b.dataset.die)); $('#dice-adv').onclick=()=>roll('d20',1); $('#dice-dis').onclick=()=>roll('d20',-1); $('#dice-roll').onclick=()=>roll($('#dice-expr').value); $('#dice-expr').addEventListener('keydown',e=>{if(e.key==='Enter')roll($('#dice-expr').value);});
@@ -2008,6 +2049,22 @@
   async function syncRoomState(){try{const res=await fetch('/api/state',{cache:'no-store'});if(!res.ok)return;render(await res.json());}catch(e){/* SSE 会继续自动重试 */}}
   function connectStream(){ if(streamES){try{streamES.close();}catch(e){}} streamES=new EventSource('/api/events'); streamES.onopen=()=>{setConnection('已连接',true);sendPresence(presenceStatus);sendPlayerWebRtcSignal({type:'ready'}).catch(()=>{});syncRoomState();syncMusicState();}; streamES.onerror=()=>setConnection('重连中…',false); streamES.onmessage=e=>{try{const ev=JSON.parse(e.data), seq=Number(e.lastEventId)||Number(ev.seq)||0, instant=ev.type==='action'&&ev.action&&['roll','bgm','announce','mapReaction','restTransition'].includes(ev.action.op);if(ev.type==='sessionRevoked'){handleSessionRevoked(ev);return;}if(ev.type==='webrtcSignal'){applyPlayerWebRtcSignal(ev);return;}if(!instant&&seq&&seq<=streamAppliedSeq&&ev.type==='action')return;if(seq&&!instant)streamAppliedSeq=Math.max(streamAppliedSeq,seq);if(ev.type==='state'){render(ev.state);}else if(ev.type==='presence'){renderPlayers(ev.players);}else if(ev.type==='action'){if(ev.action&&ev.action.op==='bgm')applyBgm(ev.action);else applyAction(ev.action);}}catch(err){}}; }
   initJoinHomeThemePicker();
+  window.journalBridge={
+    isDM:false,
+    actorName:()=>myName||'玩家',
+    canEdit:entry=>!!entry&&String(entry.author||'').trim()===String(myName||'').trim(),
+    canDelete:entry=>!!entry&&String(entry.author||'').trim()===String(myName||'').trim(),
+    worldTime:()=>state?.encounter ? flowWorldTotal(state.encounter) : null,
+    read:()=>state?.journal,
+    campaign:()=>state?.campaignId,
+    mutate:async(mutation,revision,campaignId)=>{
+    if(!sessionToken)throw new Error('请先加入房间');
+    const response=await fetch('/api/journal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...mutation,revision,campaignId,sessionToken})});
+    const data=await CampaignJournal.readSaveResponse(response);
+    if(state?.campaignId!==campaignId)throw new Error('战役已切换');
+    if((state.journal?.revision||0)<=data.journal.revision)state.journal=CampaignJournal.normalize(data.journal,campaignId);
+    return {journal:state.journal,entryId:data.entryId};
+  }};
   bootstrapSession();
   presenceTimer=setInterval(()=>sendPresence(presenceStatus),15000);
   flowTimer=setInterval(()=>{if(state&&state.encounter&&state.encounter.worldTime&&state.encounter.worldTime.runningSince)renderFlow(state);},500);
