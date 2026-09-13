@@ -121,8 +121,8 @@
     .token-condition-badge[data-condition-icon='concentrating']::before { background-position:33.333% 100%; }
     .token-condition-badge[data-condition-icon='burning']::before { background-position:66.667% 100%; }
     .token.dragging { z-index:4; cursor:grabbing; }
-    .circle { position:relative; overflow:hidden; width:76%; height:76%; border:2px solid var(--ring); border-radius:50%; display:grid; place-items:center; background:#fff; color:#1c2430; font-size:20px; font-weight:700; background-size:cover; background-position:center; background-repeat:no-repeat; box-shadow:0 0 0 2px #0006,0 3px 10px #0009,0 0 14px var(--glow,#5b8cff73); }
-    .token .rider { position:absolute; z-index:3; overflow:visible; display:grid; place-items:center; border:1.5px solid var(--ring,#5b8cff); border-radius:50%; background:#fff center/cover no-repeat; color:#1c2430; font-weight:700; line-height:1; box-shadow:0 0 0 1px #0009,0 2px 7px #000a; cursor:inherit; }
+    .circle { position:relative; overflow:hidden; width:76%; height:76%; border:1.25px solid var(--ring); border-radius:50%; display:grid; place-items:center; background:#fff; color:#1c2430; font-size:20px; font-weight:700; background-size:cover; background-position:center; background-repeat:no-repeat; box-shadow:0 0 0 2px #0006,0 3px 10px #0009,0 0 14px var(--glow,#5b8cff73); }
+    .token .rider { position:absolute; z-index:3; overflow:visible; display:grid; place-items:center; border:1px solid var(--ring,#5b8cff); border-radius:50%; background:#fff center/cover no-repeat; color:#1c2430; font-weight:700; line-height:1; box-shadow:0 0 0 1px #0009,0 2px 7px #000a; cursor:inherit; }
     .token .rider.owned { box-shadow:0 0 0 1px #70e5a5,0 2px 9px #000a,0 0 12px #44d98c88; }
     .token.locked .rider.owned { box-shadow:0 0 0 1px #c08a4a,0 2px 9px #000a; filter:saturate(.72); }
     .token .rider.current-rider { border-color:var(--gold); box-shadow:0 0 0 1.5px var(--gold),0 2px 9px #000a,0 0 13px #e0b34c99; }
@@ -281,6 +281,75 @@
     #token-peek .condition-list { margin-top:9px; }
     #token-peek .public-note { max-height:84px; overflow:auto; }
     @keyframes token-peek-in { from { opacity:0; transform:translateY(5px) scale(.98); } to { opacity:1; transform:none; } }
+    #token-context-menu { position:fixed; z-index:46; width:118px; padding:5px; border:1px solid #64738b; border-radius:9px; background:#171d28f7; box-shadow:0 12px 30px #000b; backdrop-filter:blur(10px); }
+    #token-context-menu[hidden] { display:none; }
+    #token-context-menu button { width:100%; border-color:transparent; background:transparent; text-align:left; }
+    #token-context-menu button:hover { border-color:#6e87aa; background:#29384d; }
+    .investigation-mask { position:fixed; inset:0; z-index:126; display:grid; place-items:center; padding:22px; background:#05070bb5; backdrop-filter:blur(6px); }
+    .investigation-mask[hidden] { display:none; }
+    .investigation-window { width:min(680px,94vw); max-height:min(640px,90vh); overflow:auto; padding:22px; border:1px solid #64738b; border-radius:20px; background:linear-gradient(145deg,#252c3afa,#111620fd); box-shadow:0 24px 70px #000e,0 0 0 1px #ffffff0b; animation:investigation-window-in .2s ease-out; }
+    @keyframes investigation-window-in { from { opacity:0; transform:translateY(10px) scale(.975); } to { opacity:1; transform:none; } }
+    .investigation-layout { display:grid; grid-template-columns:270px minmax(0,1fr); align-items:center; gap:24px; }
+    .investigation-portrait { position:relative; display:grid; place-items:center; width:270px; aspect-ratio:1; overflow:hidden; border:2px solid var(--investigation-ring,#5b8cff); border-radius:50%; background:radial-gradient(circle at 50% 34%,#313a4b,#0d1119 72%); color:#dfe7f4; font-size:64px; box-shadow:0 12px 32px #0008,inset 0 0 0 1px #ffffff18; }
+    .investigation-portrait img { display:block; width:100%; height:100%; object-fit:cover; object-position:center; }
+    .investigation-portrait.portrait-path img { width:116.3%; height:116.3%; max-width:none; }
+    .investigation-portrait img[hidden],.investigation-portrait-fallback[hidden] { display:none; }
+    .investigation-portrait-fallback { position:absolute; inset:0; display:grid; place-items:center; }
+    .investigation-body { min-width:0; }
+    .investigation-head { display:flex; align-items:flex-start; gap:7px; }
+    .investigation-title { min-width:0; flex:1; }
+    .investigation-title strong,.investigation-title span { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .investigation-title strong { color:#f3f6fb; font-size:21px; }
+    .investigation-title span { margin-top:3px; color:var(--muted); font-size:12px; }
+    .investigation-close { border:0; padding:3px 6px; background:transparent; color:var(--muted); font-size:18px; }
+    .investigation-stats { display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-top:8px; }
+    .investigation-stat { padding:9px 10px; border:1px solid var(--line); border-radius:9px; background:#101620c9; color:var(--muted); font-size:11px; }
+    .investigation-stat b { display:block; color:var(--text); font-size:14px; }
+    .investigation-hp { height:4px; overflow:hidden; margin-top:4px; border-radius:999px; background:#080b10; }
+    .investigation-hp i { display:block; height:100%; border-radius:inherit; }
+    .investigation-status-title { display:block; margin-top:8px; color:#9da9bb; font-size:9px; font-weight:700; letter-spacing:.08em; }
+    #token-investigation .condition-list { margin-top:5px; }
+    #token-investigation .condition-chip { display:inline-flex; align-items:center; margin:0 4px 4px 0; }
+    #token-investigation .public-note { max-height:120px; overflow:auto; }
+    .player-portrait-picker { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:end; gap:6px; }
+    .player-portrait-picker label { min-width:0; }
+    .player-portrait-picker select { width:100%; }
+    .player-modal-mask { position:fixed; inset:0; z-index:120; display:grid; place-items:center; padding:18px; background:#05070bbb; backdrop-filter:blur(5px); }
+    .player-modal-mask[hidden] { display:none; }
+    .player-portrait-manager { width:min(900px,94vw); max-height:90vh; overflow:hidden; padding:15px; border:1px solid #535f72; border-radius:14px; background:#171c26; box-shadow:0 24px 70px #000d; }
+    .player-portrait-manager-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
+    .player-portrait-manager-head h2 { margin:2px 0 0; }
+    .player-portrait-manager-head p { margin:3px 0 0; }
+    .player-portrait-manager-close { border:0; background:transparent; color:var(--muted); font-size:18px; }
+    .player-portrait-manager-rail { display:grid; grid-template-columns:32px minmax(0,1fr) 32px; align-items:stretch; gap:7px; min-height:224px; margin-top:10px; }
+    .player-portrait-scroll { padding:0; color:var(--gold); font-size:24px; }
+    .player-portrait-scroll:disabled { opacity:.28; cursor:default; }
+    .player-portrait-strip { display:flex; min-width:0; gap:9px; padding:3px 3px 9px; overflow-x:auto; overflow-y:hidden; scroll-behavior:smooth; scroll-snap-type:x proximity; }
+    .player-portrait-empty { display:grid; place-items:center; width:100%; min-height:205px; padding:20px; border:1px dashed #465164; border-radius:11px; color:var(--muted); text-align:center; }
+    .player-portrait-card { flex:0 0 152px; align-self:flex-start; overflow:hidden; border:1px solid var(--line); border-radius:11px; background:#111620; scroll-snap-align:center; }
+    .player-portrait-card.active { border-color:var(--gold); box-shadow:0 0 0 2px #e0b34c2c; }
+    .player-portrait-open { display:block; width:100%; padding:0; border:0; border-radius:0; background:transparent; text-align:left; }
+    .player-portrait-thumb { display:block; width:100%; height:152px; object-fit:contain; background:#090d13; }
+    .player-portrait-name,.player-portrait-state { display:block; overflow:hidden; padding:7px 8px 2px; text-overflow:ellipsis; white-space:nowrap; }
+    .player-portrait-name { font-size:11px; font-weight:700; }
+    .player-portrait-state { min-height:20px; padding-top:0; color:var(--muted); font-size:9px; }
+    .player-portrait-tools { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:3px; padding:5px; border-top:1px solid #ffffff0c; }
+    .player-portrait-tools button { min-width:0; padding:3px 1px; font-size:10px; }
+    .player-portrait-tools button[data-player-portrait-action='delete'] { color:#ff9ca7; }
+    .player-portrait-manager-actions { display:flex; align-items:center; justify-content:flex-end; gap:7px; flex-wrap:wrap; }
+    .player-portrait-manager-actions .hint { margin:0 auto 0 0; }
+    @media (max-width:620px) {
+      .investigation-mask { padding:10px; }
+      .investigation-window { width:min(430px,96vw); max-height:94vh; padding:16px; }
+      .investigation-layout { grid-template-columns:1fr; justify-items:center; gap:15px; }
+      .investigation-portrait { width:min(220px,68vw); }
+      .investigation-body { width:100%; }
+      .player-modal-mask { padding:8px; }
+      .player-portrait-manager { width:98vw; padding:10px; }
+      .player-portrait-manager-rail { grid-template-columns:27px minmax(0,1fr) 27px; }
+      .player-portrait-card { flex-basis:138px; }
+      .player-portrait-thumb { height:138px; }
+    }
     #topbar { box-shadow:0 4px 18px #0003; z-index:8; }
     #topbar-actions { display:flex; align-items:center; gap:7px; }
     #btn-left-panel { display:none; }
@@ -588,9 +657,11 @@
           <div class="token-head"><div id="detail-icon">🧙</div><div class="token-head-copy"><div id="detail-name"></div><div id="detail-type"></div></div><button id="detail-close" type="button" aria-label="关闭角色详情">✕</button></div>
           <section class="player-detail-tab-panel" data-player-detail-panel="manage" hidden>
             <div class="field"><strong>图标与立绘</strong>
-              <label>立绘预设<select id="player-portrait" aria-label="切换棋子立绘"></select></label>
+              <div class="player-portrait-picker">
+                <label>当前形态<select id="player-portrait" aria-label="切换棋子立绘"></select></label>
+                <button id="player-portrait-manager-open" type="button" aria-haspopup="dialog" aria-controls="player-portrait-manager-modal">管理形态</button>
+              </div>
               <p id="player-appearance-status" class="hint" aria-live="polite"></p>
-              <p class="hint">切换只影响当前棋子；新增图片请在棋子库中配置。</p>
             </div>
           </section>
           <section class="player-detail-tab-panel" data-player-detail-panel="status">
@@ -632,6 +703,28 @@
     </div>
   </div>
   <div id="token-peek" role="status" aria-live="polite" hidden></div>
+  <div id="token-context-menu" role="menu" aria-label="棋子操作" hidden><button id="token-investigate" type="button" role="menuitem">⌕ 调查</button></div>
+  <div id="token-investigation" class="investigation-mask" hidden>
+    <section id="token-investigation-window" class="investigation-window" role="dialog" aria-modal="true" aria-label="调查棋子"></section>
+  </div>
+  <div id="player-portrait-manager-modal" class="player-modal-mask" hidden>
+    <section class="player-portrait-manager" role="dialog" aria-modal="true" aria-labelledby="player-portrait-manager-title">
+      <header class="player-portrait-manager-head">
+        <div><span class="hint">棋子外观</span><h2 id="player-portrait-manager-title">管理不同形态</h2><p id="player-portrait-manager-summary" class="hint">点击缩略图切换形态。</p></div>
+        <button id="player-portrait-manager-close" class="player-portrait-manager-close" type="button" aria-label="关闭形态管理">✕</button>
+      </header>
+      <div class="player-portrait-manager-rail">
+        <button id="player-portrait-scroll-left" class="player-portrait-scroll" type="button" aria-label="向左浏览形态">‹</button>
+        <div id="player-portrait-strip" class="player-portrait-strip" tabindex="0" aria-label="立绘形态缩略图列表"></div>
+        <button id="player-portrait-scroll-right" class="player-portrait-scroll" type="button" aria-label="向右浏览形态">›</button>
+      </div>
+      <footer class="player-portrait-manager-actions">
+        <span class="hint">改动会保存到当前棋子，并通知主控台</span>
+        <button id="player-portrait-save-current" class="primary" type="button">＋ 保存当前立绘为形态</button>
+        <button id="player-portrait-manager-done" type="button">完成</button>
+      </footer>
+    </section>
+  </div>
   <div id="join-mask" class="join-mask" role="dialog" aria-modal="true" aria-labelledby="join-title">
     <div class="join-shell">
       <header class="join-global-bar"><div class="join-brand"><span class="join-brand-mark" aria-hidden="true"><img src="../asset/界面/品牌/桑哆尔之歌-logo.png" alt=""></span><strong>桑哆尔之歌</strong><span>玩家端</span></div><div class="join-global-actions"><div id="join-theme-picker" class="join-theme-picker" role="group" aria-label="切换主页背景"><span class="join-theme-caption">背景</span><button type="button" data-join-theme="a" aria-pressed="false" title="A · 冒险桌">A</button><button type="button" data-join-theme="b" aria-pressed="false" title="B · 城外营地">B</button><button type="button" data-join-theme="c" aria-pressed="false" title="C · 传送门大厅">C</button><button type="button" data-join-theme="d" aria-pressed="false" title="D · 旅途区域地图">D</button></div><span id="join-server-status" class="join-server-status" data-state="checking">连接服务器中</span></div></header>
@@ -682,7 +775,7 @@
     c:{label:'传送门大厅',image:'../asset/界面/主页背景/c-玩家端.jpg'},
     d:{label:'旅途区域地图',image:'../asset/界面/主页背景/d-玩家端.jpg'}
   });
-  let state = null, currentMap = null, view = {scale:1,ox:0,oy:0}, myName = '', myPlayerId = '', sessionToken = '', roomCode = '', players = [], presenceStatus = 'online', selectedId = null, drag = null, toastTimer = null, peekTimer = null, restAnimationTimer = null, localRolls = new Set(), lastMapViewKey = '', flowPanel = 'initiative', flowClockAnchor = { localNow: performance.now(), serverNow: Date.now() }, flowTimer = null, measureMode = false, measureDraft = null, doodleTool = null, doodleColor = '#ff4d4f', doodleWidth = 6, doodleDraft = null, presenceTimer = null, streamES = null, streamAppliedSeq = 0, lastStateRevision = 0, spellAimTokenId = null, pendingMapReaction = null, spellRangeRaf = null, initiativePending = false, lastFlowScrollEntryId = null, editingPlayerConditionId = null, activePlayerDetailTab = 'status', diceVisibility = 'public';
+  let state = null, currentMap = null, view = {scale:1,ox:0,oy:0}, myName = '', myPlayerId = '', sessionToken = '', roomCode = '', players = [], presenceStatus = 'online', selectedId = null, drag = null, toastTimer = null, peekTimer = null, restAnimationTimer = null, localRolls = new Set(), lastMapViewKey = '', flowPanel = 'initiative', flowClockAnchor = { localNow: performance.now(), serverNow: Date.now() }, flowTimer = null, measureMode = false, measureDraft = null, doodleTool = null, doodleColor = '#ff4d4f', doodleWidth = 6, doodleDraft = null, presenceTimer = null, streamES = null, streamAppliedSeq = 0, lastStateRevision = 0, spellAimTokenId = null, pendingMapReaction = null, spellRangeRaf = null, initiativePending = false, lastFlowScrollEntryId = null, editingPlayerConditionId = null, activePlayerDetailTab = 'status', diceVisibility = 'public', contextTokenId = null, investigationTokenId = null, playerPortraitManagerTokenId = null;
   const localReactionIds = new Set();
   const playedRestTransitions = new Set();
   const REQUIRED_SERVER_PROTOCOL=16,PLAYER_PORTRAIT_SOURCE_LIMIT=12*1024*1024,PLAYER_PORTRAIT_TARGET_BYTES=280*1024;
@@ -881,11 +974,16 @@
     return projectAssetUrl(t.iconImgHd || t.iconImg || '');
   }
   function originalPortraitUrl(t) { return t&&t.iconImgPath ? projectAssetUrl(t.iconImgPath) : assetUrl(t); }
+  function normalizePlayerPortraitVariants(raw) {
+    return(Array.isArray(raw)?raw:[]).filter(v=>v&&typeof v==='object'&&String(v.name||'').trim()&&(v.iconImgPath||v.iconImg||v.iconImgHd||v.iconImgId)).slice(0,24).map(v=>({name:String(v.name).trim().slice(0,24),iconImg:v.iconImg||null,iconImgHd:v.iconImgHd||null,iconImgPath:v.iconImgPath||null,iconImgId:v.iconImgId||null}));
+  }
+  function portraitIdentity(source) { if(!source)return'';if(source.iconImgPath)return'path:'+String(source.iconImgPath).replace(/\\/g,'/');if(source.iconImgId)return'id:'+source.iconImgId;if(source.iconImgHd)return'hd:'+source.iconImgHd;if(source.iconImg)return'img:'+source.iconImg;return''; }
+  function currentPortraitVariantIndex(t,variants=normalizePlayerPortraitVariants(t&&t.portraitVariants)) { const identity=portraitIdentity(t);if(!identity)return-1;const hinted=Number.isInteger(t&&t.portraitVariant)?t.portraitVariant:-1;if(hinted>=0&&hinted<variants.length&&portraitIdentity(variants[hinted])===identity)return hinted;return variants.findIndex(v=>portraitIdentity(v)===identity); }
   function applyPlayerPortrait(el,t) {
     const url=assetUrl(t); if(!url)return false;
     el.dataset.portraitUrl=url;
     el.style.backgroundImage='url("'+url+'")';
-    if(t.iconImgPath){el.style.backgroundSize='116.3% 116.3%';el.style.backgroundPosition='center';}
+    if(t.iconImgPath){el.style.backgroundSize=String(t.iconImgPath).includes('/零式-')?'119.2% 119.2%':'116.3% 116.3%';el.style.backgroundPosition='center';}
     const fallback=originalPortraitUrl(t); if(!t.iconImgPath||url===fallback)return true;
     const known=portraitProbes.get(url);
     if(known===false){el.style.backgroundImage='url("'+fallback+'")';return true;}
@@ -895,7 +993,7 @@
     portraitProbes.set(url,pending);pending.then(ok=>{if(!ok&&el.isConnected&&el.dataset.portraitUrl===url)el.style.backgroundImage='url("'+fallback+'")';});
     return true;
   }
-  function applyView() { world.style.transform = 'translate(' + view.ox + 'px,' + view.oy + 'px) scale(' + view.scale + ')'; document.querySelectorAll('.map-reaction').forEach(el=>el.style.setProperty('--reaction-scale',String(1/clamp(Number(view.scale)||1,.2,4)))); }
+  function applyView() { world.style.transform = 'translate(' + view.ox + 'px,' + view.oy + 'px) scale(' + view.scale + ')'; document.querySelectorAll('.map-reaction').forEach(el=>el.style.setProperty('--reaction-scale',String(1/clamp(Number(view.scale)||1,.2,6)))); }
   function fit() { if (!currentMap) return; const r=board.getBoundingClientRect(), m=currentMap; view.scale=Math.min(r.width/m.mapW,r.height/m.mapH,2); view.ox=(r.width-m.mapW*view.scale)/2; view.oy=(r.height-m.mapH*view.scale)/2; applyView(); }
   function point(e) { const r=world.getBoundingClientRect(); return {x:(e.clientX-r.left)/view.scale,y:(e.clientY-r.top)/view.scale}; }
   function snapMeasurePoint(p) {
@@ -952,7 +1050,7 @@
   }
   function requestSpellRangeRender(){if(spellRangeRaf!=null)return;spellRangeRaf=requestAnimationFrame(()=>{spellRangeRaf=null;renderSpellRanges();});}
   function makeReactionId(){return window.crypto&&typeof window.crypto.randomUUID==='function'?'p-'+window.crypto.randomUUID():'p-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,10);}
-  function showMapReaction(a){if(!currentMap||!a||a.mapId!==currentMap.id||!MAP_REACTION_EMOJIS.has(a.emoji))return;const layer=$('#reaction-layer'),item=document.createElement('div');item.className='map-reaction';item.dataset.reactionId=String(a.reactionId||'');item.style.left=clamp(Number(a.x)||0,0,currentMap.mapW)+'px';item.style.top=clamp(Number(a.y)||0,0,currentMap.mapH)+'px';item.style.setProperty('--reaction-scale',String(1/clamp(Number(view.scale)||1,.2,4)));const bubble=document.createElement('div');bubble.className='map-reaction-bubble';const emoji=document.createElement('span');emoji.className='map-reaction-emoji';emoji.textContent=a.emoji;const author=document.createElement('span');author.className='map-reaction-author';author.textContent=String(a.name||'玩家').slice(0,24);bubble.append(emoji,author);item.appendChild(bubble);layer.appendChild(item);setTimeout(()=>item.remove(),2850);}
+  function showMapReaction(a){if(!currentMap||!a||a.mapId!==currentMap.id||!MAP_REACTION_EMOJIS.has(a.emoji))return;const layer=$('#reaction-layer'),item=document.createElement('div');item.className='map-reaction';item.dataset.reactionId=String(a.reactionId||'');item.style.left=clamp(Number(a.x)||0,0,currentMap.mapW)+'px';item.style.top=clamp(Number(a.y)||0,0,currentMap.mapH)+'px';item.style.setProperty('--reaction-scale',String(1/clamp(Number(view.scale)||1,.2,6)));const bubble=document.createElement('div');bubble.className='map-reaction-bubble';const emoji=document.createElement('span');emoji.className='map-reaction-emoji';emoji.textContent=a.emoji;const author=document.createElement('span');author.className='map-reaction-author';author.textContent=String(a.name||'玩家').slice(0,24);bubble.append(emoji,author);item.appendChild(bubble);layer.appendChild(item);setTimeout(()=>item.remove(),2850);}
   function syncReactionUi(){const palette=$('#reaction-palette'),placing=!!pendingMapReaction;palette.querySelectorAll('[data-map-reaction]').forEach(b=>b.classList.toggle('active',b.dataset.mapReaction===pendingMapReaction));document.querySelectorAll('#btn-reaction,#dock-reaction').forEach(b=>b.classList.toggle('active',placing||!palette.hidden));board.classList.toggle('reaction-placing',placing);}
   function toggleReactionPalette(){if(!sessionToken){toast('请先加入房间');return;}const palette=$('#reaction-palette');if(!palette.hidden){palette.hidden=true;pendingMapReaction=null;}else{cancelSpellAim();palette.hidden=false;}syncReactionUi();}
   function selectMapReaction(emoji){if(!MAP_REACTION_EMOJIS.has(emoji))return;cancelSpellAim();measureMode=false;measureDraft=null;doodleTool=null;doodleDraft=null;updateToolButtons();renderDoodles();renderTurnPath();pendingMapReaction=emoji;$('#reaction-palette').hidden=true;syncReactionUi();toast('点击地图发送表情；按 Esc 取消');}
@@ -1491,7 +1589,7 @@
     if(drag&&drag.kind==='spell-aim'&&incomingEncounter&&Number(incomingEncounter.turnSerial)!==Number(drag.turnSerial)){cancelSpellAim();toast('⚠ 回合已变化，锥形方向未修改');}
     const previousMapId=currentMap&&currentMap.id;
     state=next; lastStateRevision=Math.max(lastStateRevision,incomingRevision);streamAppliedSeq=Math.max(streamAppliedSeq,Number(next._streamSeq)||0);flowClockAnchor={localNow:performance.now(),serverNow:Number(next._serverNow)||Date.now()}; renderFlow(next); currentMap=(next.maps||[]).find(m=>m.id===next.activeMapId)||(next.maps||[])[0]||null;updateEndTurnUi();updatePlayerPlaceUi();
-    if(previousMapId&&(!currentMap||previousMapId!==currentMap.id)){hideTokenPeek();closeDetail();cancelMapReaction();cancelSpellAim();$('#reaction-layer').innerHTML='';doodleDraft=null;if(drag&&(drag.kind==='doodle'||drag.kind==='doodle-erase'))drag=null;}
+    if(previousMapId&&(!currentMap||previousMapId!==currentMap.id)){hideTokenPeek();hideTokenContextMenu();hideTokenInvestigation();closePlayerPortraitManager();closeDetail();cancelMapReaction();cancelSpellAim();$('#reaction-layer').innerHTML='';doodleDraft=null;if(drag&&(drag.kind==='doodle'||drag.kind==='doodle-erase'))drag=null;}
     setConnection('已连接',true); $('#campaign').textContent=next.campaignName?'📂 '+next.campaignName:'';applyJoinCampaignCover(next._campaignCoverUrl);
     renderLinks(next.sharedResources || next._links);
     CampaignJournal.refresh();
@@ -1510,7 +1608,7 @@
   function restoreRejectedPatch(job){
     const map=state&&(state.maps||[]).find(item=>(item.tokens||[]).some(token=>token.id===job.id)), token=map&&(map.tokens||[]).find(item=>item.id===job.id);
     if(token)Object.keys(job.before).forEach(key=>{if(patchValuesEqual(token[key],job.patch[key]))token[key]=clonePatchValue(job.before[key]);});
-    if(currentMap&&map===currentMap){renderTokens(currentMap);renderSpellRanges();if(selectedId===job.id)openDetail(job.id);}
+    if(currentMap&&map===currentMap){renderTokens(currentMap);renderSpellRanges();if(selectedId===job.id)openDetail(job.id);if(playerPortraitManagerTokenId===job.id)renderPlayerPortraitManager();}
     syncRoomState();
   }
   async function dispatchPendingPatch(){
@@ -1617,7 +1715,7 @@
     }catch(error){toast('⚠ 解除骑乘请求未送达');await syncRoomState();}
     finally{playerDismountPending=null;if(selectedId)openDetail(selectedId);}
   }
-  function closeDetail() { selectedId=null;cancelSpellAim();closePlayerConditionEditor(); $('#detail').hidden=true; $('#detail-empty').hidden=false;const chain=$('#detail-mounted-chain');chain.hidden=true;chain.innerHTML='';if(activePlayerDetailTab!=='notes')$('#right-panel').classList.remove('mobile-open');requestSpellRangeRender(); }
+  function closeDetail() { selectedId=null;cancelSpellAim();closePlayerConditionEditor();closePlayerPortraitManager(); $('#detail').hidden=true; $('#detail-empty').hidden=false;const chain=$('#detail-mounted-chain');chain.hidden=true;chain.innerHTML='';if(activePlayerDetailTab!=='notes')$('#right-panel').classList.remove('mobile-open');requestSpellRangeRender(); }
   function mountedDetailPair(token) {
     if(!currentMap||!token)return null;
     const mount=movementAnchor(token,currentMap);
@@ -1645,6 +1743,45 @@
     if(!candidates.length){const option=document.createElement('option');option.value='';option.textContent='暂无可用坐骑';select.append(option);}else candidates.forEach(mount=>{const option=document.createElement('option'),riderCount=ridersOfToken(mount,currentMap).length;option.value=mount.id;option.textContent=(mount.name||'未命名坐骑')+' · '+Number(mount.size||2)+'×'+Number(mount.size||2)+' · '+mount._playerMountFeet+' 尺'+(riderCount?' · 已有 '+riderCount+' 名骑手':'');select.append(option);});
     select.disabled=!allowed||pending||!candidates.length;button.type='button';button.textContent=pending?'上骑中…':'上骑';button.disabled=select.disabled;button.addEventListener('click',()=>mountOwnedRider(token.id,select.value));picker.append(select,button);hint.className='player-mount-hint';hint.textContent=!candidates.length?'当前地图没有无主或属于你的大型坐骑。':!allowed?(encounter().playMode==='turn'?'等待这个角色的回合。':'请先加入房间。'):'';hint.hidden=!hint.textContent;container.append(head,picker,hint);
   }
+  function tokenById(id) { return currentMap&&(currentMap.tokens||[]).find(token=>token.id===id)||null; }
+  function placeFloatingElement(element,clientX,clientY,{gap=10,topMin=58}={}) { const margin=10,anchorX=Number.isFinite(Number(clientX))?Number(clientX):window.innerWidth/2,anchorY=Number.isFinite(Number(clientY))?Number(clientY):80,rect=element.getBoundingClientRect();let left=anchorX+gap,top=anchorY+gap;if(left+rect.width>window.innerWidth-margin)left=anchorX-rect.width-gap;if(top+rect.height>window.innerHeight-margin)top=anchorY-rect.height-gap;element.style.left=clamp(left,margin,Math.max(margin,window.innerWidth-rect.width-margin))+'px';element.style.top=clamp(top,topMin,Math.max(topMin,window.innerHeight-rect.height-margin))+'px'; }
+  function hideTokenContextMenu() { contextTokenId=null;const menu=$('#token-context-menu');menu.hidden=true;delete menu.dataset.anchorX;delete menu.dataset.anchorY; }
+  function showTokenContextMenu(t,clientX,clientY) { if(!t)return;contextTokenId=t.id;const menu=$('#token-context-menu');menu.dataset.anchorX=String(clientX);menu.dataset.anchorY=String(clientY);menu.hidden=false;placeFloatingElement(menu,clientX,clientY,{gap:4});requestAnimationFrame(()=>$('#token-investigate').focus()); }
+  function hideTokenInvestigation() { investigationTokenId=null;const mask=$('#token-investigation'),panel=$('#token-investigation-window');mask.hidden=true;panel.innerHTML=''; }
+  function applyInvestigationPortrait(stage,t) {
+    const image=stage.querySelector('img'),fallback=stage.querySelector('.investigation-portrait-fallback'),candidate=assetUrl(t),original=originalPortraitUrl(t),showFallback=()=>{image.hidden=true;fallback.hidden=false;fallback.textContent=t.icon||'?';};
+    stage.style.setProperty('--investigation-ring',(TYPE[t.type]||TYPE.npc).ring);stage.classList.toggle('portrait-path',!!t.iconImgPath);fallback.textContent=t.icon||'?';
+    if(!candidate){showFallback();return;}
+    fallback.hidden=true;image.hidden=false;image.dataset.fallbackTried='0';image.onload=()=>{image.hidden=false;fallback.hidden=true;};image.onerror=()=>{if(image.dataset.fallbackTried==='0'&&original&&original!==candidate){image.dataset.fallbackTried='1';image.src=original;return;}showFallback();};image.src=candidate;
+  }
+  function populateTokenInvestigation(t) {
+    const panel=$('#token-investigation-window'),meta=TYPE[t.type]||TYPE.npc,detailed=friendly(t)&&Number.isFinite(Number(t.hp))&&Number.isFinite(Number(t.hpMax)),conditions=(t.conditions||[]).filter(condition=>condition.visibility!=='gm'),pct=detailed?clamp(Number(t.hp)/Math.max(1,Number(t.hpMax))*100,0,100):0,owner=detailed&&String(t.owner||'').trim()?(' · '+String(t.owner).trim()+' 控制'):'';
+    panel.classList.toggle('investigation-limited',!detailed);panel.setAttribute('aria-label','调查：'+String(t.name||'未命名棋子'));
+    const conditionMarkup=conditions.length?conditions.map(c=>'<span class="condition-chip" style="--condition-color:'+esc(c.color||'#a8b3c7')+'">'+esc(c.icon||'◆')+' '+esc(c.label||'状态')+(c.remainingTurns?' · '+esc(c.remainingTurns)+'回合':'')+'</span>').join(''):'<span class="hint">暂无公开状态</span>';
+    const stats=detailed?'<div class="investigation-stats"><div class="investigation-stat">生命值<b>'+esc(t.hp)+' / '+esc(t.hpMax)+'</b><div class="investigation-hp"><i style="width:'+pct+'%;background:'+(pct>50?'#4cc38a':pct>25?'#f4a261':'#e74c5e')+'"></i></div>'+(Number(t.tempHp)>0?'<span style="color:#a8e6b0">临时 '+esc(t.tempHp)+' / '+esc(t.tempHpMax??t.tempHp)+'</span>':'')+'</div><div class="investigation-stat">护甲等级<b>AC '+esc(t.ac)+'</b></div></div>':'';
+    panel.innerHTML='<div class="investigation-layout"><div class="investigation-portrait"><img alt="'+esc(t.name||'棋子')+'的完整立绘"><span class="investigation-portrait-fallback"></span></div><div class="investigation-body"><div class="investigation-head"><div class="investigation-title"><strong>'+esc(t.name||'未命名棋子')+'</strong>'+(detailed?'<span>'+esc(meta.label+owner)+'</span>':'')+'</div><button class="investigation-close" type="button" aria-label="关闭调查">✕</button></div>'+stats+'<span class="investigation-status-title">公开状态</span><div class="condition-list">'+conditionMarkup+'</div>'+(detailed&&t.publicNote?'<div class="public-note">'+esc(t.publicNote)+'</div>':'')+'</div></div>';
+    applyInvestigationPortrait(panel.querySelector('.investigation-portrait'),t);panel.querySelector('.investigation-close').onclick=hideTokenInvestigation;
+  }
+  function showTokenInvestigation(t) { if(!t)return;hideTokenPeek();investigationTokenId=t.id;populateTokenInvestigation(t);const mask=$('#token-investigation');mask.hidden=false;requestAnimationFrame(()=>mask.querySelector('.investigation-close')?.focus()); }
+  function refreshTokenInvestigation(t) { const mask=$('#token-investigation');if(!mask.hidden&&investigationTokenId===t.id)populateTokenInvestigation(t); }
+
+  function playerPortraitManagerToken() { return playerPortraitManagerTokenId?tokenById(playerPortraitManagerTokenId):null; }
+  function playerPortraitVariants(t) { return normalizePlayerPortraitVariants(t&&t.portraitVariants); }
+  function loadPlayerPortraitThumb(image,variant) { const source=assetUrl(variant),original=originalPortraitUrl(variant);image.alt=(variant.name||'形态')+'立绘缩略图';image.onerror=()=>{if(image.dataset.originalTried!=='1'&&original&&original!==source){image.dataset.originalTried='1';image.src=original;return;}image.removeAttribute('src');image.alt=(variant.name||'形态')+'立绘无法读取';};if(source)image.src=source; }
+  function playerPortraitTool(label,title,action,index,disabled=false) { const button=document.createElement('button');button.type='button';button.textContent=label;button.title=title;button.setAttribute('aria-label',title);button.dataset.playerPortraitAction=action;button.dataset.playerPortraitIndex=String(index);button.disabled=disabled;return button; }
+  function updatePlayerPortraitScrollButtons() { const strip=$('#player-portrait-strip'),left=$('#player-portrait-scroll-left'),right=$('#player-portrait-scroll-right'),max=Math.max(0,strip.scrollWidth-strip.clientWidth);left.disabled=strip.scrollLeft<=2;right.disabled=strip.scrollLeft>=max-2; }
+  function renderPlayerPortraitManager(focusIndex=null) {
+    const modal=$('#player-portrait-manager-modal');if(modal.hidden)return;const t=playerPortraitManagerToken();if(!t||!ownedToken(t)){closePlayerPortraitManager();return;}const variants=playerPortraitVariants(t),active=currentPortraitVariantIndex(t,variants),strip=$('#player-portrait-strip'),previousScroll=strip.scrollLeft,editable=canActWithToken(t);strip.innerHTML='';$('#player-portrait-manager-title').textContent=(t.name||'棋子')+' · 不同形态';$('#player-portrait-manager-summary').textContent=variants.length?variants.length+' 个形态 · 点击切换，使用箭头排序':'还没有保存形态，可把当前立绘保存为第一个形态。';$('#player-portrait-save-current').disabled=!editable||!portraitIdentity(t)||variants.length>=24;
+    if(!variants.length){const empty=document.createElement('div');empty.className='player-portrait-empty';empty.textContent=portraitIdentity(t)?'当前立绘尚未保存为形态。':'当前棋子没有可保存的立绘。';strip.appendChild(empty);}else variants.forEach((variant,index)=>{const card=document.createElement('article'),open=document.createElement('button'),image=document.createElement('img'),name=document.createElement('span'),stateLabel=document.createElement('span'),tools=document.createElement('div');card.className='player-portrait-card'+(index===active?' active':'');card.dataset.playerPortraitIndex=String(index);open.type='button';open.className='player-portrait-open';open.dataset.playerPortraitSelect=String(index);open.disabled=!editable;image.className='player-portrait-thumb';loadPlayerPortraitThumb(image,variant);name.className='player-portrait-name';name.textContent=variant.name;stateLabel.className='player-portrait-state';stateLabel.textContent=index===active?'当前形态':'形态 '+(index+1);open.append(image,name,stateLabel);tools.className='player-portrait-tools';tools.append(playerPortraitTool('←','向前移动 '+variant.name,'left',index,!editable||index===0),playerPortraitTool('✎','重命名 '+variant.name,'rename',index,!editable),playerPortraitTool('×','删除 '+variant.name,'delete',index,!editable),playerPortraitTool('→','向后移动 '+variant.name,'right',index,!editable||index===variants.length-1));card.append(open,tools);strip.appendChild(card);});
+    requestAnimationFrame(()=>{if(Number.isInteger(focusIndex))strip.querySelector('[data-player-portrait-index="'+focusIndex+'"]')?.scrollIntoView({block:'nearest',inline:'center'});else strip.scrollLeft=previousScroll;updatePlayerPortraitScrollButtons();});
+  }
+  function openPlayerPortraitManager() { const t=tokenById(selectedId);if(!t||!ownedToken(t))return;playerPortraitManagerTokenId=t.id;$('#player-portrait-manager-modal').hidden=false;renderPlayerPortraitManager(currentPortraitVariantIndex(t)); }
+  function closePlayerPortraitManager() { playerPortraitManagerTokenId=null;$('#player-portrait-manager-modal').hidden=true; }
+  function commitPlayerPortraitVariants(t,variants,focusIndex=null) { const before=playerPortraitVariants(t);t.portraitVariants=normalizePlayerPortraitVariants(variants);renderPlayerPortraitManager(focusIndex);openDetail(t.id);sendPatch(t.id,{portraitVariants:t.portraitVariants},{portraitVariants:before}); }
+  function savePlayerCurrentPortraitVariant() { const t=playerPortraitManagerToken();if(!t||!canActWithToken(t)||!portraitIdentity(t))return;const variants=playerPortraitVariants(t),name=prompt('给这个形态命名','形态 '+(variants.length+1));if(name===null||!name.trim())return;const snapshot={name:name.trim().slice(0,24),iconImg:t.iconImg||null,iconImgHd:t.iconImgHd||null,iconImgPath:t.iconImgPath||null,iconImgId:t.iconImgId||null},identity=portraitIdentity(snapshot),existing=variants.findIndex(v=>portraitIdentity(v)===identity);let index=existing;if(existing>=0)variants[existing]=snapshot;else{variants.push(snapshot);index=variants.length-1;}commitPlayerPortraitVariants(t,variants,index);toast(existing>=0?'已更新这个形态的名称':'已保存当前立绘为形态'); }
+  function renamePlayerPortraitVariant(index) { const t=playerPortraitManagerToken(),variants=playerPortraitVariants(t),variant=variants[index];if(!t||!variant||!canActWithToken(t))return;const name=prompt('修改形态名称',variant.name);if(name===null||!name.trim())return;variant.name=name.trim().slice(0,24);commitPlayerPortraitVariants(t,variants,index); }
+  function movePlayerPortraitVariant(index,step) { const t=playerPortraitManagerToken(),variants=playerPortraitVariants(t),target=index+step;if(!t||!variants[index]||target<0||target>=variants.length||!canActWithToken(t))return;[variants[index],variants[target]]=[variants[target],variants[index]];commitPlayerPortraitVariants(t,variants,target); }
+  function deletePlayerPortraitVariant(index) { const t=playerPortraitManagerToken(),variants=playerPortraitVariants(t),variant=variants[index];if(!t||!variant||!canActWithToken(t)||!confirm('删除形态「'+variant.name+'」？'))return;variants.splice(index,1);commitPlayerPortraitVariants(t,variants,variants.length?Math.min(index,variants.length-1):null);toast('已删除形态「'+variant.name+'」'); }
   function hideTokenPeek() { clearTimeout(peekTimer); peekTimer=null; const peek=$('#token-peek'); peek.hidden=true; peek.dataset.tokenId=''; }
   function populateTokenPeek(t) {
     const peek=$('#token-peek'), meta=TYPE[t.type]||TYPE.npc, pct=clamp(Number(t.hp)/Math.max(1,Number(t.hpMax))*100,0,100);
@@ -1678,11 +1815,12 @@
     $('#hp').value=t.hp; $('#hp-max').value=t.hpMax; $('#ac').value=t.ac;
     $('#temp-hp').value=t.tempHp||0; $('#temp-hp-track').hidden=!(t.tempHp>0); $('#temp-hp-fill').style.width=clamp((t.tempHp||0)/Math.max(1,t.tempHpMax ?? t.tempHp)*100,0,100)+'%'; $('#temp-hp-max').value=t.tempHpMax??t.tempHp??0; $('#temp-hp-summary').textContent=(t.tempHp||0)+' / '+(t.tempHpMax??t.tempHp??0);
     const editable=canActWithToken(t), e=encounter();
-    const portraitSelect=$('#player-portrait');portraitSelect.replaceChildren(new Option((t.iconImgPath||t.iconImg||t.iconImgHd)?'自定义 / 当前立绘':'文字图标',''));
-    (t.portraitVariants||[]).forEach((v,i)=>portraitSelect.add(new Option(v.name,String(i))));
-    const selectedPortrait=(t.portraitVariants||[]).findIndex(v=>v.iconImgPath?v.iconImgPath===t.iconImgPath:v.iconImg===t.iconImg);if(selectedPortrait>=0)portraitSelect.value=String(selectedPortrait);
+    const portraitVariants=playerPortraitVariants(t),portraitSelect=$('#player-portrait');portraitSelect.replaceChildren(new Option((t.iconImgPath||t.iconImg||t.iconImgHd||t.iconImgId)?'当前自定义立绘':'文字图标',''));
+    portraitVariants.forEach((v,i)=>portraitSelect.add(new Option(v.name,String(i))));
+    const selectedPortrait=currentPortraitVariantIndex(t,portraitVariants);if(selectedPortrait>=0)portraitSelect.value=String(selectedPortrait);
     portraitSelect.disabled=!editable||portraitSelect.options.length<2;
-    $('#player-appearance-status').textContent=!editable?'当前无操作权限，请等待可操作回合':portraitSelect.options.length<2?'暂无可切换预设，请先同步棋子库':'当前：'+portraitSelect.options[portraitSelect.selectedIndex].textContent;
+    $('#player-portrait-manager-open').disabled=false;
+    $('#player-appearance-status').textContent=(editable?'当前：':'只读：')+portraitSelect.options[portraitSelect.selectedIndex].textContent+' · '+portraitVariants.length+' 个已保存形态';
     $('#hp').disabled=!editable; $('#hp-max').disabled=!editable; $('#ac').disabled=!editable; $('#temp-hp').disabled=!editable; $('#temp-hp-max').disabled=!editable;
     document.querySelectorAll('[data-hp]').forEach(b=>b.disabled=!editable);
     $('#ac-hint').textContent=editable?(e.playMode==='turn'?'✓ 当前回合可修改':e.playMode==='prepare'?'战斗准备阶段可修改':'自由模式可修改'):(e.playMode==='turn'?'🔒 等待你的回合':'请先加入房间');
@@ -1694,7 +1832,7 @@
   $('#player-portrait').addEventListener('change',e=>{
     const t=currentMap&&currentMap.tokens.find(x=>x.id===selectedId);
     if(!t||!ownedToken(t)||!canActWithToken(t)||e.target.value==='')return;
-    const index=Number(e.target.value);if(!t.portraitVariants?.[index])return;
+    const index=Number(e.target.value);if(!playerPortraitVariants(t)[index])return;
     sendPatch(t.id,{portraitVariant:index},{});
   });
   function updateOwned(field,value) { const t=currentMap && currentMap.tokens.find(x=>x.id===selectedId); if (!t || !ownedToken(t)) return; if(!canActWithToken(t)){openDetail(t.id);toast('🔒 只有轮到该角色时才能修改');return;} const previous=t[field];t[field]=value;sendPatch(t.id,{[field]:value},{[field]:previous});renderNamesLayer(currentMap);openDetail(t.id); }
@@ -1822,16 +1960,20 @@
     }
     if (a.op==='patchToken') {
       const patch=a.patch||{};
+      const portraitVariantsChanged=Array.isArray(patch.portraitVariants);if(portraitVariantsChanged)t.portraitVariants=normalizePlayerPortraitVariants(patch.portraitVariants);
       const portraitChanged=Number.isInteger(patch.portraitVariant)&&!!t.portraitVariants?.[patch.portraitVariant];
       if(portraitChanged){const v=t.portraitVariants[patch.portraitVariant];for(const k of ['iconImgPath','iconImg','iconImgHd','iconImgId'])t[k]=v[k]||null;t.portraitVariant=patch.portraitVariant;}
+      else if(Object.prototype.hasOwnProperty.call(patch,'portraitVariant'))delete t.portraitVariant;
       const conditionsChanged=Array.isArray(patch.conditions);['hp','hpMax','tempHp','tempHpMax','ac'].forEach(k=>{if(k in patch)t[k]=patch[k];});if('spellRange' in patch)t.spellRange=normalizeSpellRange(patch.spellRange);if(conditionsChanged)t.conditions=patch.conditions.slice(0,MAX_TOKEN_CONDITIONS).map(normalizePlayerCondition);
-      if(m===currentMap){if(conditionsChanged||portraitChanged)renderTokens(currentMap);else renderNamesLayer(currentMap);requestSpellRangeRender();}
+      if(m===currentMap){if(conditionsChanged||portraitChanged||portraitVariantsChanged)renderTokens(currentMap);else renderNamesLayer(currentMap);requestSpellRangeRender();}
       const selected=currentMap&&selectedId&&(currentMap.tokens||[]).find(token=>token.id===selectedId);if(selected&&tokenControlGroup(selected).has(t.id))openDetail(selected.id);refreshTokenPeek(t);
+      refreshTokenInvestigation(t);if(playerPortraitManagerTokenId===t.id)renderPlayerPortraitManager();
     }
   }
 
   board.addEventListener('pointerdown',e=>{
     if(e.button!==0)return;
+    hideTokenContextMenu();hideTokenInvestigation();
     if(e.target.closest('button')) return;
     e.preventDefault();
     if(pendingMapReaction&&placePlayerReactionAt(e))return;
@@ -1860,6 +2002,10 @@
     }
     hideTokenPeek();
     drag={kind:'pan',x:e.clientX,y:e.clientY,ox:view.ox,oy:view.oy}; board.setPointerCapture(e.pointerId);
+  });
+  board.addEventListener('contextmenu',e=>{
+    const rider=e.target.closest('.rider'),token=e.target.closest('.token');if(!token)return;e.preventDefault();
+    const selected=tokenById(rider?rider.dataset.id:token.dataset.id);if(!selected)return;hideTokenPeek();hideTokenInvestigation();showTokenContextMenu(selected,e.clientX,e.clientY);
   });
   board.addEventListener('pointermove',e=>{
     if(!drag || !currentMap) return;
@@ -1893,8 +2039,8 @@
     drag=null;
   }
   board.addEventListener('pointerup',finish); board.addEventListener('pointercancel',finish);
-  board.addEventListener('wheel',e=>{e.preventDefault();if(!currentMap)return;const r=world.getBoundingClientRect(),wx=(e.clientX-r.left)/view.scale,wy=(e.clientY-r.top)/view.scale,ns=clamp(view.scale*Math.exp(-e.deltaY*.0012),.2,4);view.ox+=e.clientX-r.left-wx*ns;view.oy+=e.clientY-r.top-wy*ns;view.scale=ns;applyView();},{passive:false});
-  $('#zoom-in').onclick=()=>{view.scale=clamp(view.scale*1.25,.2,4);applyView();}; $('#zoom-out').onclick=()=>{view.scale=clamp(view.scale/1.25,.2,4);applyView();}; $('#fit').onclick=fit;
+  board.addEventListener('wheel',e=>{e.preventDefault();if(!currentMap)return;const r=world.getBoundingClientRect(),wx=(e.clientX-r.left)/view.scale,wy=(e.clientY-r.top)/view.scale,ns=clamp(view.scale*Math.exp(-e.deltaY*.0012),.2,6);view.ox+=e.clientX-r.left-wx*ns;view.oy+=e.clientY-r.top-wy*ns;view.scale=ns;applyView();},{passive:false});
+  $('#zoom-in').onclick=()=>{view.scale=clamp(view.scale*1.25,.2,6);applyView();}; $('#zoom-out').onclick=()=>{view.scale=clamp(view.scale/1.25,.2,6);applyView();}; $('#fit').onclick=fit;
   $('#player-name').addEventListener('input',()=>{myName=$('#player-name').value.trim();try{localStorage.setItem('sangduoer-watch-name',myName);}catch(e){}if(currentMap)renderTokens(currentMap);if(selectedId)openDetail(selectedId);});
   $('#player-place-token').addEventListener('click',placePlayerDraftToken);
   $('#player-token-image-pick').addEventListener('click',()=>$('#player-token-image').click());
@@ -1904,6 +2050,15 @@
   $('#player-token-name').addEventListener('keydown',event=>{if(event.key==='Enter')placePlayerDraftToken();});
   $('#player-token-icon').addEventListener('keydown',event=>{if(event.key==='Enter')placePlayerDraftToken();});
   $('#detail-close').onclick=closeDetail;
+  $('#token-investigate').addEventListener('click',()=>{const t=tokenById(contextTokenId);hideTokenContextMenu();if(t)showTokenInvestigation(t);});
+  document.addEventListener('pointerdown',event=>{if(!event.target.closest('#token-context-menu')&&!event.target.closest('#token-investigation'))hideTokenContextMenu();});
+  $('#token-investigation').addEventListener('click',event=>{if(event.target===$('#token-investigation'))hideTokenInvestigation();});
+  $('#player-portrait-manager-open').addEventListener('click',openPlayerPortraitManager);
+  $('#player-portrait-manager-close').addEventListener('click',closePlayerPortraitManager);$('#player-portrait-manager-done').addEventListener('click',closePlayerPortraitManager);$('#player-portrait-save-current').addEventListener('click',savePlayerCurrentPortraitVariant);
+  $('#player-portrait-manager-modal').addEventListener('click',event=>{if(event.target===$('#player-portrait-manager-modal'))closePlayerPortraitManager();});
+  $('#player-portrait-strip').addEventListener('scroll',updatePlayerPortraitScrollButtons,{passive:true});
+  $('#player-portrait-scroll-left').addEventListener('click',()=>$('#player-portrait-strip').scrollBy({left:-330,behavior:'smooth'}));$('#player-portrait-scroll-right').addEventListener('click',()=>$('#player-portrait-strip').scrollBy({left:330,behavior:'smooth'}));
+  $('#player-portrait-strip').addEventListener('click',event=>{const action=event.target.closest('[data-player-portrait-action]');if(action){const index=Number(action.dataset.playerPortraitIndex),kind=action.dataset.playerPortraitAction;if(kind==='left')movePlayerPortraitVariant(index,-1);if(kind==='right')movePlayerPortraitVariant(index,1);if(kind==='rename')renamePlayerPortraitVariant(index);if(kind==='delete')deletePlayerPortraitVariant(index);return;}const select=event.target.closest('[data-player-portrait-select]');if(select){const t=playerPortraitManagerToken(),index=Number(select.dataset.playerPortraitSelect);if(t&&canActWithToken(t)&&playerPortraitVariants(t)[index])sendPatch(t.id,{portraitVariant:index},{});}});
   document.querySelectorAll('[data-player-detail-tab]').forEach(button=>button.addEventListener('click',()=>activatePlayerDetailTab(button.dataset.playerDetailTab)));
   $('#hp').addEventListener('input',()=>updateOwned('hp',clamp(parseInt($('#hp').value,10)||0,0,99999)));
   $('#hp-max').addEventListener('input',()=>updateOwned('hpMax',clamp(parseInt($('#hp-max').value,10)||1,1,99999)));
@@ -1953,9 +2108,9 @@
   $('#join-refresh').addEventListener('click',async()=>{const err=$('#join-error');err.textContent='正在刷新…';setJoinHomeBusy(true);try{await refreshPlayerHome();err.dataset.state='ok';err.textContent='房间状态已更新';}catch(error){setJoinHomeStatus('服务器未连接','error');err.dataset.state='';err.textContent=error.message||'刷新失败';}finally{setJoinHomeBusy(false);}});
   try { $('#personal-notes').value=localStorage.getItem('sangduoer-watch-notes')||''; } catch(e) {}
   $('#personal-notes').addEventListener('input',()=>{try{localStorage.setItem('sangduoer-watch-notes',$('#personal-notes').value);}catch(e){}});
-  window.addEventListener('keydown',event=>{if(event.key!=='Escape')return;if(pendingMapReaction||!$('#reaction-palette').hidden){cancelMapReaction();toast('已取消地图表情');}if(spellAimTokenId){cancelSpellAim();toast('已取消锥形瞄准');}});
+  window.addEventListener('keydown',event=>{if(event.key!=='Escape')return;if(!$('#player-portrait-manager-modal').hidden){closePlayerPortraitManager();return;}hideTokenContextMenu();hideTokenInvestigation();if(pendingMapReaction||!$('#reaction-palette').hidden){cancelMapReaction();toast('已取消地图表情');}if(spellAimTokenId){cancelSpellAim();toast('已取消锥形瞄准');}});
   initPlayerWorkspaceTabs();activatePlayerDetailTab('status',false);populatePlayerConditionSelect();updateToolButtons();
-  window.addEventListener('resize',fit);
+  window.addEventListener('resize',()=>{hideTokenContextMenu();hideTokenInvestigation();fit();});
 
   const playerAudio=new Audio(),playerLiveAudio=new Audio();
   let bgmUrl='',roomAudioState={action:'stop',mode:'library',track:'',time:0,issuedAt:0},playerAudioUnlocked=false,playerAudioMuted=false,playerLivePeer=null,playerLivePendingIce=[];

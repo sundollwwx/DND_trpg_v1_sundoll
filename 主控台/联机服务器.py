@@ -48,7 +48,7 @@ MAX_JOURNAL_ENTRIES = 100
 MAX_JOURNAL_TITLE = 80
 MAX_JOURNAL_TOTAL_TEXT = 20000
 JOURNAL_ENTRY_ID_RE = re.compile(r'^[A-Za-z0-9_.:-]{1,96}$')
-PATCH_FIELDS = {'portraitVariant', 'hp', 'hpMax', 'tempHp', 'tempHpMax', 'ac', 'spellRange', 'conditions'}
+PATCH_FIELDS = {'portraitVariant', 'portraitVariants', 'hp', 'hpMax', 'tempHp', 'tempHpMax', 'ac', 'spellRange', 'conditions'}
 MAX_TOKEN_CONDITIONS = 20
 CONDITION_ID_RE = re.compile(r'^[A-Za-z0-9_.:-]{1,96}$')
 CONDITION_KEY_RE = re.compile(r'^[A-Za-z0-9_-]{1,32}$')
@@ -529,6 +529,52 @@ def normalize_public_conditions(raw):
             condition['id'] = 'cond-' + secrets.token_hex(8)
         seen_ids.add(condition['id'])
         result.append(condition)
+    return result
+
+
+def portrait_asset_identity(source):
+    """为立绘来源生成稳定标识；大图片只比较摘要，避免复制客户端提交内容。"""
+    if not isinstance(source, dict):
+        return ''
+    for field in ('iconImgPath', 'iconImgId'):
+        value = source.get(field)
+        if value:
+            return field + ':' + str(value).replace('\\', '/')[:1024]
+    for field in ('iconImgHd', 'iconImg'):
+        value = source.get(field)
+        if value:
+            encoded = str(value).encode('utf-8', errors='ignore')
+            return field + ':' + hashlib.sha256(encoded).hexdigest()
+    return ''
+
+
+def normalize_player_portrait_variants(raw, token):
+    """玩家只能重命名、排序、删除已有形态，或保存棋子当前正在使用的立绘。"""
+    if not isinstance(raw, list) or not isinstance(token, dict):
+        return None
+    allowed = {}
+    for source in list(token.get('portraitVariants') or []) + [token]:
+        identity = portrait_asset_identity(source)
+        if identity and identity not in allowed:
+            allowed[identity] = {
+                'iconImg': source.get('iconImg') or None,
+                'iconImgHd': source.get('iconImgHd') or None,
+                'iconImgPath': source.get('iconImgPath') or None,
+                'iconImgId': source.get('iconImgId') or None,
+            }
+    result = []
+    used = set()
+    for item in raw[:24]:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get('name') or '').strip()[:24]
+        identity = portrait_asset_identity(item)
+        if not name or not identity or identity not in allowed or identity in used:
+            continue
+        variant = {'name': name}
+        variant.update(allowed[identity])
+        result.append(variant)
+        used.add(identity)
     return result
 
 
@@ -2224,7 +2270,6 @@ def normalize_player_spawn_action(state, requested, player, player_id=''):
         'spellRange': normalize_spell_range(None),
         'conditions': [],
         'publicNote': '',
-        'gmNote': '',
         'hiddenFromPlayers': False,
         'owner': actor,
         'mountId': None,
@@ -2783,10 +2828,34 @@ def apply_action(state, action):
         if not isinstance(patch, dict) or not patch:
             return False
         accepted = False
-        for k, v in patch.items():
+        variants_patch_accepted = False
+        if 'portraitVariants' in patch:
+            current_portrait = portrait_asset_identity(t)
+            variants = normalize_player_portrait_variants(patch.get('portraitVariants'), t)
+            if variants is not None:
+                t['portraitVariants'] = variants
+                patch['portraitVariants'] = [dict(variant) for variant in variants]
+                selected_index = next((index for index, variant in enumerate(variants)
+                                       if portrait_asset_identity(variant) == current_portrait), None)
+                if selected_index is None:
+                    t.pop('portraitVariant', None)
+                    patch['portraitVariant'] = None
+                else:
+                    t['portraitVariant'] = selected_index
+                    patch['portraitVariant'] = selected_index
+                accepted = True
+                variants_patch_accepted = True
+        for k, v in list(patch.items()):
             if k not in PATCH_FIELDS:
                 continue
+            if k == 'portraitVariants':
+                continue
             if k == 'portraitVariant':
+                if v is None:
+                    if variants_patch_accepted:
+                        t.pop('portraitVariant', None)
+                        accepted = True
+                    continue
                 variants = t.get('portraitVariants') or []
                 if type(v) is not int or v < 0 or v >= len(variants):
                     continue

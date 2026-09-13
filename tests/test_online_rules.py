@@ -407,6 +407,64 @@ class PlayerConditionPatchTests(unittest.TestCase):
         self.assertEqual(SERVER.find_token(state, 'rider')[1]['conditions'], original)
 
 
+class PlayerPortraitVariantPatchTests(unittest.TestCase):
+    def portrait_state(self):
+        state = make_state(play_mode='free')
+        token = SERVER.find_token(state, 'rider')[1]
+        token.update({
+            'iconImgPath': '立绘/玩家/常态.png',
+            'portraitVariant': 0,
+            'portraitVariants': [
+                {'name': '常态', 'iconImgPath': '立绘/玩家/常态.png'},
+                {'name': '战斗', 'iconImgPath': '立绘/玩家/战斗.png'},
+            ],
+        })
+        return state, token
+
+    def test_owner_can_rename_and_reorder_existing_portraits(self):
+        state, token = self.portrait_state()
+        action = {
+            'op': 'patchToken', 'tokenId': 'rider', 'actor': 'Alice', 'playMode': 'free',
+            'patch': {'portraitVariants': [
+                {'name': '战斗姿态', 'iconImgPath': '立绘/玩家/战斗.png'},
+                {'name': '旅行常态', 'iconImgPath': '立绘/玩家/常态.png', 'iconImg': '伪造内容'},
+            ]},
+        }
+
+        self.assertTrue(SERVER.apply_action(state, action))
+        self.assertEqual([item['name'] for item in token['portraitVariants']], ['战斗姿态', '旅行常态'])
+        self.assertEqual(token['portraitVariant'], 1)
+        self.assertEqual(action['patch']['portraitVariant'], 1)
+        self.assertIsNone(token['portraitVariants'][1]['iconImg'])
+
+    def test_player_cannot_inject_a_new_portrait_source(self):
+        state, token = self.portrait_state()
+        action = {
+            'op': 'patchToken', 'tokenId': 'rider', 'actor': 'Alice', 'playMode': 'free',
+            'patch': {'portraitVariants': [
+                {'name': '外部立绘', 'iconImgPath': '../../private.png'},
+                {'name': '保留常态', 'iconImgPath': '立绘/玩家/常态.png'},
+            ]},
+        }
+
+        self.assertTrue(SERVER.apply_action(state, action))
+        self.assertEqual([item['name'] for item in token['portraitVariants']], ['保留常态'])
+        self.assertEqual(token['portraitVariants'][0]['iconImgPath'], '立绘/玩家/常态.png')
+
+    def test_deleting_all_variants_keeps_current_art_but_clears_selection(self):
+        state, token = self.portrait_state()
+        action = {
+            'op': 'patchToken', 'tokenId': 'rider', 'actor': 'Alice', 'playMode': 'free',
+            'patch': {'portraitVariants': []},
+        }
+
+        self.assertTrue(SERVER.apply_action(state, action))
+        self.assertEqual(token['portraitVariants'], [])
+        self.assertEqual(token['iconImgPath'], '立绘/玩家/常态.png')
+        self.assertNotIn('portraitVariant', token)
+        self.assertIsNone(action['patch']['portraitVariant'])
+
+
 class PlayerSpawnTokenTests(unittest.TestCase):
     def normalized(self, state, draft=None, **request_overrides):
         request = {

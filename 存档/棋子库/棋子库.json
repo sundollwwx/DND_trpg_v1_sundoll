@@ -1,7 +1,7 @@
 {
   "format": "sangduoer-library",
   "schemaVersion": 1,
-  "savedAt": 1789116172922,
+  "savedAt": 1789269108506,
   "presets": [
     {
       "id": "l1",
@@ -1393,11 +1393,28 @@
       "iconImgHd": null,
       "portraitVariants": [
         {
-          "name": "羊皮纸统一版",
-          "iconImgPath": "立绘/玩家/战役-风骸岛之龙/黑胡桃-羊皮纸统一.png"
+          "name": "深黑甲常态",
+          "iconImg": null,
+          "iconImgHd": null,
+          "iconImgPath": "立绘/玩家/战役-风骸岛之龙/黑胡桃-深黑甲常态.png",
+          "iconImgId": null
+        },
+        {
+          "name": "仇恨灵光",
+          "iconImg": null,
+          "iconImgHd": null,
+          "iconImgPath": "立绘/玩家/战役-风骸岛之龙/黑胡桃-仇恨灵光.png",
+          "iconImgId": null
+        },
+        {
+          "name": "倒地剑落",
+          "iconImg": null,
+          "iconImgHd": null,
+          "iconImgPath": "立绘/玩家/战役-风骸岛之龙/黑胡桃-倒地剑落.png",
+          "iconImgId": null
         }
       ],
-      "iconImgPath": "立绘/玩家/战役-风骸岛之龙/黑胡桃-羊皮纸统一.png",
+      "iconImgPath": "立绘/玩家/战役-风骸岛之龙/黑胡桃-深黑甲常态.png",
       "iconImgId": null,
       "size": 1,
       "hpMax": 10,
@@ -1418,11 +1435,42 @@
       "iconImgHd": null,
       "portraitVariants": [
         {
-          "name": "羊皮纸统一版",
-          "iconImgPath": "立绘/玩家/战役-风骸岛之龙/雷弗-羊皮纸统一.png"
+          "name": "常态",
+          "iconImg": null,
+          "iconImgHd": null,
+          "iconImgPath": "立绘/玩家/战役-风骸岛之龙/雷弗-常态.png",
+          "iconImgId": null
+        },
+        {
+          "name": "变身形态",
+          "iconImg": null,
+          "iconImgHd": null,
+          "iconImgPath": "立绘/玩家/战役-风骸岛之龙/雷弗-变身形态.png",
+          "iconImgId": null
+        },
+        {
+          "name": "引弓射击",
+          "iconImg": null,
+          "iconImgHd": null,
+          "iconImgPath": "立绘/玩家/战役-风骸岛之龙/雷弗-引弓射击.png",
+          "iconImgId": null
+        },
+        {
+          "name": "倒地失能",
+          "iconImg": null,
+          "iconImgHd": null,
+          "iconImgPath": "立绘/玩家/战役-风骸岛之龙/雷弗-倒地失能.png",
+          "iconImgId": null
+        },
+        {
+          "name": "战时失能",
+          "iconImg": null,
+          "iconImgHd": null,
+          "iconImgPath": "立绘/玩家/战役-风骸岛之龙/雷弗-战时失能.png",
+          "iconImgId": null
         }
       ],
-      "iconImgPath": "立绘/玩家/战役-风骸岛之龙/雷弗-羊皮纸统一.png",
+      "iconImgPath": "立绘/玩家/战役-风骸岛之龙/雷弗-常态.png",
       "iconImgId": null,
       "size": 1,
       "hpMax": 10,
@@ -1444,15 +1492,24 @@
       "portraitVariants": [
         {
           "name": "睁眼施法",
-          "iconImgPath": "立绘/玩家/战役-风骸岛之龙/戈卓-睁眼施法.png"
+          "iconImg": null,
+          "iconImgHd": null,
+          "iconImgPath": "立绘/玩家/战役-风骸岛之龙/戈卓-睁眼施法.png",
+          "iconImgId": null
         },
         {
           "name": "蒙眼常态",
-          "iconImgPath": "立绘/玩家/战役-风骸岛之龙/戈卓-蒙眼常态.png"
+          "iconImg": null,
+          "iconImgHd": null,
+          "iconImgPath": "立绘/玩家/战役-风骸岛之龙/戈卓-蒙眼常态.png",
+          "iconImgId": null
         },
         {
           "name": "阿斯莫显翼",
-          "iconImgPath": "立绘/玩家/战役-风骸岛之龙/戈卓-阿斯莫显翼.png"
+          "iconImg": null,
+          "iconImgHd": null,
+          "iconImgPath": "立绘/玩家/战役-风骸岛之龙/戈卓-阿斯莫显翼.png",
+          "iconImgId": null
         }
       ],
       "iconImgPath": "立绘/玩家/战役-风骸岛之龙/戈卓-睁眼施法.png",
@@ -1507,6 +1564,26 @@
       }
     },
     {
+      "id": "token-strong-zombie-20260912",
+      "name": "强壮丧尸",
+      "type": "enemy",
+      "category": "不死/丧尸",
+      "icon": "",
+      "iconImg": null,
+      "iconImgHd": null,
+      "portraitVariants": [],
+      "iconImgPath": "立绘/不死/丧尸/强壮丧尸.png",
+      "iconImgId": null,
+      "size": 1,
+      "hpMax": 22,
+      "ac": 8,
+      "spellRange": {
+        "shape": "off",
+        "feet": 30,
+        "direction": 0
+      }
+    },
+    {
       "id": "token-1788700764356781000",
       "name": "狗头人",
       "type": "enemy",
@@ -1536,11 +1613,63 @@
       "iconImgHd": null,
       "portraitVariants": [
         {
-          "name": "羊皮纸统一版",
-          "iconImgPath": "立绘/玩家/战役-风骸岛之龙/零式-羊皮纸统一.png"
+          "name": "远程火力",
+          "iconImg": null,
+          "iconImgHd": null,
+          "iconImgPath": "立绘/玩家/战役-风骸岛之龙/零式-远程火力.png",
+          "iconImgId": null
+        },
+        {
+          "name": "近距离接敌",
+          "iconImg": null,
+          "iconImgHd": null,
+          "iconImgPath": "立绘/玩家/战役-风骸岛之龙/零式-近距离接敌.png",
+          "iconImgId": null
+        },
+        {
+          "name": "普通站立",
+          "iconImg": null,
+          "iconImgHd": null,
+          "iconImgPath": "立绘/玩家/战役-风骸岛之龙/零式-普通站立.png",
+          "iconImgId": null
+        },
+        {
+          "name": "倒地故障",
+          "iconImg": null,
+          "iconImgHd": null,
+          "iconImgPath": "立绘/玩家/战役-风骸岛之龙/零式-倒地故障.png",
+          "iconImgId": null
         }
       ],
-      "iconImgPath": "立绘/玩家/战役-风骸岛之龙/零式-羊皮纸统一.png",
+      "iconImgPath": "立绘/玩家/战役-风骸岛之龙/零式-普通站立.png",
+      "iconImgId": null,
+      "size": 1,
+      "hpMax": 10,
+      "ac": 10,
+      "spellRange": {
+        "shape": "off",
+        "feet": 30,
+        "direction": 0
+      }
+    },
+    {
+      "id": "l90",
+      "name": "轮式魔导炮台",
+      "type": "pc",
+      "category": "玩家/战役-风骸岛之龙",
+      "icon": "⚙️",
+      "iconImg": null,
+      "iconImgHd": null,
+      "portraitVariants": [
+        {
+          "name": "独立形态",
+          "iconImg": null,
+          "iconImgHd": null,
+          "iconImgPath": "立绘/玩家/战役-风骸岛之龙/轮式魔导炮台.png",
+          "iconImgId": null
+        }
+      ],
+      "iconImgPath": "立绘/玩家/战役-风骸岛之龙/轮式魔导炮台.png",
       "iconImgId": null,
       "size": 1,
       "hpMax": 10,
@@ -1575,16 +1704,444 @@
       "id": "npc-1788701100416470000",
       "name": "茹娜拉",
       "type": "npc",
-      "category": "NPC/战役-风骸龙之岛",
+      "category": "NPC/战役-风骸岛之龙",
       "icon": "",
       "iconImg": null,
       "iconImgHd": null,
-      "portraitVariants": [],
-      "iconImgPath": "立绘/NPC/战役-风骸龙之岛/茹娜拉.png",
+      "portraitVariants": [
+        {
+          "name": "人形态·修道院导师",
+          "iconImg": null,
+          "iconImgHd": null,
+          "iconImgPath": "立绘/NPC/战役-风骸岛之龙/茹娜拉.png",
+          "iconImgId": null
+        },
+        {
+          "name": "真龙形态·成年青铜龙",
+          "iconImg": null,
+          "iconImgHd": null,
+          "iconImgPath": "立绘/NPC/战役-风骸岛之龙/茹娜拉-成年青铜龙.png",
+          "iconImgId": null
+        }
+      ],
+      "iconImgPath": "立绘/NPC/战役-风骸岛之龙/茹娜拉.png",
       "iconImgId": null,
       "size": 1,
       "hpMax": 4,
       "ac": 10,
+      "spellRange": {
+        "shape": "off",
+        "feet": 30,
+        "direction": 0
+      }
+    },
+    {
+      "id": "npc-stormwreck-myla",
+      "name": "米拉",
+      "type": "npc",
+      "category": "NPC/战役-风骸岛之龙",
+      "icon": "",
+      "iconImg": null,
+      "iconImgHd": null,
+      "portraitVariants": [],
+      "iconImgPath": "立绘/NPC/战役-风骸岛之龙/米拉.png",
+      "iconImgId": null,
+      "size": 1,
+      "hpMax": 4,
+      "ac": 10,
+      "spellRange": {
+        "shape": "off",
+        "feet": 30,
+        "direction": 0
+      }
+    },
+    {
+      "id": "npc-stormwreck-runara-bronze-dragon",
+      "name": "茹娜拉（成年青铜龙）",
+      "type": "npc",
+      "category": "NPC/战役-风骸岛之龙",
+      "icon": "",
+      "iconImg": null,
+      "iconImgHd": null,
+      "portraitVariants": [],
+      "iconImgPath": "立绘/NPC/战役-风骸岛之龙/茹娜拉-成年青铜龙.png",
+      "iconImgId": null,
+      "size": 2,
+      "hpMax": 4,
+      "ac": 10,
+      "spellRange": {
+        "shape": "off",
+        "feet": 30,
+        "direction": 0
+      }
+    },
+    {
+      "id": "npc-stormwreck-rix",
+      "name": "瑞克斯",
+      "type": "npc",
+      "category": "NPC/战役-风骸岛之龙",
+      "icon": "",
+      "iconImg": null,
+      "iconImgHd": null,
+      "portraitVariants": [],
+      "iconImgPath": "立绘/NPC/战役-风骸岛之龙/瑞克斯.png",
+      "iconImgId": null,
+      "size": 1,
+      "hpMax": 4,
+      "ac": 10,
+      "spellRange": {
+        "shape": "off",
+        "feet": 30,
+        "direction": 0
+      }
+    },
+    {
+      "id": "npc-stormwreck-blepp",
+      "name": "布立普",
+      "type": "npc",
+      "category": "NPC/战役-风骸岛之龙",
+      "icon": "",
+      "iconImg": null,
+      "iconImgHd": null,
+      "portraitVariants": [],
+      "iconImgPath": "立绘/NPC/战役-风骸岛之龙/布立普.png",
+      "iconImgId": null,
+      "size": 1,
+      "hpMax": 4,
+      "ac": 10,
+      "spellRange": {
+        "shape": "off",
+        "feet": 30,
+        "direction": 0
+      }
+    },
+    {
+      "id": "npc-stormwreck-mumpo",
+      "name": "姆普",
+      "type": "npc",
+      "category": "NPC/战役-风骸岛之龙",
+      "icon": "",
+      "iconImg": null,
+      "iconImgHd": null,
+      "portraitVariants": [],
+      "iconImgPath": "立绘/NPC/战役-风骸岛之龙/姆普.png",
+      "iconImgId": null,
+      "size": 1,
+      "hpMax": 4,
+      "ac": 10,
+      "spellRange": {
+        "shape": "off",
+        "feet": 30,
+        "direction": 0
+      }
+    },
+    {
+      "id": "npc-stormwreck-agga",
+      "name": "阿嘎",
+      "type": "npc",
+      "category": "NPC/战役-风骸岛之龙",
+      "icon": "",
+      "iconImg": null,
+      "iconImgHd": null,
+      "portraitVariants": [],
+      "iconImgPath": "立绘/NPC/战役-风骸岛之龙/阿嘎.png",
+      "iconImgId": null,
+      "size": 1,
+      "hpMax": 4,
+      "ac": 10,
+      "spellRange": {
+        "shape": "off",
+        "feet": 30,
+        "direction": 0
+      }
+    },
+    {
+      "id": "npc-stormwreck-frub",
+      "name": "弗拉布",
+      "type": "npc",
+      "category": "NPC/战役-风骸岛之龙",
+      "icon": "",
+      "iconImg": null,
+      "iconImgHd": null,
+      "portraitVariants": [],
+      "iconImgPath": "立绘/NPC/战役-风骸岛之龙/弗拉布.png",
+      "iconImgId": null,
+      "size": 1,
+      "hpMax": 4,
+      "ac": 10,
+      "spellRange": {
+        "shape": "off",
+        "feet": 30,
+        "direction": 0
+      }
+    },
+    {
+      "id": "npc-stormwreck-kilnip",
+      "name": "基尼普",
+      "type": "npc",
+      "category": "NPC/战役-风骸岛之龙",
+      "icon": "",
+      "iconImg": null,
+      "iconImgHd": null,
+      "portraitVariants": [],
+      "iconImgPath": "立绘/NPC/战役-风骸岛之龙/基尼普.png",
+      "iconImgId": null,
+      "size": 1,
+      "hpMax": 4,
+      "ac": 10,
+      "spellRange": {
+        "shape": "off",
+        "feet": 30,
+        "direction": 0
+      }
+    },
+    {
+      "id": "npc-stormwreck-laylee",
+      "name": "拉里",
+      "type": "npc",
+      "category": "NPC/战役-风骸岛之龙",
+      "icon": "",
+      "iconImg": null,
+      "iconImgHd": null,
+      "portraitVariants": [],
+      "iconImgPath": "立绘/NPC/战役-风骸岛之龙/拉里.png",
+      "iconImgId": null,
+      "size": 1,
+      "hpMax": 4,
+      "ac": 10,
+      "spellRange": {
+        "shape": "off",
+        "feet": 30,
+        "direction": 0
+      }
+    },
+    {
+      "id": "npc-stormwreck-zark",
+      "name": "扎克",
+      "type": "npc",
+      "category": "NPC/战役-风骸岛之龙",
+      "icon": "",
+      "iconImg": null,
+      "iconImgHd": null,
+      "portraitVariants": [],
+      "iconImgPath": "立绘/NPC/战役-风骸岛之龙/扎克.png",
+      "iconImgId": null,
+      "size": 1,
+      "hpMax": 4,
+      "ac": 10,
+      "spellRange": {
+        "shape": "off",
+        "feet": 30,
+        "direction": 0
+      }
+    },
+    {
+      "id": "npc-stormwreck-mek",
+      "name": "米克",
+      "type": "npc",
+      "category": "NPC/战役-风骸岛之龙",
+      "icon": "",
+      "iconImg": null,
+      "iconImgHd": null,
+      "portraitVariants": [],
+      "iconImgPath": "立绘/NPC/战役-风骸岛之龙/米克.png",
+      "iconImgId": null,
+      "size": 1,
+      "hpMax": 4,
+      "ac": 10,
+      "spellRange": {
+        "shape": "off",
+        "feet": 30,
+        "direction": 0
+      }
+    },
+    {
+      "id": "npc-castellan-mumu",
+      "name": "木木",
+      "type": "npc",
+      "category": "城主/通用角色",
+      "icon": "🌙",
+      "iconImg": null,
+      "iconImgHd": null,
+      "portraitVariants": [
+        {
+          "name": "月牙项链常态",
+          "iconImg": null,
+          "iconImgHd": null,
+          "iconImgPath": "立绘/城主/通用角色/木木-常态.png",
+          "iconImgId": null
+        },
+        {
+          "name": "撑地爆发施法",
+          "iconImg": null,
+          "iconImgHd": null,
+          "iconImgPath": "立绘/城主/通用角色/木木-施法.png",
+          "iconImgId": null
+        },
+        {
+          "name": "酒馆便装坐姿",
+          "iconImg": null,
+          "iconImgHd": null,
+          "iconImgPath": "立绘/城主/通用角色/木木-酒馆便装.png",
+          "iconImgId": null
+        },
+        {
+          "name": "船长形态",
+          "iconImg": null,
+          "iconImgHd": null,
+          "iconImgPath": "立绘/城主/通用角色/木木-船长形态.png",
+          "iconImgId": null
+        }
+      ],
+      "iconImgPath": "立绘/城主/通用角色/木木-常态.png",
+      "iconImgId": null,
+      "size": 1,
+      "hpMax": 10,
+      "ac": 10,
+      "spellRange": {
+        "shape": "off",
+        "feet": 30,
+        "direction": 0
+      }
+    },
+    {
+      "id": "npc-castellan-sundoll",
+      "name": "桑哆尔",
+      "type": "npc",
+      "category": "城主/通用角色",
+      "icon": "☀️",
+      "iconImg": null,
+      "iconImgHd": null,
+      "portraitVariants": [
+        {
+          "name": "高挑常态",
+          "iconImg": null,
+          "iconImgHd": null,
+          "iconImgPath": "立绘/城主/通用角色/桑哆尔-常态.png",
+          "iconImgId": null
+        },
+        {
+          "name": "魔法巨剑战斗",
+          "iconImg": null,
+          "iconImgHd": null,
+          "iconImgPath": "立绘/城主/通用角色/桑哆尔-巨剑战斗.png",
+          "iconImgId": null
+        },
+        {
+          "name": "酒馆老板",
+          "iconImg": null,
+          "iconImgHd": null,
+          "iconImgPath": "立绘/城主/通用角色/桑哆尔-酒馆老板.png",
+          "iconImgId": null
+        },
+        {
+          "name": "蓝金长戟战斗",
+          "iconImg": null,
+          "iconImgHd": null,
+          "iconImgPath": "立绘/城主/通用角色/桑哆尔-蓝金长戟战斗.png",
+          "iconImgId": null
+        }
+      ],
+      "iconImgPath": "立绘/城主/通用角色/桑哆尔-酒馆老板.png",
+      "iconImgId": null,
+      "size": 1,
+      "hpMax": 10,
+      "ac": 10,
+      "spellRange": {
+        "shape": "off",
+        "feet": 30,
+        "direction": 0
+      }
+    },
+    {
+      "id": "npc-stormwreck-minn",
+      "name": "米恩",
+      "type": "npc",
+      "category": "NPC/战役-风骸岛之龙",
+      "icon": "",
+      "iconImg": null,
+      "iconImgHd": null,
+      "portraitVariants": [],
+      "iconImgPath": "立绘/NPC/战役-风骸岛之龙/米恩.png",
+      "iconImgId": null,
+      "size": 1,
+      "hpMax": 4,
+      "ac": 10,
+      "spellRange": {
+        "shape": "off",
+        "feet": 30,
+        "direction": 0
+      }
+    },
+    {
+      "id": "npc-stormwreck-vanus",
+      "name": "瓦努斯",
+      "type": "npc",
+      "category": "NPC/战役-风骸岛之龙",
+      "icon": "",
+      "iconImg": null,
+      "iconImgHd": null,
+      "portraitVariants": [],
+      "iconImgPath": "立绘/NPC/战役-风骸岛之龙/瓦努斯.png",
+      "iconImgId": null,
+      "size": 1,
+      "hpMax": 4,
+      "ac": 10,
+      "spellRange": {
+        "shape": "off",
+        "feet": 30,
+        "direction": 0
+      }
+    },
+    {
+      "id": "npc-stormwreck-tarak",
+      "name": "塔拉克",
+      "type": "npc",
+      "category": "NPC/战役-风骸岛之龙",
+      "icon": "",
+      "iconImg": null,
+      "iconImgHd": null,
+      "portraitVariants": [],
+      "iconImgPath": "立绘/NPC/战役-风骸岛之龙/塔拉克.png",
+      "iconImgId": null,
+      "size": 1,
+      "hpMax": 4,
+      "ac": 10,
+      "spellRange": {
+        "shape": "off",
+        "feet": 30,
+        "direction": 0
+      }
+    },
+    {
+      "id": "monster-harpy-coastal",
+      "name": "鸟妖",
+      "type": "enemy",
+      "category": "鸟妖/海岸鸟妖",
+      "icon": "",
+      "iconImg": null,
+      "iconImgHd": null,
+      "portraitVariants": [
+        {
+          "name": "凶暴兽骨形态",
+          "iconImg": null,
+          "iconImgHd": null,
+          "iconImgPath": "立绘/鸟妖/海岸鸟妖/鸟妖.png",
+          "iconImgId": null
+        },
+        {
+          "name": "歌唱魅惑形态",
+          "iconImg": null,
+          "iconImgHd": null,
+          "iconImgPath": "立绘/鸟妖/海岸鸟妖/鸟妖-歌唱魅惑.png",
+          "iconImgId": null
+        }
+      ],
+      "iconImgPath": "立绘/鸟妖/海岸鸟妖/鸟妖.png",
+      "iconImgId": null,
+      "size": 1,
+      "hpMax": 38,
+      "ac": 11,
       "spellRange": {
         "shape": "off",
         "feet": 30,

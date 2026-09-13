@@ -1,0 +1,12 @@
+Use case: identity-preserve
+Asset type: square fantasy RPG token portrait, casual tavern companion variant
+Primary request: Change Mumu from standing to a relaxed seated pose that shows she works for the tavern owner but is also the owner's trusted close comrade and old adventuring companion.
+Preserve her recognizable beautiful adult human female face, long dark-brown partly braided hair, tall slender build, silver crescent-moon necklace, plain off-white rolled-sleeve blouse, muted dark-green bodice, brown skirt, worn beige apron, simple boots, warm modest tavern interior, realistic painterly western fantasy rulebook style, oval scenic area and pure white outside.
+Pose and relationship tone: Mumu sits sideways but naturally on a sturdy wooden bar stool beside the bar, torso turned toward the viewer in a relaxed three-quarter view. Her posture is informal and familiar rather than submissive or elegant: shoulders loose, one leg slightly extended and the other bent at the stool, as if taking a short break after work. She wears a warm, confident, knowing half-smile—the expression of a trusted comrade who can joke with the owner, not a formal servant awaiting orders.
+Prop and hands: exactly ONE wooden tankard of foamy amber beer. One hand MUST clearly grip the tankard by inserting fingers through and wrapping them around its visible curved handle; the palm must not hold the cup body or rim. Hold the mug casually near one thigh. Her other hand rests loosely on the stool edge, bar counter, or her knee. Show both hands clearly with correct anatomy.
+Keep subtle signs of work: slightly rumpled sleeves and apron, practical clothing, no polished serving pose. No tray.
+Composition: one seated full-body character; her complete head, hair, both hands, tankard and handle, stool, skirt, legs and boots all inside the oval with comfortable margins. The tavern remains softly rendered and lower contrast, with no visible owner, patrons or other figures.
+Avoid: standing pose, formal upright posture, presenting the beer, holding the mug by its body or rim, tray, second mug, armor, cleric robes, staff, spells, submissive expression, extra people, extra hands/fingers, text, watermark, UI or cropped limbs. Square output.
+
+生成方式：内置 image_gen，参考木木-酒馆便装-v2.png编辑。待用户确认，尚未正式入库。
+

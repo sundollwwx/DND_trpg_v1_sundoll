@@ -83,6 +83,40 @@ class DetailPanelMarkupTests(unittest.TestCase):
         self.assertIn('btn-detail-close', self.parser.elements)
         self.assertIn(".card:not([data-no-collapse])", self.javascript)
 
+    def test_detail_header_uses_full_portrait_preview_instead_of_avatar(self):
+        self.assertNotIn('detail-icon', self.parser.elements)
+        preview = self.parser.elements['btn-detail-portrait-preview']
+        self.assertEqual(preview['tag'], 'button')
+        self.assertEqual(preview['attrs'].get('aria-controls'), 'portrait-preview-modal')
+        dialog = self.parser.elements['portrait-preview-modal']
+        self.assertIn('modal-mask', dialog['attrs'].get('class', ''))
+        self.assertIn('function tokenPortraitPreviewSource(', self.javascript)
+        self.assertIn('return portraitAssetUrl(t.iconImgPath)', self.javascript)
+        self.assertIn('return await avatarGet(t.iconImgId)', self.javascript)
+
+    def test_gm_private_token_notes_are_removed_and_not_resaved(self):
+        self.assertNotIn('detail-gm-note', self.parser.elements)
+        self.assertNotIn('GM 私密备注', self.html)
+        self.assertNotIn("$('#detail-gm-note')", self.javascript)
+        self.assertIn("if (key === 'gmNote') return undefined", self.javascript)
+
+    def test_portrait_variants_have_a_thumbnail_manager(self):
+        trigger = self.parser.elements['btn-portrait-manager-open']
+        self.assertEqual(trigger['tag'], 'button')
+        self.assertEqual(trigger['attrs'].get('aria-controls'), 'portrait-manager-modal')
+        self.assertIn('hidden', self.parser.elements['portrait-manager-modal']['attrs'])
+        for element_id in (
+            'portrait-variant-strip',
+            'btn-portrait-scroll-left',
+            'btn-portrait-scroll-right',
+            'btn-portrait-save-current',
+            'btn-portrait-sync-library',
+        ):
+            self.assertIn(element_id, self.parser.elements)
+        self.assertIn('function saveCurrentPortraitAsVariant(', self.javascript)
+        self.assertIn('function moveTokenPortraitVariant(', self.javascript)
+        self.assertIn('function syncTokenPortraitVariantsToLibrary(', self.javascript)
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -1,0 +1,33 @@
+Use case: identity-preserve
+Asset type: square fantasy RPG full-body token portrait, revised ordinary standing form
+Primary request: Modify Sundoll's ordinary standing portrait in exactly three areas: remove the headpiece, make his proportions visibly taller, and place both heavy weapons together inside one back-mounted weapon bag.
+
+IDENTITY AND COSTUME TO PRESERVE:
+Keep the same handsome adult human male identity, face, dark medium-length hair, composed alert expression, royal/navy-blue layered plate armor with antique-gold ornamental edging, midnight-blue weathered cloak with muted-gold lining, dark leather straps, simple faceless gold sun-disk pendant, ordinary relaxed standing pose, and realistic painterly western fantasy rulebook style.
+Keep one curved scimitar sheathed at one hip and one separate straight short sword sheathed at the opposite hip.
+
+1. REMOVE HEADPIECE COMPLETELY:
+Remove the entire armored brow guard, half-helm, helmet plates and all head armor. Nothing sits on his forehead or temples. Show his complete natural dark hair, full forehead, both eyebrows and both eyes clearly. Do not replace it with a crown, circlet, hood, hat or ornament.
+
+2. MAKE HIM LOOK TALLER:
+Give Sundoll elegant heroic tall proportions: approximately 8 to 8.5 heads high, a slightly smaller head relative to the body, longer legs—especially thighs and shins—a long balanced torso, broad but not squat shoulders, and an upright vertical stance. He should read immediately as a tall human man without becoming thin, stretched or anatomically distorted. Preserve the heavy armor and athletic strength.
+
+3. ONE SHARED WEAPON BAG ON HIS BACK:
+Remove the current exposed crossed heavy-weapon arrangement. Create one long reinforced navy-blue leather-and-canvas weapon carrying bag/scabbard bundle strapped vertically or slightly diagonally along his back, with antique-gold fittings, strong shoulder straps and tied retaining bands. BOTH heavy weapons—the massive sheathed greatsword and the long halberd—are stored together inside this single shared back weapon bag.
+The bag encloses most of both weapons and keeps them bundled parallel together. Only the oversized greatsword hilt and enough of the ornate halberd head (axe blade, spear point and rear hook) project from the open top so both weapons remain recognizable. No separate floating scabbard, no crossed weapons, no exposed long shafts running behind his shoulders. The shared weapon bag must look practical, load-bearing and securely attached.
+Four weapons total remain: one bagged greatsword, one bagged halberd, one waist scimitar and one waist short sword.
+
+POSE:
+Natural full-body ordinary standing, front or slight three-quarter view. Balanced weight, feet shoulder-width apart, shoulders relaxed, both empty hands resting naturally at his sides. No held weapon, no spell or attack motion.
+
+BACKGROUND:
+Keep one complete perfectly round centered PARCHMENT-GZ-1 circle, about 86% canvas diameter, full circumference visible, warm honey golden-brown aged paper with lighter center and low-contrast texture, uniform pure white outside.
+
+COMPOSITION:
+Single full-body character. Uniformly scale him and the weapon bag so the complete hair, tall body, boots, cloak, weapon bag, protruding halberd head and greatsword hilt, waist scimitar and short sword all fit fully inside the parchment circle with visible clearance. Preserve clear face and sun pendant.
+
+AVOID:
+any headwear, helmet, circlet or hood; short or squat proportions; exposed crossed back weapons; two separate back scabbards; held weapon; hand magic; combat crouch; duplicated weapons; missing waist weapons; red armor; face on sun pendant; incomplete circle; anything entering the white exterior; text, watermark or UI. Square output.
+
+生成方式：内置 image_gen，参考桑哆尔-蓝金普通站立-v1.png编辑。按用户要求未经代理审核，直接交由用户审核；尚未正式入库。
+

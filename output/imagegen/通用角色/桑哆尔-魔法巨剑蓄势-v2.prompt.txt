@@ -1,0 +1,24 @@
+Use case: identity-preserve
+Asset type: square fantasy RPG full-body token portrait, alternate greatsword combat stance
+Primary request: Replace the upward-slash action with a new stylish ready-to-fight pose, and remove every slash trace.
+
+PRESERVE IDENTITY AND DESIGN:
+Keep the same adult human male Sundoll, recognizable face, dark hair, angular navy-and-antique-gold brow-covering half-helm, athletic build, navy-blue plate armor with rich antique-gold trim, midnight-blue torn cloak, simple faceless gold sun-disk pendant, realistic painterly western fantasy rulebook style.
+Keep the long halberd securely strapped diagonally across his back, the curved scimitar sheathed at one hip, and the separate straight short sword sheathed at the other hip.
+Keep the complete centered circular PARCHMENT-GZ-1 background: perfect round circle about 86% canvas diameter, full circumference visible, warm honey golden-brown paper, pure white outside.
+
+NEW POSE — COOL LOW GUARD:
+Sundoll stands in a dynamic three-quarter combat stance with his body turned slightly sideways toward an unseen enemy. His front knee is bent and his rear leg braces firmly, torso lowered and shoulders angled, giving a powerful poised silhouette. He holds the massive greatsword with BOTH hands on its long hilt. The sword is carried low and diagonally across the front of his body: hilt near one hip, broad blade extending downward and outward toward the opposite side, tip hovering just above the ground. His head is slightly lowered beneath the half-helm while his eyes look forward, calm, dangerous and confident. The pose should feel like a stylish moment of stillness immediately before a rapid attack, not a strike already in motion.
+
+MAGICAL GREATSWORD WITHOUT TRAIL:
+The greatsword itself has a deep cobalt-blue steel core, brilliant electric-blue glow hugging the blade edges, and antique-gold light running through engraved channels. The magical energy remains attached tightly to the blade surface as a controlled aura. A few tiny sparks may sit directly beside the metal.
+COMPLETELY REMOVE all sweeping arcs, slash trails, crescent trails, motion streaks, ground scars, flying debris and large energy ribbons. No visible evidence of a completed strike.
+
+COMPOSITION:
+One full-body character. Entire headpiece, boots, cloak tails, complete greatsword and its point, back-mounted halberd head and shaft, scimitar and short sword must remain fully inside the parchment circle with visible clearance. Both hands clearly and anatomically grip the same greatsword. Preserve readable equipment separation.
+
+AVOID:
+upward slash, downward chop, overhead pose, active swing, slash marks, arc-shaped magic, ground impact, hand spell, held halberd, duplicated weapons, shield, extra characters, red armor, face on sun pendant, incomplete circle, any object entering the white exterior, text, watermark or UI. Square output.
+
+生成方式：内置 image_gen，参考桑哆尔-魔法巨剑上挑-v1.png编辑。按用户要求未经代理审核，直接交由用户审核；尚未正式入库。
+

@@ -479,7 +479,7 @@ function applyAvatar(el, iconImg, iconImgId, iconImgHd, iconImgPath) {
   if (iconImg) el.style.backgroundImage = `url("${iconImg}")`;
   if (iconImgHd) el.style.backgroundImage = `url("${iconImgHd}")`;
   if (iconImgPath) {
-    el.style.backgroundSize = '116.3% 116.3%';
+    el.style.backgroundSize = String(iconImgPath).includes('/零式-') ? '119.2% 119.2%' : '116.3% 116.3%';
     el.style.backgroundPosition = 'center';
     applyPortraitBackground(el, iconImgPath);
     return;

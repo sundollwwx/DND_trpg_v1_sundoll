@@ -347,6 +347,8 @@ let doodleDraft = null;
 let selectedDoodleId = null;
 let lastSelId = null;
 let detailActiveTab = 'status';
+let portraitPreviewRequest = 0;
+let portraitManagerTokenId = null;
 let editingConditionId = null;
 let detailHpUndo = null;
 let detailTextSaveTimer = null;
@@ -1810,6 +1812,8 @@ function addMap(name, dataUrl, w, h, gridSize, cells, cellVariants, gridVisible 
 function switchMap(id) {
   const m = mapById(id);
   if (!m) return;
+  closeTokenPortraitPreview();
+  closePortraitVariantManager();
   state.activeMapId = id;
   state.selectedId = null;
   spellAimTokenId = null;
@@ -2361,7 +2365,7 @@ function applyAvatar(el, iconImg, iconImgId, iconImgHd, iconImgPath, portraitTie
   if (iconImg) el.style.backgroundImage = `url("${iconImg}")`;
   if (hdEnabled && iconImgHd) el.style.backgroundImage = `url("${iconImgHd}")`;
   if (iconImgPath) {
-    el.style.backgroundSize = '116.3% 116.3%';
+    el.style.backgroundSize = String(iconImgPath).includes('/零式-') ? '119.2% 119.2%' : '116.3% 116.3%';
     el.style.backgroundPosition = 'center';
     applyPortraitBackground(el, iconImgPath, portraitTier);
     return;
@@ -2516,7 +2520,7 @@ function refreshAvatarLodElement(el, t) {
   if (t.iconImgPath) {
     const tier = tokenPortraitTier(el);
     el.dataset.lod = tier === AVATAR_DISPLAY_MAX ? 'high' : 'low';
-    el.style.backgroundSize = '116.3% 116.3%';
+    el.style.backgroundSize = String(t.iconImgPath).includes('/零式-') ? '119.2% 119.2%' : '116.3% 116.3%';
     el.style.backgroundPosition = 'center';
     applyPortraitBackground(el, t.iconImgPath, tier);
     return;
@@ -3182,7 +3186,7 @@ function showMapReaction(action) {
   item.dataset.reactionId = String(action.reactionId || '');
   item.style.left = `${x}px`;
   item.style.top = `${y}px`;
-  item.style.setProperty('--reaction-scale', String(1 / clamp(Number(map.cam?.zoom) || 1, .2, 4)));
+  item.style.setProperty('--reaction-scale', String(1 / clamp(Number(map.cam?.zoom) || 1, .2, 6)));
   const bubble = document.createElement('div');
   bubble.className = 'map-reaction-bubble';
   const emoji = document.createElement('span');
@@ -3576,7 +3580,7 @@ function zoomAt(cx, cy, factor) {
   const rect = board.getBoundingClientRect();
   const px = (cx ?? rect.left + rect.width / 2) - rect.left;
   const py = (cy ?? rect.top + rect.height / 2) - rect.top;
-  const newZoom = clamp(m.cam.zoom * factor, 0.2, 4);
+  const newZoom = clamp(m.cam.zoom * factor, 0.2, 6);
   const worldX = (px - m.cam.x) / m.cam.zoom;
   const worldY = (py - m.cam.y) / m.cam.zoom;
   m.cam.zoom = newZoom;
@@ -4127,9 +4131,30 @@ function normalizeSpellRange(raw) {
   return { shape, feet, direction };
 }
 
+function normalizePortraitVariants(raw) {
+  return (Array.isArray(raw) ? raw : []).filter((variant) => (
+    variant && typeof variant === 'object' && String(variant.name || '').trim()
+      && (variant.iconImgPath || variant.iconImg || variant.iconImgHd || variant.iconImgId)
+  )).slice(0, 24).map((variant) => {
+    const path = canonicalPortraitPath(variant.iconImgPath);
+    return {
+      name: String(variant.name).trim().slice(0, 24),
+      iconImg: path ? null : (variant.iconImg || null),
+      iconImgHd: path ? null : (variant.iconImgHd || null),
+      iconImgPath: path,
+      iconImgId: path ? null : (variant.iconImgId || null),
+    };
+  });
+}
+
 function normalizeSheet(t) {
   const hpMax = Math.max(1, Math.min(99999, parseInt(t.hpMax, 10) || 10));
   const hp = Math.max(0, Math.min(99999, Number.isFinite(parseInt(t.hp, 10)) ? parseInt(t.hp, 10) : hpMax));
+  const hasPortraitVariants = Array.isArray(t.portraitVariants);
+  const portraitVariants = normalizePortraitVariants(t.portraitVariants);
+  const portraitVariant = Number.isInteger(t.portraitVariant)
+    && t.portraitVariant >= 0 && t.portraitVariant < portraitVariants.length
+    ? t.portraitVariant : null;
   const keep = {
     id: String(t.id || 't' + (uid++)),
     name: String(t.name || '无名单位').slice(0, 24),
@@ -4139,6 +4164,9 @@ function normalizeSheet(t) {
     iconImgHd: t.iconImgHd || null,
     iconImgPath: t.iconImgPath || null,
     iconImgId: t.iconImgId || null,
+    ...(t.presetId ? { presetId: String(t.presetId) } : {}),
+    ...(hasPortraitVariants ? { portraitVariants } : {}),
+    ...(portraitVariant !== null ? { portraitVariant } : {}),
     size: t.size >= 2 ? 2 : 1,
     hp,
     hpMax,
@@ -4148,7 +4176,6 @@ function normalizeSheet(t) {
     spellRange: normalizeSpellRange(t.spellRange),
     conditions: Array.isArray(t.conditions) ? t.conditions.slice(0, 20).map(normalizeCondition) : [],
     publicNote: typeof t.publicNote === 'string' ? t.publicNote.slice(0, 240) : '',
-    gmNote: typeof t.gmNote === 'string' ? t.gmNote.slice(0, 500) : '',
     hiddenFromPlayers: t.hiddenFromPlayers === true,
     x: Number.isFinite(Number(t.x)) ? Number(t.x) : 0,
     y: Number.isFinite(Number(t.y)) ? Number(t.y) : 0,
@@ -4212,7 +4239,9 @@ function createTokenEl(t) {
   circle.style.setProperty('--glow', meta.glow);
   if (t.iconImg || t.iconImgHd || t.iconImgPath || t.iconImgId) {
     circle.style.background = 'rgba(20,23,32,.85)';
-    circle.style.backgroundSize = t.iconImgPath ? '116.3% 116.3%' : 'cover';
+    circle.style.backgroundSize = t.iconImgPath
+      ? (String(t.iconImgPath).includes('/零式-') ? '119.2% 119.2%' : '116.3% 116.3%')
+      : 'cover';
     circle.style.backgroundPosition = 'center';
     circle.style.backgroundRepeat = 'no-repeat';
     circle.dataset.tokenId = t.id;
@@ -4699,57 +4728,113 @@ function openMountPicker() {
   $('#mount-modal').hidden = false;
 }
 
-// 把棋子移动/复制到另一张地图（楼层）
+function playerControlledMapTokens(m) {
+  if (!m || !Array.isArray(m.tokens)) return [];
+  return m.tokens.filter((token) => token.type === 'pc' || String(token.owner || '').trim());
+}
+
+// 移动多个棋子时统一重建 ID 和骑乘关系；主控台始终留在原地图。
+function transferTokensToMap(ids, targetId, { includeMountedGroups = false } = {}) {
+  const m = activeMap();
+  const target = mapById(targetId);
+  if (!m || !target || target.id === m.id) return [];
+
+  const movingIds = new Set((Array.isArray(ids) ? ids : [ids]).map(String));
+  m.tokens.forEach((token) => {
+    // 单独移动坐骑时，骑手沿用原有规则随坐骑一起移动。
+    if (token.mountId && movingIds.has(String(token.mountId))) movingIds.add(String(token.id));
+  });
+  if (includeMountedGroups) {
+    // 批量移动玩家棋子时保住完整骑乘组，包括未单独分配 owner 的坐骑。
+    let changed = true;
+    while (changed) {
+      changed = false;
+      m.tokens.forEach((token) => {
+        if (movingIds.has(String(token.id)) && token.mountId && !movingIds.has(String(token.mountId))) {
+          movingIds.add(String(token.mountId));
+          changed = true;
+        }
+        if (token.mountId && movingIds.has(String(token.mountId)) && !movingIds.has(String(token.id))) {
+          movingIds.add(String(token.id));
+          changed = true;
+        }
+      });
+    }
+  }
+
+  const moving = m.tokens.filter((token) => movingIds.has(String(token.id)));
+  if (!moving.length) return [];
+  const invalidatesTurn = moving.some((token) => currentTurnIncludesToken(token.id));
+  const transferredIds = new Map(moving.map((token) => [String(token.id), 't' + (uid++)]));
+  const transferred = moving.map((token) => ({
+    ...token,
+    id: transferredIds.get(String(token.id)),
+    mountId: token.mountId && transferredIds.has(String(token.mountId))
+      ? transferredIds.get(String(token.mountId))
+      : null,
+    x: clamp(token.x, 0, target.mapW),
+    y: clamp(token.y, 0, target.mapH),
+  }));
+  target.tokens.push(...transferred);
+  m.tokens = m.tokens.filter((token) => !movingIds.has(String(token.id)));
+  if (state.selectedId && movingIds.has(String(state.selectedId))) state.selectedId = null;
+
+  let relinkedInitiative = false;
+  const e = encounterState();
+  e.entries.forEach((entry) => {
+    const nextId = entry.tokenId ? transferredIds.get(String(entry.tokenId)) : null;
+    if (!nextId) return;
+    entry.tokenId = nextId;
+    relinkedInitiative = true;
+  });
+  if (e.playMode === 'turn' && (invalidatesTurn || relinkedInitiative)) bumpEncounterTurn(e);
+
+  renumberTokens(target);
+  renumberTokens(m);
+  renderTokens();
+  updateDetail();
+  if (relinkedInitiative) renderEncounter();
+  renderTurnPath();
+  scheduleAutosave();
+  return transferred;
+}
+
+// 把棋子移动/复制到另一张地图（楼层）；操作后仍停留在当前地图。
 function transferToken(id, targetId, copy) {
   const m = activeMap();
   const t = findToken(id);
   const target = mapById(targetId);
   if (!m || !t || !target || target.id === m.id) return;
-  const invalidatesTurn = !copy && currentTurnIncludesToken(id);
+  if (!copy) {
+    const transferred = transferTokensToMap([id], targetId);
+    if (transferred.length) toast(`已移动「${t.name}」到「${target.name}」`);
+    return;
+  }
   const nt = {
     ...t,
     id: 't' + (uid++),
+    mountId: null,
     x: clamp(t.x, 0, target.mapW),
     y: clamp(t.y, 0, target.mapH),
   };
-  const transferredIds = new Map([[t.id, nt.id]]);
-  if (!copy) {
-    // 移动坐骑时，骑手跟随；移动骑手时，骑手在目的地自动下马
-    if (t.size >= 2) {
-      m.tokens.filter((r) => r.mountId === id).forEach((r) => {
-        const riderCopy = { ...r, id: 't' + (uid++), mountId: nt.id, x: clamp(r.x, 0, target.mapW), y: clamp(r.y, 0, target.mapH) };
-        transferredIds.set(r.id, riderCopy.id);
-        target.tokens.push(riderCopy);
-      });
-    } else if (t.mountId) {
-      nt.mountId = null;
-    }
-    m.tokens = m.tokens.filter((x) => x.id !== id && (t.size < 2 || x.mountId !== id));
-    if (state.selectedId === id) state.selectedId = null;
-  } else if (t.mountId) {
-    // 复制一个骑手 → 副本自动下马
-    nt.mountId = null;
-  }
   target.tokens.push(nt);
-  let relinkedInitiative = false;
-  if (!copy) {
-    const e = encounterState();
-    e.entries.forEach((entry) => {
-      const nextId = entry.tokenId ? transferredIds.get(entry.tokenId) : null;
-      if (!nextId) return;
-      entry.tokenId = nextId;
-      relinkedInitiative = true;
-    });
-    if (e.playMode === 'turn' && (invalidatesTurn || relinkedInitiative)) bumpEncounterTurn(e);
-  }
   renumberTokens(target);
-  if (!copy) renumberTokens(m);
-  switchMap(target.id);
-  selectToken(nt.id);
-  if (relinkedInitiative) renderEncounter();
-  renderTurnPath();
   scheduleAutosave();
-  toast(copy ? `已复制「${nt.name}」到「${target.name}」` : `已移动「${nt.name}」到「${target.name}」`);
+  toast(`已复制「${nt.name}」到「${target.name}」`);
+}
+
+function transferAllPlayerTokens(targetId) {
+  const m = activeMap();
+  const target = mapById(targetId);
+  if (!m || !target || target.id === m.id) return [];
+  const playerTokens = playerControlledMapTokens(m);
+  if (!playerTokens.length) {
+    toast('当前地图没有玩家棋子');
+    return [];
+  }
+  const transferred = transferTokensToMap(playerTokens.map((token) => token.id), targetId, { includeMountedGroups: true });
+  if (transferred.length) toast(`已移动 ${transferred.length} 枚玩家棋子到「${target.name}」`);
+  return transferred;
 }
 
 /* ==================== 右侧详情 ==================== */
@@ -5120,19 +5205,78 @@ function updateDetailContext(t) {
   visibility.className = `detail-context-badge ${t.hiddenFromPlayers ? 'hidden' : 'public'}`;
 }
 
-function updateDetailHeader(t) {
-  const meta = TYPE_META[t.type] || TYPE_META.npc;
-  const iconEl = $('#detail-icon');
-  if (t.iconImg || t.iconImgHd || t.iconImgPath || t.iconImgId) {
-    iconEl.textContent = '';
-    iconEl.style.backgroundSize = 'cover';
-    iconEl.style.backgroundPosition = 'center';
-    applyAvatar(iconEl, t.iconImg, t.iconImgId, t.iconImgHd, t.iconImgPath, AVATAR_DISPLAY_MAX);
-  } else {
-    iconEl.textContent = t.icon || meta.defaultIcon;
-    iconEl.style.backgroundImage = 'none';
+function tokenHasPortrait(t) {
+  return !!(t && (t.iconImgPath || t.iconImgHd || t.iconImgId || t.iconImg));
+}
+
+async function tokenPortraitPreviewSource(t) {
+  if (!t) return '';
+  if (t.iconImgPath) return portraitAssetUrl(t.iconImgPath);
+  if (t.iconImgHd) return t.iconImgHd;
+  if (t.iconImgId) {
+    try {
+      return await avatarGet(t.iconImgId) || await avatarGetDisplay(t.iconImgId) || '';
+    } catch (error) { return ''; }
   }
-  $('#btn-detail-icon-remove').hidden = !(t.iconImg || t.iconImgHd || t.iconImgPath || t.iconImgId);
+  return t.iconImg || '';
+}
+
+function closeTokenPortraitPreview() {
+  portraitPreviewRequest += 1;
+  const modal = $('#portrait-preview-modal');
+  const image = $('#portrait-preview-image');
+  if (modal) modal.hidden = true;
+  if (image) {
+    image.onload = null;
+    image.onerror = null;
+    image.hidden = true;
+    image.removeAttribute('src');
+  }
+}
+
+async function openTokenPortraitPreview() {
+  const t = state.selectedId ? findToken(state.selectedId) : null;
+  if (!t || !tokenHasPortrait(t)) {
+    toast('这个棋子还没有立绘');
+    return;
+  }
+  const request = ++portraitPreviewRequest;
+  const modal = $('#portrait-preview-modal');
+  const image = $('#portrait-preview-image');
+  const status = $('#portrait-preview-status');
+  $('#portrait-preview-title').textContent = `${t.name || '棋子'} · 完整立绘`;
+  image.hidden = true;
+  image.removeAttribute('src');
+  status.hidden = false;
+  status.textContent = '正在读取完整立绘…';
+  modal.hidden = false;
+  $('#btn-portrait-preview-close')?.focus();
+  const source = await tokenPortraitPreviewSource(t);
+  if (request !== portraitPreviewRequest || modal.hidden) return;
+  if (!source) {
+    status.textContent = '无法读取这张立绘。';
+    return;
+  }
+  image.alt = `${t.name || '棋子'}的完整立绘`;
+  image.onload = () => {
+    if (request !== portraitPreviewRequest) return;
+    image.hidden = false;
+    status.hidden = true;
+  };
+  image.onerror = () => {
+    if (request !== portraitPreviewRequest) return;
+    image.hidden = true;
+    status.hidden = false;
+    status.textContent = '立绘加载失败，请检查原图文件。';
+  };
+  image.src = source;
+}
+
+function updateDetailHeader(t) {
+  $('#btn-detail-icon-remove').hidden = !tokenHasPortrait(t);
+  const preview = $('#btn-detail-portrait-preview');
+  preview.disabled = !tokenHasPortrait(t);
+  preview.title = tokenHasPortrait(t) ? '预览完整立绘' : '这个棋子还没有立绘';
   const name = $('#detail-name');
   if (document.activeElement !== name) name.value = t.name;
   const typeSel = $('#detail-type-select');
@@ -5177,17 +5321,15 @@ function populateDetailOwnerOptions(t) {
 
 function updateDetailNotes(t) {
   const publicNote = $('#detail-public-note');
-  const gmNote = $('#detail-gm-note');
   if (document.activeElement !== publicNote) publicNote.value = t.publicNote || '';
-  if (document.activeElement !== gmNote) gmNote.value = t.gmNote || '';
   $('#detail-public-note-summary').textContent = t.publicNote ? `已填写 ${t.publicNote.length} 字` : '未填写';
-  $('#detail-gm-note-summary').textContent = t.gmNote ? `已填写 ${t.gmNote.length} 字` : '未填写';
 }
 
 function updateDetailMapOptions() {
   const select = $('#detail-map-move');
   const move = $('#btn-token-move');
   const copy = $('#btn-token-copy');
+  const movePlayers = $('#btn-player-tokens-move');
   if (!select) return;
   const previous = select.value;
   const targets = state.maps.filter((m) => m.id !== state.activeMapId);
@@ -5209,6 +5351,7 @@ function updateDetailMapOptions() {
   select.disabled = !targets.length;
   move.disabled = !targets.length;
   copy.disabled = !targets.length;
+  if (movePlayers) movePlayers.disabled = !targets.length || !playerControlledMapTokens(activeMap()).length;
 }
 
 function scheduleDetailTextSave(markStream = true) {
@@ -5332,6 +5475,8 @@ function undoDetailHpChange() {
 function closeDetailPanel() {
   cancelSpellAim();
   closeConditionEditor();
+  closeTokenPortraitPreview();
+  closePortraitVariantManager();
   state.selectedId = null;
   lastSelId = null;
   renderTokens();
@@ -5339,34 +5484,314 @@ function closeDetailPanel() {
   $('#unit-card')?.classList.add('collapsed');
 }
 
-function tokenPortraitVariants(t) {
-  const preset = state.library.find(p => p.id === t.presetId)
-    || state.library.find(p => p.name === t.name || (p.iconImgPath && p.iconImgPath === t.iconImgPath));
-  return preset?.portraitVariants?.length ? preset.portraitVariants : (t.portraitVariants || []);
+function portraitLibraryPresetForToken(t) {
+  if (!t) return null;
+  return state.library.find((preset) => preset.id === t.presetId)
+    || state.library.find((preset) => preset.name === t.name)
+    || state.library.find((preset) => preset.iconImgPath && preset.iconImgPath === t.iconImgPath)
+    || null;
 }
+
+function tokenPortraitVariants(t) {
+  if (!t) return [];
+  if (Array.isArray(t.portraitVariants)) return normalizePortraitVariants(t.portraitVariants);
+  return normalizePortraitVariants(portraitLibraryPresetForToken(t)?.portraitVariants);
+}
+
+function editableTokenPortraitVariants(t) {
+  const variants = tokenPortraitVariants(t).map((variant) => ({ ...variant }));
+  t.portraitVariants = variants;
+  return variants;
+}
+
+function portraitAssetIdentity(source) {
+  if (!source) return '';
+  const path = canonicalPortraitPath(source.iconImgPath);
+  if (path) return `path:${path}`;
+  if (source.iconImgId) return `id:${source.iconImgId}`;
+  if (source.iconImgHd) return `hd:${source.iconImgHd}`;
+  if (source.iconImg) return `img:${source.iconImg}`;
+  return '';
+}
+
+function currentTokenPortraitVariantIndex(t, variants = tokenPortraitVariants(t)) {
+  const currentIdentity = portraitAssetIdentity(t);
+  if (!currentIdentity) return -1;
+  const hinted = Number.isInteger(t.portraitVariant) ? t.portraitVariant : -1;
+  if (hinted >= 0 && hinted < variants.length && portraitAssetIdentity(variants[hinted]) === currentIdentity) return hinted;
+  return variants.findIndex((variant) => portraitAssetIdentity(variant) === currentIdentity);
+}
+
+function snapshotTokenPortrait(t, name = '') {
+  if (!tokenHasPortrait(t)) return null;
+  const path = canonicalPortraitPath(t.iconImgPath);
+  return {
+    name: String(name || '').trim().slice(0, 24),
+    iconImg: path ? null : (t.iconImg || null),
+    iconImgHd: path ? null : (t.iconImgHd || null),
+    iconImgPath: path,
+    iconImgId: path ? null : (t.iconImgId || null),
+  };
+}
+
 function applyTokenPortrait(t, v) {
-  t.portraitVariants = tokenPortraitVariants(t).map(item => ({ ...item }));
   for (const key of ['iconImgPath', 'iconImg', 'iconImgHd', 'iconImgId']) t[key] = v[key] || null;
 }
+
 function renderTokenPortraitSelect(t) {
   const select = $('#detail-portrait');
-  select.replaceChildren(new Option((t.iconImgPath || t.iconImg || t.iconImgHd || t.iconImgId) ? '自定义 / 当前立绘' : '文字图标', ''));
-  tokenPortraitVariants(t).forEach((v, i) => select.add(new Option(v.name, String(i))));
-  const selected = tokenPortraitVariants(t).findIndex(v => v.iconImgPath ? v.iconImgPath === t.iconImgPath : v.iconImg === t.iconImg);
+  const variants = tokenPortraitVariants(t);
+  const selected = currentTokenPortraitVariantIndex(t, variants);
+  select.replaceChildren(new Option(tokenHasPortrait(t) ? '当前自定义立绘' : '文字图标', ''));
+  variants.forEach((variant, index) => select.add(new Option(variant.name, String(index))));
   if (selected >= 0) select.value = String(selected);
-  select.disabled = select.options.length < 2;
-  $('#detail-appearance-status').textContent = '当前：' + select.options[select.selectedIndex].textContent
-    + (select.disabled ? '。暂无预设，可上传图片或在棋子库中添加。' : '。选择即生效，只修改当前地图棋子。');
+  select.disabled = !variants.length;
+  $('#detail-appearance-status').textContent = `${select.options[select.selectedIndex].textContent} · ${variants.length} 个已保存形态`;
 }
-$('#detail-portrait').addEventListener('change', e => {
-  const t = state.selectedId && findToken(state.selectedId);
-  if (!t || e.target.value === '') return;
-  const variants = tokenPortraitVariants(t), v = variants[Number(e.target.value)];
-  if (!v) return;
-  t.portraitVariants = variants.map(v => ({ ...v }));
-  t.portraitVariant = Number(e.target.value);
-  applyTokenPortrait(t, v);
-  renderTokens(); updateDetail(); scheduleAutosave();
+
+function selectTokenPortraitVariant(index, { announce = true } = {}) {
+  const tokenId = portraitManagerTokenId || state.selectedId;
+  const t = tokenId && findToken(tokenId);
+  if (!t) return false;
+  const variants = editableTokenPortraitVariants(t);
+  const normalizedIndex = Number(index);
+  const variant = variants[normalizedIndex];
+  if (!variant) return false;
+  applyTokenPortrait(t, variant);
+  t.portraitVariant = normalizedIndex;
+  renderTokens();
+  updateDetail();
+  renderPortraitVariantManager(normalizedIndex);
+  scheduleAutosave();
+  if (announce) toast(`已切换为「${variant.name}」`);
+  return true;
+}
+
+function updatePortraitManagerScrollButtons() {
+  const strip = $('#portrait-variant-strip');
+  const left = $('#btn-portrait-scroll-left');
+  const right = $('#btn-portrait-scroll-right');
+  if (!strip || !left || !right) return;
+  const maxScroll = Math.max(0, strip.scrollWidth - strip.clientWidth);
+  left.disabled = strip.scrollLeft <= 2;
+  right.disabled = strip.scrollLeft >= maxScroll - 2;
+}
+
+function loadPortraitVariantThumbnail(image, variant) {
+  const identity = portraitAssetIdentity(variant);
+  image.dataset.portraitIdentity = identity;
+  image.alt = `${variant.name}立绘缩略图`;
+  image.onerror = () => {
+    if (image.dataset.portraitIdentity !== identity) return;
+    image.removeAttribute('src');
+    image.alt = `${variant.name}立绘无法读取`;
+  };
+  if (variant.iconImgPath) {
+    applyPortraitImage(image, variant.iconImgPath, AVATAR_LOW_MAX);
+    return;
+  }
+  if (variant.iconImgHd || variant.iconImg) {
+    image.src = variant.iconImgHd || variant.iconImg;
+    return;
+  }
+  if (variant.iconImgId) {
+    avatarGetLow(variant.iconImgId).then((source) => {
+      if (source && image.isConnected && image.dataset.portraitIdentity === identity) image.src = source;
+    }).catch(() => {});
+  }
+}
+
+function makePortraitVariantTool(label, title, action, index, disabled = false) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.textContent = label;
+  button.title = title;
+  button.setAttribute('aria-label', title);
+  button.dataset.portraitAction = action;
+  button.dataset.portraitIndex = String(index);
+  button.disabled = disabled;
+  if (action === 'delete') button.className = 'danger';
+  return button;
+}
+
+function renderPortraitVariantManager(focusIndex = null) {
+  const modal = $('#portrait-manager-modal');
+  if (!modal || modal.hidden) return;
+  const t = portraitManagerTokenId ? findToken(portraitManagerTokenId) : null;
+  if (!t) {
+    closePortraitVariantManager();
+    return;
+  }
+  const strip = $('#portrait-variant-strip');
+  const variants = tokenPortraitVariants(t);
+  const activeIndex = currentTokenPortraitVariantIndex(t, variants);
+  const previousScroll = strip.scrollLeft;
+  strip.replaceChildren();
+  $('#portrait-manager-title').textContent = `${t.name} · 不同形态`;
+  $('#portrait-manager-summary').textContent = variants.length
+    ? `${variants.length} 个形态 · 点击切换，使用箭头排序`
+    : '还没有保存形态，可把当前立绘保存为第一个形态。';
+  const preset = portraitLibraryPresetForToken(t);
+  const sync = $('#btn-portrait-sync-library');
+  sync.disabled = !preset;
+  sync.title = preset ? `同步到棋子库「${preset.name}」` : '该棋子尚未关联棋子库，请先使用“存入棋子库”';
+  $('#btn-portrait-save-current').disabled = !tokenHasPortrait(t) || variants.length >= 24;
+  if (!variants.length) {
+    const empty = document.createElement('div');
+    empty.className = 'portrait-variant-empty';
+    empty.textContent = tokenHasPortrait(t) ? '当前立绘尚未保存为形态。' : '请先上传当前立绘，再保存为形态。';
+    strip.appendChild(empty);
+  } else {
+    variants.forEach((variant, index) => {
+      const card = document.createElement('article');
+      card.className = `portrait-variant-card${index === activeIndex ? ' active' : ''}`;
+      card.dataset.portraitIndex = String(index);
+      const open = document.createElement('button');
+      open.type = 'button';
+      open.className = 'portrait-variant-open';
+      open.dataset.portraitSelect = String(index);
+      open.setAttribute('aria-label', `切换为形态 ${variant.name}`);
+      const image = document.createElement('img');
+      image.className = 'portrait-variant-thumb';
+      loadPortraitVariantThumbnail(image, variant);
+      const name = document.createElement('span');
+      name.className = 'portrait-variant-name';
+      name.textContent = variant.name;
+      name.title = variant.name;
+      const stateLabel = document.createElement('span');
+      stateLabel.className = 'portrait-variant-state';
+      stateLabel.textContent = index === activeIndex ? '当前形态' : `形态 ${index + 1}`;
+      open.append(image, name, stateLabel);
+      const tools = document.createElement('div');
+      tools.className = 'portrait-variant-tools';
+      tools.append(
+        makePortraitVariantTool('←', `将${variant.name}向前移动`, 'left', index, index === 0),
+        makePortraitVariantTool('✎', `重命名${variant.name}`, 'rename', index),
+        makePortraitVariantTool('×', `删除${variant.name}`, 'delete', index),
+        makePortraitVariantTool('→', `将${variant.name}向后移动`, 'right', index, index === variants.length - 1),
+      );
+      card.append(open, tools);
+      strip.appendChild(card);
+    });
+  }
+  requestAnimationFrame(() => {
+    if (Number.isInteger(focusIndex)) strip.querySelector(`[data-portrait-index="${focusIndex}"]`)?.scrollIntoView({ block: 'nearest', inline: 'center' });
+    else strip.scrollLeft = previousScroll;
+    updatePortraitManagerScrollButtons();
+  });
+}
+
+function openPortraitVariantManager() {
+  const t = state.selectedId ? findToken(state.selectedId) : null;
+  if (!t) return;
+  portraitManagerTokenId = t.id;
+  $('#portrait-manager-modal').hidden = false;
+  renderPortraitVariantManager(currentTokenPortraitVariantIndex(t));
+  $('#btn-portrait-manager-close')?.focus();
+}
+
+function closePortraitVariantManager() {
+  portraitManagerTokenId = null;
+  const modal = $('#portrait-manager-modal');
+  if (modal) modal.hidden = true;
+}
+
+function saveCurrentPortraitAsVariant() {
+  const t = portraitManagerTokenId ? findToken(portraitManagerTokenId) : null;
+  if (!t || !tokenHasPortrait(t)) return;
+  const defaultName = `形态 ${tokenPortraitVariants(t).length + 1}`;
+  const name = prompt('给这个形态命名', defaultName);
+  if (name === null || !name.trim()) return;
+  const snapshot = snapshotTokenPortrait(t, name);
+  if (!snapshot) return;
+  const variants = editableTokenPortraitVariants(t);
+  const identity = portraitAssetIdentity(snapshot);
+  let index = variants.findIndex((variant) => portraitAssetIdentity(variant) === identity);
+  if (index >= 0) {
+    variants[index] = snapshot;
+    toast('该立绘已存在，已更新形态名称');
+  } else {
+    variants.push(snapshot);
+    index = variants.length - 1;
+    toast(`已保存形态「${snapshot.name}」`);
+  }
+  t.portraitVariants = normalizePortraitVariants(variants);
+  t.portraitVariant = index;
+  updateDetail();
+  renderPortraitVariantManager(index);
+  scheduleAutosave();
+}
+
+function renameTokenPortraitVariant(index) {
+  const t = portraitManagerTokenId ? findToken(portraitManagerTokenId) : null;
+  const variants = t ? editableTokenPortraitVariants(t) : [];
+  const variant = variants[index];
+  if (!t || !variant) return;
+  const name = prompt('修改形态名称', variant.name);
+  if (name === null || !name.trim()) return;
+  variant.name = name.trim().slice(0, 24);
+  t.portraitVariants = normalizePortraitVariants(variants);
+  updateDetail();
+  renderPortraitVariantManager(index);
+  scheduleAutosave();
+}
+
+function moveTokenPortraitVariant(index, step) {
+  const t = portraitManagerTokenId ? findToken(portraitManagerTokenId) : null;
+  const variants = t ? editableTokenPortraitVariants(t) : [];
+  const target = index + step;
+  if (!t || !variants[index] || target < 0 || target >= variants.length) return;
+  const active = currentTokenPortraitVariantIndex(t, variants);
+  [variants[index], variants[target]] = [variants[target], variants[index]];
+  t.portraitVariants = normalizePortraitVariants(variants);
+  if (active === index) t.portraitVariant = target;
+  else if (active === target) t.portraitVariant = index;
+  updateDetail();
+  renderPortraitVariantManager(target);
+  scheduleAutosave();
+}
+
+function deleteTokenPortraitVariant(index) {
+  const t = portraitManagerTokenId ? findToken(portraitManagerTokenId) : null;
+  const variants = t ? editableTokenPortraitVariants(t) : [];
+  const variant = variants[index];
+  if (!t || !variant || !confirm(`删除形态「${variant.name}」？`)) return;
+  const active = currentTokenPortraitVariantIndex(t, variants);
+  variants.splice(index, 1);
+  t.portraitVariants = normalizePortraitVariants(variants);
+  if (active === index) {
+    if (variants.length) {
+      const next = Math.min(index, variants.length - 1);
+      applyTokenPortrait(t, variants[next]);
+      t.portraitVariant = next;
+    } else delete t.portraitVariant;
+  } else if (active > index) t.portraitVariant = active - 1;
+  renderTokens();
+  updateDetail();
+  renderPortraitVariantManager(variants.length ? Math.min(index, variants.length - 1) : null);
+  scheduleAutosave();
+  toast(`已删除形态「${variant.name}」`);
+}
+
+function syncTokenPortraitVariantsToLibrary() {
+  const t = portraitManagerTokenId ? findToken(portraitManagerTokenId) : null;
+  const preset = portraitLibraryPresetForToken(t);
+  if (!t || !preset) {
+    toast('该棋子尚未关联棋子库，请先存入棋子库');
+    return;
+  }
+  t.presetId = preset.id;
+  preset.portraitVariants = tokenPortraitVariants(t).map((variant) => ({ ...variant }));
+  applyTokenPortrait(preset, t);
+  saveLibrary();
+  renderLibrary();
+  renderPortraitVariantManager();
+  scheduleAutosave();
+  toast(`已同步到棋子库「${preset.name}」`);
+}
+
+$('#detail-portrait').addEventListener('change', (event) => {
+  if (event.target.value !== '') selectTokenPortraitVariant(Number(event.target.value));
 });
 
 function updateDetail() {
@@ -5506,6 +5931,8 @@ function playDiceFx(sides, label, total, opts) {
 
 function stateStorageReplacer(key, value) {
   if (key === 'turnPath' && this === state.encounter) return undefined;
+  // 棋子 GM 私密备注功能已经移除；旧存档中的字段在下一次保存时一并清理。
+  if (key === 'gmNote') return undefined;
   // 棋子库是全局数据，只写入“存档/棋子库/棋子库.json”。
   if (key === 'library' && this === state) return undefined;
   // 已移除的旧全局地图显示功能不再写回；每张地图的 gridVisible 继续保存。
@@ -6559,6 +6986,14 @@ function bindEvents() {
   // 键盘
   document.addEventListener('keydown', (e) => {
     if ($('#bgm-player')?.open) return;
+    if (!$('#portrait-preview-modal').hidden) {
+      if (e.key === 'Escape') closeTokenPortraitPreview();
+      return;
+    }
+    if (!$('#portrait-manager-modal').hidden) {
+      if (e.key === 'Escape') closePortraitVariantManager();
+      return;
+    }
     if (e.key === 'Escape' && (pendingMapReaction || spellAimTokenId)) {
       cancelMapReaction();
       cancelSpellAim();
@@ -6674,6 +7109,39 @@ function bindEvents() {
 
   // 详情
   $('#btn-detail-close').addEventListener('click', closeDetailPanel);
+  $('#btn-detail-portrait-preview').addEventListener('click', openTokenPortraitPreview);
+  $('#btn-portrait-preview-close').addEventListener('click', closeTokenPortraitPreview);
+  $('#portrait-preview-modal').addEventListener('click', (event) => {
+    if (event.target === $('#portrait-preview-modal')) closeTokenPortraitPreview();
+  });
+  $('#btn-portrait-manager-open').addEventListener('click', openPortraitVariantManager);
+  $('#btn-portrait-manager-close').addEventListener('click', closePortraitVariantManager);
+  $('#btn-portrait-manager-done').addEventListener('click', closePortraitVariantManager);
+  $('#btn-portrait-save-current').addEventListener('click', saveCurrentPortraitAsVariant);
+  $('#btn-portrait-sync-library').addEventListener('click', syncTokenPortraitVariantsToLibrary);
+  $('#portrait-manager-modal').addEventListener('click', (event) => {
+    if (event.target === $('#portrait-manager-modal')) closePortraitVariantManager();
+  });
+  $('#portrait-variant-strip').addEventListener('scroll', updatePortraitManagerScrollButtons, { passive: true });
+  $('#btn-portrait-scroll-left').addEventListener('click', () => {
+    $('#portrait-variant-strip').scrollBy({ left: -340, behavior: 'smooth' });
+  });
+  $('#btn-portrait-scroll-right').addEventListener('click', () => {
+    $('#portrait-variant-strip').scrollBy({ left: 340, behavior: 'smooth' });
+  });
+  $('#portrait-variant-strip').addEventListener('click', (event) => {
+    const action = event.target.closest('[data-portrait-action]');
+    if (action) {
+      const index = Number(action.dataset.portraitIndex);
+      if (action.dataset.portraitAction === 'left') moveTokenPortraitVariant(index, -1);
+      if (action.dataset.portraitAction === 'right') moveTokenPortraitVariant(index, 1);
+      if (action.dataset.portraitAction === 'rename') renameTokenPortraitVariant(index);
+      if (action.dataset.portraitAction === 'delete') deleteTokenPortraitVariant(index);
+      return;
+    }
+    const select = event.target.closest('[data-portrait-select]');
+    if (select) selectTokenPortraitVariant(Number(select.dataset.portraitSelect));
+  });
   document.querySelectorAll('[data-detail-tab]').forEach((button) => {
     button.addEventListener('click', () => setDetailTab(button.dataset.detailTab));
     button.addEventListener('keydown', (event) => {
@@ -6772,14 +7240,6 @@ function bindEvents() {
     scheduleDetailTextSave();
   });
   $('#detail-public-note').addEventListener('blur', flushDetailTextSave);
-  $('#detail-gm-note').addEventListener('input', (e) => {
-    const t = state.selectedId && findToken(state.selectedId);
-    if (!t) return;
-    t.gmNote = e.target.value.slice(0, 500);
-    $('#detail-gm-note-summary').textContent = t.gmNote ? `已填写 ${t.gmNote.length} 字` : '未填写';
-    scheduleDetailTextSave(false);
-  });
-  $('#detail-gm-note').addEventListener('blur', flushDetailTextSave);
   $('#detail-hidden-players').addEventListener('change', (e) => {
     const t = state.selectedId && findToken(state.selectedId);
     if (!t) return;
@@ -6860,6 +7320,13 @@ function bindEvents() {
     if (!state.selectedId || !$('#detail-map-move').value) return;
     transferToken(state.selectedId, $('#detail-map-move').value, true);
   });
+  $('#btn-player-tokens-move').addEventListener('click', () => {
+    const target = mapById($('#detail-map-move').value);
+    const players = playerControlledMapTokens(activeMap());
+    if (!target || !players.length) return;
+    if (!confirm(`把当前地图的 ${players.length} 枚玩家棋子移动到「${target.name}」？\n骑乘中的坐骑和同组骑手会一起移动。`)) return;
+    transferAllPlayerTokens(target.id);
+  });
 
   // 棋子库
   document.querySelectorAll('[data-unit-source]').forEach((button) => {
@@ -6904,8 +7371,9 @@ function bindEvents() {
     const t = state.selectedId && findToken(state.selectedId);
     if (!t) return;
     const portraitPath = canonicalPortraitPath(t.iconImgPath);
+    const presetId = 'l' + (uid++);
     state.library.push({
-      id: 'l' + (uid++),
+      id: presetId,
       name: t.name,
       type: t.type,
       category: '其他',
@@ -6914,11 +7382,13 @@ function bindEvents() {
       iconImgHd: portraitPath ? null : (t.iconImgHd || null),
       iconImgPath: portraitPath,
       iconImgId: portraitPath ? null : (t.iconImgId || null),
+      portraitVariants: tokenPortraitVariants(t).map((variant) => ({ ...variant })),
       size: t.size || 1,
       hpMax: t.hpMax || 10,
       ac: typeof t.ac === 'number' ? t.ac : 10,
       spellRange: normalizeSpellRange(t.spellRange),
     });
+    t.presetId = presetId;
     renderLibrary();
     saveLibrary();
     scheduleAutosave();
@@ -7140,7 +7610,6 @@ function placeToken() {
     spellRange: normalizeSpellRange(null),
     conditions: [],
     publicNote: '',
-    gmNote: '',
     hiddenFromPlayers: false,
     x: clamp(finalX, margin, m.mapW - margin),
     y: clamp(finalY, margin, m.mapH - margin),
@@ -8245,10 +8714,12 @@ function applyRemoteAction(a) {
     if (state.selectedId === t.id) updateDetail();
   } else if (a.op === 'patchToken') {
     const p = a.patch || {};
+    const playerUpdatedPortraitVariants = Object.prototype.hasOwnProperty.call(p, 'portraitVariants');
+    if (playerUpdatedPortraitVariants && Array.isArray(p.portraitVariants)) t.portraitVariants = normalizePortraitVariants(p.portraitVariants);
     if (Number.isInteger(p.portraitVariant)) {
       const v = tokenPortraitVariants(t)[p.portraitVariant];
       if (v) { applyTokenPortrait(t, v); t.portraitVariant = p.portraitVariant; }
-    }
+    } else if (Object.prototype.hasOwnProperty.call(p, 'portraitVariant')) delete t.portraitVariant;
     const allowed = ['hp', 'hpMax', 'tempHp', 'tempHpMax', 'ac', 'spellRange'];
     allowed.forEach((k) => { if (k in p) t[k] = p[k]; });
     const playerUpdatedConditions = Object.prototype.hasOwnProperty.call(p, 'conditions');
@@ -8262,6 +8733,12 @@ function applyRemoteAction(a) {
       setEncounterEvent(encounter, `${actor} 更新了「${t.name}」的状态效果`);
       renderEncounter();
       toast(`🩺 ${actor} 更新了「${t.name}」的状态效果（${publicCount} 项）`);
+    }
+    if (playerUpdatedPortraitVariants) {
+      const actor = String(a.actor || '玩家').slice(0, 24);
+      setEncounterEvent(encounter, `${actor} 更新了「${t.name}」的立绘形态`);
+      renderEncounter();
+      toast(`🎭 ${actor} 更新了「${t.name}」的立绘形态`);
     }
   }
   scheduleAutosave(false);
@@ -8358,10 +8835,11 @@ async function mergePlayerStateFromServer() {
         ['hp', 'hpMax', 'tempHp', 'tempHpMax', 'ac', 'spellRange'].forEach((k) => {
           if (k in rs) t[k] = rs[k];
         });
+        if (Array.isArray(rs.portraitVariants)) t.portraitVariants = normalizePortraitVariants(rs.portraitVariants);
         if (Number.isInteger(rs.portraitVariant)) {
           const v = tokenPortraitVariants(t)[rs.portraitVariant];
           if (v) { applyTokenPortrait(t, v); t.portraitVariant = rs.portraitVariant; }
-        }
+        } else if (Object.prototype.hasOwnProperty.call(rs, 'portraitVariant')) delete t.portraitVariant;
         if ('conditions' in rs) t.conditions = mergePlayerPublicConditions(t.conditions, rs.conditions);
         t.spellRange = normalizeSpellRange(t.spellRange);
         if (t.size >= 2) syncRiderData(t);
@@ -8811,7 +9289,7 @@ function normalizeLibPreset(p) {
     // 已有项目原图时不再把缩略图和 IndexedDB id 重复写进正式棋子库。
     iconImg: isPathBacked ? null : (p.iconImg || null),
     iconImgHd: isPathBacked ? null : (p.iconImgHd || null),
-    portraitVariants: Array.isArray(p.portraitVariants) ? p.portraitVariants.filter(v => v && typeof v.name === 'string' && (v.iconImgPath || v.iconImg || v.iconImgHd)).map(v => ({ ...v })) : [],
+    portraitVariants: normalizePortraitVariants(p.portraitVariants),
     iconImgPath: portraitPath,
     iconImgId: isPathBacked ? null : (p.iconImgId || null),
     size: p.size === 2 ? 2 : 1,

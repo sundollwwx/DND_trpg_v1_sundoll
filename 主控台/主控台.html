@@ -6,7 +6,7 @@
   <title>桑哆尔之歌 · 主控台</title>
   <link rel="icon" type="image/png" href="../asset/界面/品牌/桑哆尔之歌-logo.png">
   <link rel="preload" as="image" href="../asset/界面/状态图标-v1.png">
-  <link rel="stylesheet" href="style.css?v=20260909-sidebar-stable-v7">
+  <link rel="stylesheet" href="style.css?v=20260912-portrait-manager-v1">
   <link rel="stylesheet" href="../asset/界面/休息动画/休息动画.css?v=20260905-rest-scenes-v2">
 </head>
 <body>
@@ -294,7 +294,7 @@
     <section class="card" id="shared-note-card" data-workspace="resources">
       <div class="card-head"><h2>📖 共享公告 / 手册</h2><span id="shared-note-count" class="hint">0/4000</span></div>
       <textarea id="shared-note" rows="7" maxlength="4000" placeholder="给玩家看的规则约定、当前目标、线索或场景提示……"></textarea>
-      <p class="hint">内容会随联机状态同步到玩家端；GM 私密备注不会同步。</p>
+      <p class="hint">内容会随联机状态同步到玩家端。</p>
     </section>
   </aside>
 
@@ -437,9 +437,11 @@
       <p id="detail-empty" class="empty">点击地图上的棋子查看详情</p>
       <div id="detail" hidden>
         <div class="detail-head">
-          <div class="detail-icon" id="detail-icon">🧙</div>
           <div class="detail-title">
-            <input id="detail-name" class="name-input" placeholder="名称" maxlength="24">
+            <div class="detail-name-row">
+              <input id="detail-name" class="name-input" placeholder="名称" maxlength="24">
+              <button id="btn-detail-portrait-preview" class="detail-portrait-preview-trigger" type="button" aria-haspopup="dialog" aria-controls="portrait-preview-modal">▣ 立绘</button>
+            </div>
             <select id="detail-type-select" class="type-tag type-select" title="类型可随时更改，颜色圆环会同步变化">
               <option value="pc">玩家角色</option>
               <option value="enemy">敌人</option>
@@ -592,18 +594,16 @@
               </label>
             </section>
 
-            <details class="detail-disclosure">
-              <summary><span>GM 私密备注</span><small id="detail-gm-note-summary">未填写</small></summary>
-              <label class="note-field"><textarea id="detail-gm-note" maxlength="500" placeholder="只有主控台可见"></textarea></label>
-            </details>
-
             <section class="detail-block">
               <div class="detail-block-title"><div><strong>图标与立绘</strong><small>更换地图上的棋子外观</small></div></div>
               <label class="field"><span>备用文字图标</span><input id="detail-icon-input" maxlength="4" placeholder="🗡️"></label>
-              <label class="field"><span>立绘预设</span><select id="detail-portrait" aria-label="切换棋子立绘"></select></label>
+              <div class="detail-portrait-picker">
+                <label class="field"><span>当前形态</span><select id="detail-portrait" aria-label="切换棋子立绘"></select></label>
+                <button id="btn-portrait-manager-open" class="small" type="button" aria-haspopup="dialog" aria-controls="portrait-manager-modal">管理形态</button>
+              </div>
               <p id="detail-appearance-status" class="hint" aria-live="polite"></p>
               <div class="icon-actions">
-                <button id="btn-detail-icon-upload" class="small" type="button">🖼️ 上传立绘</button>
+                <button id="btn-detail-icon-upload" class="small" type="button">🖼️ 更换当前立绘</button>
                 <button id="btn-detail-icon-remove" class="small danger" type="button" hidden>改用文字图标</button>
               </div>
             </section>
@@ -614,6 +614,7 @@
               <div class="map-transfer-actions">
                 <button id="btn-token-copy" class="small" type="button">复制到地图</button>
                 <button id="btn-token-move" class="primary small" type="button">移动到地图</button>
+                <button id="btn-player-tokens-move" class="small map-transfer-all" type="button">移动全部玩家棋子</button>
               </div>
             </section>
 
@@ -634,6 +635,45 @@
     </section>
   </aside>
 </main>
+
+<div id="portrait-preview-modal" class="modal-mask" hidden>
+  <div class="modal portrait-preview-modal" role="dialog" aria-modal="true" aria-labelledby="portrait-preview-title">
+    <div class="portrait-preview-head">
+      <div>
+        <span class="detail-panel-kicker">完整立绘</span>
+        <h2 id="portrait-preview-title">棋子立绘</h2>
+      </div>
+      <button id="btn-portrait-preview-close" class="detail-close" type="button" aria-label="关闭立绘预览" title="关闭立绘预览">×</button>
+    </div>
+    <div class="portrait-preview-stage">
+      <img id="portrait-preview-image" alt="" hidden>
+      <span id="portrait-preview-status" role="status">正在读取立绘…</span>
+    </div>
+  </div>
+</div>
+
+<div id="portrait-manager-modal" class="modal-mask" hidden>
+  <div class="modal portrait-manager-modal" role="dialog" aria-modal="true" aria-labelledby="portrait-manager-title">
+    <div class="portrait-manager-head">
+      <div>
+        <span class="detail-panel-kicker">棋子外观</span>
+        <h2 id="portrait-manager-title">管理不同形态</h2>
+        <p id="portrait-manager-summary" class="hint">点击缩略图切换形态。</p>
+      </div>
+      <button id="btn-portrait-manager-close" class="detail-close" type="button" aria-label="关闭形态管理" title="关闭形态管理">×</button>
+    </div>
+    <div class="portrait-manager-rail">
+      <button id="btn-portrait-scroll-left" class="portrait-manager-scroll" type="button" aria-label="向左浏览形态">‹</button>
+      <div id="portrait-variant-strip" class="portrait-variant-strip" tabindex="0" aria-label="立绘形态缩略图列表"></div>
+      <button id="btn-portrait-scroll-right" class="portrait-manager-scroll" type="button" aria-label="向右浏览形态">›</button>
+    </div>
+    <div class="portrait-manager-actions">
+      <button id="btn-portrait-save-current" class="primary" type="button">＋ 保存当前立绘为形态</button>
+      <button id="btn-portrait-sync-library" type="button">同步形态到棋子库</button>
+      <button id="btn-portrait-manager-done" type="button">完成</button>
+    </div>
+  </div>
+</div>
 
 <div id="map-browser-modal" class="modal-mask" hidden>
   <div class="modal map-browser-modal" role="dialog" aria-modal="true" aria-labelledby="map-browser-title">
@@ -857,6 +897,6 @@
 <script src="../three.min.js"></script>
 <script src="../骰子动画.js?v=20260904-physics-v7-face-lock-continuous-settle-r6-uv-handedness-r7-result-focus-r8-public-skin-r9-d20-tilt-r10"></script>
 <script src="../asset/地图/tile-renderer.js?v=20260902-explicit-variants"></script>
-  <script src="app.js?v=20260910-campaign-journal-units-v3"></script>
+  <script src="app.js?v=20260913-zero-no-white-edge-v2"></script>
 </body>
 </html>

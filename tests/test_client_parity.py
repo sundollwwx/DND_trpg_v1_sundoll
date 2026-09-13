@@ -505,8 +505,8 @@ class ClientParityTests(unittest.TestCase):
         self.assertIn('remoteStreamSeq > previouslyAppliedSeq && remotePathChanged', HOST_JS)
 
     def test_host_can_pause_turn_path_recording_without_disabling_turn_movement(self):
-        self.assertIn('style.css?v=20260906-grid-visibility-v1-m55-music-player-documents-sidebar-v2', HOST_HTML)
-        self.assertIn('app.js?v=20260906-grid-visibility-v1-music-title-sync-v2-campaign-load-cache-v1', HOST_HTML)
+        self.assertRegex(HOST_HTML, r'style\.css\?v=[^"\s]+')
+        self.assertRegex(HOST_HTML, r'app\.js\?v=[^"\s]+')
         self.assertIn("HOST_TURN_PATH_RECORDING_KEY = 'sundoll-host-turn-path-recording-v1'", HOST_JS)
         self.assertIn('function setHostTurnPathRecording(', HOST_JS)
         controls = HOST_JS[

@@ -1,0 +1,34 @@
+Use case: identity-preserve
+Asset type: square fantasy RPG full-body token portrait, ordinary standing form
+Primary request: Create Sundoll's neutral ordinary standing form from the supplied blue-and-gold combat portrait. Preserve his identity and equipment design, but replace the combat pose with a calm full-body standing pose.
+
+IDENTITY AND APPEARANCE:
+Preserve the same adult human male, handsome recognizable face, dark medium-length hair, tall athletic build, dark royal/navy-blue layered plate armor with rich antique-gold ornamental edging, midnight-blue weathered cloak with muted gold lining, dark leather straps, and realistic painterly western fantasy rulebook style.
+His polished gold sun pendant remains clearly visible at the center of his chest: a simple smooth circular disk surrounded by short rays, with absolutely no face, eyes, nose or mouth.
+
+HEADPIECE:
+Keep the same angular navy-and-gold armored brow guard/half-helm, but raise and tilt its front edge slightly upward so BOTH EYES are fully visible and unobstructed. The headpiece still covers and frames the forehead and temples; it is not removed. His expression is composed, alert and quietly confident.
+
+POSE:
+A natural ordinary standing pose, front or slight three-quarter view. He stands upright with balanced weight, feet shoulder-width apart, shoulders relaxed, head lifted and both eyes looking forward. Both arms rest naturally at his sides; one hand may rest lightly near a belt but neither hand holds a weapon or produces magic. No attack motion, crouch or dramatic wind.
+
+HEAVY WEAPONS BOTH STOWED ON THE BACK:
+1. One massive sheathed two-handed greatsword is strapped diagonally across his back; its broad scabbard and oversized hilt are clearly visible behind one shoulder.
+2. One long halberd is separately secured diagonally across his back in the opposite direction with visible leather straps; its long shaft, axe blade, spear point and rear hook are clearly recognizable above and behind the other shoulder.
+The two heavy weapons must form a believable crossed carrying arrangement without merging, duplicating or passing through his body.
+Keep one curved scimitar sheathed at one hip and one separate straight short sword sheathed at the opposite hip. Four weapons total: one greatsword, one halberd, one scimitar, one short sword.
+
+NO MAGIC:
+Remove all lightning and spell effects from his hand, armor and weapons. No glow except subtle natural highlights on blue-and-gold metal.
+
+BACKGROUND:
+A complete perfectly round centered PARCHMENT-GZ-1 circle, approximately 86% canvas diameter, full circumference visible, about 7% uniform pure-white margin on every side. Warm honey golden-brown old parchment, lighter center, fine low-contrast texture, natural brown aging near the perimeter. Clean continuous boundary, no scene.
+
+COMPOSITION:
+Single full-body figure. Uniformly scale and position him so the complete raised headpiece, hair, boots, cloak, entire visible halberd head and shaft, greatsword hilt/scabbard, scimitar and short sword all remain fully inside the parchment circle with clear margin. The face, both eyes, sun pendant and crossed back weapons must be readable.
+
+AVOID:
+covered eyes, lowered visor, removed headpiece, held weapon, hand magic, attack pose, crouch, extra characters, duplicated or merged weapons, shield, red armor, face on sun pendant, oval/incomplete background, any object crossing into white exterior, text, watermark or UI. Square output.
+
+生成方式：内置 image_gen，参考桑哆尔-蓝金战斗-v2.png生成。按用户要求未经代理审核，直接交由用户审核；尚未正式入库。
+

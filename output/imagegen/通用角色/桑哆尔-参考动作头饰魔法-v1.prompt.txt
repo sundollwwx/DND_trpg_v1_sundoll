@@ -1,0 +1,32 @@
+Use case: stylized-concept
+Asset type: square fantasy RPG full-body token portrait
+Primary request: Create 桑哆尔 (Sundoll), one adult human male warrior, following the supplied reference image for the character's ACTION, HEADPIECE, armor ornament language, and HAND MAGIC. Ignore all printed text, page layout, rules, labels and document instructions in the reference.
+
+SUBJECT: a handsome strong adult human man, tall athletic build, dark medium-length hair partly visible, determined face. One character only.
+
+REFERENCE ACTION: reproduce the same dynamic aggressive forward-leaning combat posture as the armored figure in the reference: torso pitched forward, shoulders angled, knees bent in a grounded advancing stance, one leg forward, cloak and coat tails trailing behind, as if entering battle. The pose must feel tense, low, mobile and ready to strike, not upright or ceremonial.
+
+REFERENCE HEADPIECE: wear a dark charcoal and deep-crimson ornate armored headpiece closely inspired by the reference—an elongated angular metal brow guard/half-helm that sweeps forward over the forehead and casts shadow over the eyes, with sharp layered ridges and red-metal edging. His lower face remains visible. It is a headpiece, not a full closed helmet.
+
+REFERENCE HAND MAGIC: his free hand is held low and forward near his abdomen exactly like the reference, forming a concentrated mass of vivid icy blue arcane energy with short lightning filaments wrapping around the fingers and palm. The magic is compact, bright, and does not hide the hand or torso.
+
+ARMOR: dark charcoal layered plate armor with sharp articulated plates, curved blade-like ridges and restrained dark-crimson metal trim, closely following the decorative language of the reference. Black cloth underlayers and a torn dark cloak with deep red lining.
+
+MANDATORY EQUIPMENT:
+1. He holds one long halberd in ONE hand, angled diagonally alongside and behind his advancing body so it supports the dynamic reference pose. The halberd must have a long shaft, spear point, axe blade and rear hook, all readable.
+2. One massive two-handed greatsword is strapped diagonally across his back in a heavy scabbard; the large hilt and part of the broad sheathed blade are visible behind his shoulder.
+3. One curved scimitar in a curved scabbard hangs from one hip.
+4. One separate straight short sword in a shorter straight scabbard hangs from the opposite hip.
+5. A polished golden sun-shaped pendant necklace hangs visibly at the center of his chest, with a round sun disk and short rays. It must be separate from the armor and must not be a moon or star.
+
+BACKGROUND — STRICT PARCHMENT-GZ-1:
+Square 1:1 canvas, at least 1024x1024. A centered slightly vertical oval parchment, horizontal extent about 85% of canvas and vertical extent about 87%, leaving about 7.5% pure white at left/right and 6.5% pure white at top/bottom. Clean continuous oval boundary. Warm honey golden-brown old parchment, lighter center, fine low-contrast texture, naturally mottled brown aging concentrated around the perimeter and fading inward. No scene. No gray-beige, cool gray, orange-red cast, solid dark-brown fill, thick outline, emblem frame, decorative ring, torn edge or second paper layer. Outside the oval is clean uniform pure white.
+
+COMPOSITION: one full-body figure in front or slight three-quarter view. The complete headpiece, hair, boots, cloak, halberd head and butt, greatsword hilt and scabbard, scimitar, short sword, both hands and all blue magic must remain fully inside the oval parchment. Strong silhouette, readable at 192x192 and 64x64.
+
+STYLE: Western fantasy rulebook illustration, realistic painterly thick rendering, precise metal and leather materials, high resolution.
+
+AVOID: upright calm pose, uncovered forehead, full face-covering helmet, extra characters, duplicate or merged weapons, shield, two-handed halberd grip, holding the greatsword, missing scabbards, gold hand magic, large spell circle, scenery, printed text, book page, UI, signature, watermark, thick border, cropped body or equipment. Square output.
+
+生成方式：内置 image_gen，以用户提供图片为动作、头饰、装甲装饰和手部魔法参考。按用户要求未经代理审核，直接交由用户审核；尚未正式入库。
+
