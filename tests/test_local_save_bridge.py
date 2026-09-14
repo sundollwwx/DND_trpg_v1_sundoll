@@ -1,8 +1,11 @@
 import importlib.util
+import base64
+import hashlib
 import json
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -20,6 +23,97 @@ finally:
 
 
 class LocalSaveBridgeTests(unittest.TestCase):
+    def test_host_can_cache_one_map_for_player_background_preload(self):
+        raw = b'\x89PNG\r\n\x1a\nbackground-map'
+        data_url = 'data:image/png;base64,' + base64.b64encode(raw).decode('ascii')
+        asset_url = '/api/assets/' + hashlib.sha256(raw).hexdigest()
+        handler = mock.Mock()
+        handler.path = '/api/assets/cache-map'
+        handler._read_json_body.return_value = {'mapData': data_url}
+        with mock.patch.object(SERVER, 'ASSETS', {}), \
+                mock.patch.object(SERVER, 'is_local_request', return_value=True), \
+                mock.patch.object(SERVER, 'persist_asset') as persist_asset:
+            SERVER.Handler.do_POST(handler)
+        handler._send_json.assert_called_once_with({'ok': True, 'mapAssetUrl': asset_url})
+        persist_asset.assert_called_once_with(asset_url.rsplit('/', 1)[-1], 'image/png', raw)
+
+        rejected = mock.Mock()
+        rejected.path = '/api/assets/cache-map'
+        with mock.patch.object(SERVER, 'is_local_request', return_value=False):
+            SERVER.Handler.do_POST(rejected)
+        rejected._send_json.assert_called_once_with(
+            {'ok': False, 'error': 'map asset api is host-only'},
+            403,
+        )
+
+    def test_state_upload_returns_cached_active_map_asset_url(self):
+        raw = b'\x89PNG\r\n\x1a\nstream-map'
+        data_url = 'data:image/png;base64,' + base64.b64encode(raw).decode('ascii')
+        asset_url = '/api/assets/' + hashlib.sha256(raw).hexdigest()
+        handler = mock.Mock()
+        handler.path = '/api/state'
+        handler._read_json_body.return_value = {
+            'maps': [{'id': 'map-fast', 'mapData': data_url, 'tokens': []}],
+            'activeMapId': 'map-fast',
+        }
+        with mock.patch.object(SERVER, 'STATE', None), \
+                mock.patch.object(SERVER, 'STATE_REVISION', 0), \
+                mock.patch.object(SERVER, 'RECENT_ACTIONS', []), \
+                mock.patch.object(SERVER, 'ASSETS', {}), \
+                mock.patch.object(SERVER, 'is_local_request', return_value=True), \
+                mock.patch.object(SERVER, 'persist_asset') as persist_asset, \
+                mock.patch.object(SERVER, 'broadcast') as broadcast:
+            SERVER.Handler.do_POST(handler)
+
+        response = handler._send_json.call_args.args[0]
+        self.assertEqual(response['mapId'], 'map-fast')
+        self.assertEqual(response['mapAssetUrl'], asset_url)
+        persist_asset.assert_called_once_with(asset_url.rsplit('/', 1)[-1], 'image/png', raw)
+        pushed_state = broadcast.call_args.args[0]['state']
+        self.assertEqual(pushed_state['maps'][0]['mapData'], asset_url)
+
+    def test_tunnel_public_base_only_accepts_https_origins(self):
+        self.assertEqual(
+            SERVER.normalize_public_base_url('https://quiet-river.trycloudflare.com/'),
+            'https://quiet-river.trycloudflare.com',
+        )
+        self.assertEqual(SERVER.normalize_public_base_url(''), '')
+        for value in (
+            'http://quiet-river.trycloudflare.com',
+            'https://user:pass@example.com',
+            'https://example.com/path',
+            'https://example.com/?query=1',
+        ):
+            with self.subTest(value=value):
+                self.assertIsNone(SERVER.normalize_public_base_url(value))
+
+    def test_tunnel_public_base_endpoint_is_local_host_only(self):
+        handler = mock.Mock()
+        handler.path = '/api/local-tunnel'
+        handler._read_json_body.return_value = {
+            'publicBase': 'https://quiet-river.trycloudflare.com',
+        }
+        old_public_base = SERVER.PUBLIC_BASE_URL
+        try:
+            with mock.patch.object(SERVER, 'local_save_request_allowed', return_value=True):
+                SERVER.Handler.do_POST(handler)
+            self.assertEqual(SERVER.PUBLIC_BASE_URL, 'https://quiet-river.trycloudflare.com')
+            handler._send_json.assert_called_once_with({
+                'ok': True,
+                'publicBase': 'https://quiet-river.trycloudflare.com',
+            })
+
+            rejected = mock.Mock()
+            rejected.path = '/api/local-tunnel'
+            with mock.patch.object(SERVER, 'local_save_request_allowed', return_value=False):
+                SERVER.Handler.do_POST(rejected)
+            rejected._send_json.assert_called_once_with(
+                {'ok': False, 'error': 'tunnel api is host-only'},
+                403,
+            )
+        finally:
+            SERVER.PUBLIC_BASE_URL = old_public_base
+
     def test_fixed_project_save_folder_supports_round_trip_and_listing(self):
         with tempfile.TemporaryDirectory() as temp_root:
             status = SERVER.perform_local_save_operation({'op': 'status'}, temp_root)

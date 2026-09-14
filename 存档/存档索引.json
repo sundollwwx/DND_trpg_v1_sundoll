@@ -2,12 +2,12 @@
   "format": "sangduoer-save-index",
   "schemaVersion": 2,
   "lastCampaignId": "c286",
-  "updatedAt": 1789275668989,
+  "updatedAt": 1789402965242,
   "campaigns": [
     {
       "id": "c286",
       "name": "风骸岛之龙",
-      "savedAt": 1789275667564,
+      "savedAt": 1789402963781,
       "folder": "c286-风骸岛之龙",
       "cover": "封面.jpg"
     },
@@ -33,5 +33,5 @@
       "cover": "封面.jpg"
     }
   ],
-  "lastOpenedAt": 1789275668991
+  "lastOpenedAt": 1789402965246
 }

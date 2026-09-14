@@ -10,6 +10,8 @@ __pycache__/
 .idea/
 .vscode/
 .tools/
+/cloudflared
+/cloudflared.exe
 
 # Runtime and temporary files
 *.log

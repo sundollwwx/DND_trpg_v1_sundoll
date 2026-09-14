@@ -44,6 +44,7 @@ RECENT_ACTIONS = []   # 玩家动作（带自增 seq），用于主机合并
 NEXT_SEQ = 1
 MAX_RECENT = 500
 MAX_BODY = 12 * 1024 * 1024
+MAP_ASSET_MIMES = {'image/png', 'image/jpeg', 'image/webp', 'image/gif'}
 MAX_JOURNAL_ENTRIES = 100
 MAX_JOURNAL_TITLE = 80
 MAX_JOURNAL_TOTAL_TEXT = 20000
@@ -128,7 +129,8 @@ DATA_URL_RE = re.compile(r'^data:([^;,]+)?(;base64)?,(.*)$', re.S)
 
 SESSION_ID = secrets.token_hex(8)
 ROOM_CODE = secrets.token_hex(3).upper()
-SERVER_PROTOCOL_VERSION = 16
+SERVER_PROTOCOL_VERSION = 19
+PUBLIC_BASE_URL = ''
 STATE_REVISION = 0
 SESSIONS = {}         # {sessionToken: {playerId, name, status, lastSeen}}
 ACTION_IDS = {}       # {actionId: seq}，防止网络重试重复执行
@@ -257,6 +259,20 @@ def is_local_request(handler):
         return host in get_ips()
     except Exception:
         return False
+
+
+def normalize_public_base_url(value):
+    raw = str(value or '').strip().rstrip('/')
+    if not raw:
+        return ''
+    try:
+        parsed = urlparse(raw)
+    except ValueError:
+        return None
+    if (parsed.scheme != 'https' or not parsed.hostname or parsed.username or parsed.password
+            or parsed.query or parsed.fragment or parsed.path not in ('', '/')):
+        return None
+    return 'https://' + parsed.netloc
 
 
 def local_save_request_allowed(handler):
@@ -708,6 +724,18 @@ def cache_data_url(value):
     ASSETS[key] = (mime, raw)
     persist_asset(key, mime, raw)
     return '/api/assets/' + key
+
+
+def cache_map_asset(value):
+    """校验并缓存主控台提供的单张地图，供玩家端后台预载。"""
+    if not isinstance(value, str):
+        return None
+    match = DATA_URL_RE.match(value)
+    mime = str(match.group(1) or '').lower() if match else ''
+    if not match or mime not in MAP_ASSET_MIMES:
+        return None
+    cached = cache_data_url(value)
+    return cached if isinstance(cached, str) and cached.startswith('/api/assets/') else None
 
 
 def cache_player_portrait(value):
@@ -3539,6 +3567,7 @@ class Handler(SimpleHTTPRequestHandler):
                 'protocolVersion': SERVER_PROTOCOL_VERSION,
                 'sessionId': SESSION_ID,
                 'roomCode': ROOM_CODE,
+                'publicBase': PUBLIC_BASE_URL,
                 'stateRevision': revision,
                 'playerCount': len([p for p in players if p.get('online')]),
                 'campaignName': snapshot.get('campaignName') or '',
@@ -3550,7 +3579,7 @@ class Handler(SimpleHTTPRequestHandler):
             })
         elif path == '/api/players':
             with LOCK:
-                self._send_json({'ok': True, 'players': online_players()})
+                self._send_json({'ok': True, 'players': online_players(), 'publicBase': PUBLIC_BASE_URL})
         elif path == '/api/session':
             token = (parse_qs(urlparse(self.path).query).get('token') or [''])[0]
             with LOCK:
@@ -3616,8 +3645,41 @@ class Handler(SimpleHTTPRequestHandler):
         self._send_json(result)
 
     def do_POST(self):
-        global STATE, STATE_REVISION, NEXT_SEQ
-        if self.path == '/api/journal':
+        global STATE, STATE_REVISION, NEXT_SEQ, PUBLIC_BASE_URL
+        if self.path == '/api/local-tunnel':
+            if not local_save_request_allowed(self):
+                self._send_json({'ok': False, 'error': 'tunnel api is host-only'}, 403)
+                return
+            try:
+                data = self._read_json_body(4096)
+            except (ValueError, TypeError, OverflowError, json.JSONDecodeError):
+                self._send_json({'ok': False, 'error': '公网地址无效'}, 400)
+                return
+            public_base = normalize_public_base_url((data or {}).get('publicBase'))
+            if public_base is None:
+                self._send_json({'ok': False, 'error': '公网地址无效'}, 400)
+                return
+            with LOCK:
+                PUBLIC_BASE_URL = public_base
+            self._send_json({'ok': True, 'publicBase': PUBLIC_BASE_URL})
+        elif self.path == '/api/assets/cache-map':
+            if not is_local_request(self):
+                self._send_json({'ok': False, 'error': 'map asset api is host-only'}, 403)
+                return
+            try:
+                data = self._read_json_body(MAX_BODY)
+            except OverflowError:
+                self._send_json({'ok': False, 'error': 'map asset too large'}, 413)
+                return
+            except (ValueError, TypeError, json.JSONDecodeError):
+                self._send_json({'ok': False, 'error': 'bad map asset'}, 400)
+                return
+            asset_url = cache_map_asset((data or {}).get('mapData'))
+            if not asset_url:
+                self._send_json({'ok': False, 'error': 'bad map asset'}, 400)
+                return
+            self._send_json({'ok': True, 'mapAssetUrl': asset_url})
+        elif self.path == '/api/journal':
             try:
                 data = self._read_json_body(128 * 1024)
                 if not isinstance(data, dict):
@@ -3873,7 +3935,13 @@ class Handler(SimpleHTTPRequestHandler):
                 snapshot = state_snapshot()
             state_event_id = RECENT_ACTIONS[-1].get('seq', 0) if RECENT_ACTIONS else None
             broadcast({'type': 'state', 'state': snapshot}, state_event_id)
-            self._send_json({'ok': True, 'stateRevision': STATE_REVISION})
+            active_map = (snapshot.get('maps') or [None])[0] if isinstance(snapshot, dict) else None
+            self._send_json({
+                'ok': True,
+                'stateRevision': STATE_REVISION,
+                'mapId': active_map.get('id') if isinstance(active_map, dict) else None,
+                'mapAssetUrl': active_map.get('mapData') if isinstance(active_map, dict) else None,
+            })
         elif self.path.startswith('/api/music'):
             if not is_local_request(self):
                 self._send_json({'ok': False, 'error': 'music api is host-only'}, 403)

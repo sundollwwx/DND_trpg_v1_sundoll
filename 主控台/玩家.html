@@ -778,7 +778,9 @@
   let state = null, currentMap = null, view = {scale:1,ox:0,oy:0}, myName = '', myPlayerId = '', sessionToken = '', roomCode = '', players = [], presenceStatus = 'online', selectedId = null, drag = null, toastTimer = null, peekTimer = null, restAnimationTimer = null, localRolls = new Set(), lastMapViewKey = '', flowPanel = 'initiative', flowClockAnchor = { localNow: performance.now(), serverNow: Date.now() }, flowTimer = null, measureMode = false, measureDraft = null, doodleTool = null, doodleColor = '#ff4d4f', doodleWidth = 6, doodleDraft = null, presenceTimer = null, streamES = null, streamAppliedSeq = 0, lastStateRevision = 0, spellAimTokenId = null, pendingMapReaction = null, spellRangeRaf = null, initiativePending = false, lastFlowScrollEntryId = null, editingPlayerConditionId = null, activePlayerDetailTab = 'status', diceVisibility = 'public', contextTokenId = null, investigationTokenId = null, playerPortraitManagerTokenId = null;
   const localReactionIds = new Set();
   const playedRestTransitions = new Set();
-  const REQUIRED_SERVER_PROTOCOL=16,PLAYER_PORTRAIT_SOURCE_LIMIT=12*1024*1024,PLAYER_PORTRAIT_TARGET_BYTES=280*1024;
+  const mapPreloadCached = new Set(), mapPreloadQueued = new Set(), mapPreloadAttempts = new Map();
+  let mapPreloadQueue = [], mapPreloadTimer = null, mapPreloadController = null, mapPreloadActiveUrl = '';
+  const REQUIRED_SERVER_PROTOCOL=19,PLAYER_PORTRAIT_SOURCE_LIMIT=12*1024*1024,PLAYER_PORTRAIT_TARGET_BYTES=280*1024;
   let playerSpawnPending=false,playerPortraitPending=false,playerDraftPortrait='',playerDeletePending=null,playerMountPending=null,playerDismountPending=null;
   function applyJoinHomeTheme(themeKey){
     const mask=$('#join-mask'),key=Object.prototype.hasOwnProperty.call(PLAYER_HOME_THEMES,themeKey)?themeKey:'a',theme=PLAYER_HOME_THEMES[key];if(!mask||!theme)return;
@@ -1297,6 +1299,52 @@
     const gridPos=(Number(m.gridOffsetX)||0)+'px '+(Number(m.gridOffsetY)||0)+'px';
     world.style.backgroundPosition=showGrid?[gridPos,gridPos,gridPos,gridPos,'0 0'].join(','):'0 0';
   }
+  function normalizedMapPreloadUrl(value) {
+    const source=String(value||'');
+    if(!/^\/api\/assets\/[0-9a-f]{64}$/.test(source))return'';
+    try{return new URL(source,location.href).href;}catch(error){return'';}
+  }
+  function scheduleNextMapPreload(delay=1500) {
+    if(mapPreloadTimer||mapPreloadController||!mapPreloadQueue.length)return;
+    mapPreloadTimer=setTimeout(()=>{mapPreloadTimer=null;preloadNextMapAsset();},delay);
+  }
+  async function preloadNextMapAsset() {
+    if(mapPreloadController)return;
+    const currentUrl=normalizedMapPreloadUrl(currentMap&&currentMap.mapData);
+    let url='';
+    while(mapPreloadQueue.length&&!url){
+      const candidate=mapPreloadQueue.shift();mapPreloadQueued.delete(candidate);
+      if(candidate===currentUrl)continue;
+      if(!mapPreloadCached.has(candidate))url=candidate;
+    }
+    if(!url)return;
+    const controller=new AbortController();mapPreloadController=controller;mapPreloadActiveUrl=url;
+    try{
+      const response=await fetch(url,{cache:'force-cache',priority:'low',signal:controller.signal});
+      if(!response.ok)throw new Error('map preload failed');
+      await response.arrayBuffer();
+      mapPreloadCached.add(url);mapPreloadAttempts.delete(url);
+    }catch(error){
+      if(error&&error.name!=='AbortError'){
+        const attempts=(mapPreloadAttempts.get(url)||0)+1;mapPreloadAttempts.set(url,attempts);
+        if(attempts<2&&!mapPreloadQueued.has(url)){mapPreloadQueued.add(url);mapPreloadQueue.push(url);}
+      }
+    }finally{
+      if(mapPreloadController===controller)mapPreloadController=null;
+      if(mapPreloadActiveUrl===url)mapPreloadActiveUrl='';
+      scheduleNextMapPreload();
+    }
+  }
+  function queueMapAssetPreloads(values,activeMapData) {
+    const activeUrl=normalizedMapPreloadUrl(activeMapData);
+    if(activeUrl&&mapPreloadActiveUrl===activeUrl&&mapPreloadController)mapPreloadController.abort();
+    (Array.isArray(values)?values:[]).forEach(value=>{
+      const url=normalizedMapPreloadUrl(value);
+      if(!url||url===activeUrl||mapPreloadCached.has(url)||mapPreloadQueued.has(url)||url===mapPreloadActiveUrl)return;
+      mapPreloadQueued.add(url);mapPreloadQueue.push(url);
+    });
+    scheduleNextMapPreload(2000);
+  }
   function cloneDoodleStroke(stroke) {
     if(!stroke||typeof stroke!=='object')return null;
     const copy={...stroke};
@@ -1595,7 +1643,7 @@
     CampaignJournal.refresh();
     const sharedNote=$('#shared-note'); if(sharedNote){sharedNote.textContent=next.sharedNotes||''; if(!sharedNote.textContent)sharedNote.innerHTML='<span class="hint">等待主控台发布内容</span>';}
     if (!currentMap) { $('#empty').style.display='grid';renderSpellRanges();$('#reaction-layer').innerHTML='';return; }
-    $('#empty').style.display='none'; renderMap(currentMap); renderDoodles(); renderTurnPath(); renderTokens(currentMap);renderSpellRanges();
+    $('#empty').style.display='none'; renderMap(currentMap);queueMapAssetPreloads(next._mapPreloads,currentMap.mapData); renderDoodles(); renderTurnPath(); renderTokens(currentMap);renderSpellRanges();
     const mapViewKey=currentMap.id+'|'+currentMap.mapW+'|'+currentMap.mapH;
     if(mapViewKey!==lastMapViewKey){lastMapViewKey=mapViewKey;fit();}
     if(next._bgm) applyBgm(next._bgm);

@@ -24,7 +24,7 @@ from urllib.parse import quote, urlencode
 ROOT = Path(__file__).resolve().parent
 SERVER_ENTRY = ROOT / "start_server.py"
 DEFAULT_PORT = 8090
-SERVER_PROTOCOL_VERSION = 16
+SERVER_PROTOCOL_VERSION = 19
 SERVER_NAME = "桑哆尔之歌联机"
 COMPATIBLE_SERVER_NAMES = {SERVER_NAME, "桑哆尔联机"}
 HOST_ROUTE = "/主控台/主控台.html"
@@ -198,6 +198,35 @@ def open_host_console(url, disabled=False):
         print("浏览器未能自动打开，请手动复制上面的主控台地址。")
 
 
+def publish_tunnel_base(port, public_base="", timeout=0.75):
+    """把当前 Tunnel 入口写入本机服务器，供所有主控台标签页读取。"""
+    payload = json.dumps({"publicBase": str(public_base or "")}).encode("utf-8")
+    request = urllib.request.Request(
+        "http://127.0.0.1:%d/api/local-tunnel" % port,
+        data=payload,
+        headers={
+            "Content-Type": "application/json",
+            "X-Sundoll-Local-Save": "1",
+        },
+        method="POST",
+    )
+    try:
+        with LOCAL_URL_OPENER.open(request, timeout=timeout) as response:
+            result = json.loads(response.read().decode("utf-8"))
+        return bool(result.get("ok"))
+    except Exception:
+        return False
+
+
+def host_console_url(host_url, public_base=""):
+    """把 Tunnel 公网入口传给本机主控台，仅用于生成玩家邀请链接。"""
+    public_base = str(public_base or "").strip().rstrip("/")
+    if not public_base:
+        return host_url
+    separator = "&" if "?" in host_url else "?"
+    return host_url + separator + urlencode({"public": public_base})
+
+
 def find_cloudflared():
     found = shutil.which("cloudflared")
     if found:
@@ -234,6 +263,7 @@ def cloudflared_install_hint():
 def run_local(port, no_open=False, local_only=False):
     bind_host = "127.0.0.1" if local_only else "0.0.0.0"
     server_process, info, actual_port = prepare_server(port, bind_host)
+    publish_tunnel_base(actual_port, "")
     host_url, _room_code = show_connection_info(info, actual_port, local_only)
     open_host_console(host_url, no_open)
     if server_process is None:
@@ -264,11 +294,11 @@ def run_tunnel(port, no_open=False, local_only=False):
 
     server_process = None
     tunnel_process = None
+    actual_port = None
     try:
         bind_host = "127.0.0.1" if local_only else "0.0.0.0"
         server_process, info, actual_port = prepare_server(port, bind_host)
         host_url, room_code = show_connection_info(info, actual_port, local_only)
-        open_host_console(host_url, no_open)
         print("正在启动 Cloudflare Quick Tunnel：%s" % cloudflared)
         print("看到“玩家完整地址”后，将该地址发给朋友。\n")
         tunnel_process = subprocess.Popen(
@@ -281,25 +311,34 @@ def run_tunnel(port, no_open=False, local_only=False):
             bufsize=1,
         )
         announced = False
+        host_opened = False
         for line in tunnel_process.stdout:
             print(line, end="")
             match = TUNNEL_URL_RE.search(line)
             if match and not announced:
-                public_url = match.group(0) + quote(PLAYER_ROUTE, safe="/")
+                public_base = match.group(0)
+                public_url = public_base + quote(PLAYER_ROUTE, safe="/")
                 if room_code:
                     public_url += "?" + urlencode({"room": room_code})
                 print("\n玩家完整地址：%s\n" % public_url)
+                publish_tunnel_base(actual_port, public_base)
+                open_host_console(host_console_url(host_url, public_base), no_open)
+                host_opened = True
                 announced = True
         exit_code = tunnel_process.wait()
         if exit_code:
             print("Tunnel 已异常退出，退出码：%d" % exit_code)
         elif not announced:
             print("Tunnel 已退出，但没有取得 trycloudflare.com 地址。")
+        if not host_opened:
+            open_host_console(host_url, no_open)
         return exit_code
     except KeyboardInterrupt:
         print("\n正在停止 Tunnel 和本机服务器……")
         return 0
     finally:
+        if actual_port is not None:
+            publish_tunnel_base(actual_port, "")
         stop_process(tunnel_process)
         stop_process(server_process)
 

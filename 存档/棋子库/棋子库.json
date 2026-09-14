@@ -1,7 +1,7 @@
 {
   "format": "sangduoer-library",
   "schemaVersion": 1,
-  "savedAt": 1789269108506,
+  "savedAt": 1789371912048,
   "presets": [
     {
       "id": "l1",
@@ -2142,6 +2142,195 @@
       "size": 1,
       "hpMax": 38,
       "ac": 11,
+      "spellRange": {
+        "shape": "off",
+        "feet": 30,
+        "direction": 0
+      }
+    },
+    {
+      "id": "monster-myconid-sprout",
+      "name": "蕈人幼体",
+      "type": "enemy",
+      "category": "怪兽/蕈人",
+      "icon": "",
+      "iconImg": null,
+      "iconImgHd": null,
+      "portraitVariants": [
+        {
+          "name": "常态",
+          "iconImg": null,
+          "iconImgHd": null,
+          "iconImgPath": "立绘/怪兽/蕈人/蕈人幼体.png",
+          "iconImgId": null
+        }
+      ],
+      "iconImgPath": "立绘/怪兽/蕈人/蕈人幼体.png",
+      "iconImgId": null,
+      "size": 1,
+      "hpMax": 7,
+      "ac": 10,
+      "spellRange": {
+        "shape": "off",
+        "feet": 30,
+        "direction": 0
+      }
+    },
+    {
+      "id": "monster-myconid-gatherer",
+      "name": "蕈人采集者",
+      "type": "enemy",
+      "category": "怪兽/蕈人",
+      "icon": "",
+      "iconImg": null,
+      "iconImgHd": null,
+      "portraitVariants": [
+        {
+          "name": "常态",
+          "iconImg": null,
+          "iconImgHd": null,
+          "iconImgPath": "立绘/怪兽/蕈人/蕈人采集者.png",
+          "iconImgId": null
+        }
+      ],
+      "iconImgPath": "立绘/怪兽/蕈人/蕈人采集者.png",
+      "iconImgId": null,
+      "size": 1,
+      "hpMax": 22,
+      "ac": 12,
+      "spellRange": {
+        "shape": "off",
+        "feet": 30,
+        "direction": 0
+      }
+    },
+    {
+      "id": "monster-myconid-guardian",
+      "name": "蕈人守卫",
+      "type": "enemy",
+      "category": "怪兽/蕈人",
+      "icon": "",
+      "iconImg": null,
+      "iconImgHd": null,
+      "portraitVariants": [
+        {
+          "name": "红褐",
+          "iconImg": null,
+          "iconImgHd": null,
+          "iconImgPath": "立绘/怪兽/蕈人/蕈人守卫-红褐.png",
+          "iconImgId": null
+        },
+        {
+          "name": "水晶蓝紫",
+          "iconImg": null,
+          "iconImgHd": null,
+          "iconImgPath": "立绘/怪兽/蕈人/蕈人守卫-水晶蓝紫.png",
+          "iconImgId": null
+        },
+        {
+          "name": "宝石红",
+          "iconImg": null,
+          "iconImgHd": null,
+          "iconImgPath": "立绘/怪兽/蕈人/蕈人守卫-宝石红.png",
+          "iconImgId": null
+        }
+      ],
+      "iconImgPath": "立绘/怪兽/蕈人/蕈人守卫-红褐.png",
+      "iconImgId": null,
+      "size": 1,
+      "hpMax": 22,
+      "ac": 12,
+      "spellRange": {
+        "shape": "off",
+        "feet": 30,
+        "direction": 0
+      }
+    },
+    {
+      "id": "monster-myconid-spore-emissary",
+      "name": "蕈人孢子使者",
+      "type": "enemy",
+      "category": "怪兽/蕈人",
+      "icon": "",
+      "iconImg": null,
+      "iconImgHd": null,
+      "portraitVariants": [
+        {
+          "name": "常态",
+          "iconImg": null,
+          "iconImgHd": null,
+          "iconImgPath": "立绘/怪兽/蕈人/蕈人孢子使者.png",
+          "iconImgId": null
+        }
+      ],
+      "iconImgPath": "立绘/怪兽/蕈人/蕈人孢子使者.png",
+      "iconImgId": null,
+      "size": 1,
+      "hpMax": 22,
+      "ac": 12,
+      "spellRange": {
+        "shape": "off",
+        "feet": 30,
+        "direction": 0
+      }
+    },
+    {
+      "id": "monster-myconid-elder",
+      "name": "蕈人长老",
+      "type": "enemy",
+      "category": "怪兽/蕈人",
+      "icon": "",
+      "iconImg": null,
+      "iconImgHd": null,
+      "portraitVariants": [
+        {
+          "name": "常态",
+          "iconImg": null,
+          "iconImgHd": null,
+          "iconImgPath": "立绘/怪兽/蕈人/蕈人长老.png",
+          "iconImgId": null
+        }
+      ],
+      "iconImgPath": "立绘/怪兽/蕈人/蕈人长老.png",
+      "iconImgId": null,
+      "size": 1,
+      "hpMax": 22,
+      "ac": 12,
+      "spellRange": {
+        "shape": "off",
+        "feet": 30,
+        "direction": 0
+      }
+    },
+    {
+      "id": "monster-myconid-sovereign",
+      "name": "蕈人王",
+      "type": "enemy",
+      "category": "怪兽/蕈人",
+      "icon": "",
+      "iconImg": null,
+      "iconImgHd": null,
+      "portraitVariants": [
+        {
+          "name": "健康",
+          "iconImg": null,
+          "iconImgHd": null,
+          "iconImgPath": "立绘/怪兽/蕈人/蕈人王-健康.png",
+          "iconImgId": null
+        },
+        {
+          "name": "枯萎病",
+          "iconImg": null,
+          "iconImgHd": null,
+          "iconImgPath": "立绘/怪兽/蕈人/蕈人王-枯萎病.png",
+          "iconImgId": null
+        }
+      ],
+      "iconImgPath": "立绘/怪兽/蕈人/蕈人王-健康.png",
+      "iconImgId": null,
+      "size": 2,
+      "hpMax": 60,
+      "ac": 13,
       "spellRange": {
         "shape": "off",
         "feet": 30,

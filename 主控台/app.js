@@ -329,6 +329,10 @@ let streamConnectionState = 'off';
 let streamPlayersTimer = null;
 let pendingLegacyPortraitMigrations = 0;
 let streamPlayers = [];
+const streamMapAssetCache = new WeakMap();
+let streamMapPreloadTimer = null;
+let streamMapPreloadController = null;
+let streamMapPreloadGeneration = 0;
 const hostPlayerKickPending = new Set();
 let sharedNoteTimer = null;
 let hostLocalRolls = new Set();
@@ -1826,6 +1830,10 @@ function switchMap(id) {
   applyActiveMap();
   renderEncounter();
   scheduleAutosave();
+  if (streamOn) {
+    streamPush();
+    scheduleStreamMapPreloads();
+  }
 }
 
 function deleteMapById(mapId) {
@@ -6007,6 +6015,17 @@ function configuredServerBase() {
   return queryServerBase() || savedServerBase();
 }
 
+function queryPublicBase() {
+  try {
+    const base = normalizeServerBase(new URLSearchParams(location.search).get('public'));
+    if (!base) return '';
+    const url = new URL(base);
+    return isLoopbackHost(url.hostname) ? '' : base;
+  } catch (e) {
+    return '';
+  }
+}
+
 function saveApiBase() {
   return configuredServerBase() || (location.protocol === 'file:' ? 'http://127.0.0.1:8090' : location.origin);
 }
@@ -6023,6 +6042,8 @@ function isLoopbackHost(hostname) {
 
 function playerViewerUrl() {
   const room = streamInfo?.roomCode ? `?room=${encodeURIComponent(streamInfo.roomCode)}` : '';
+  const publicBase = queryPublicBase() || normalizeServerBase(streamInfo?.publicBase);
+  if (publicBase) return `${publicBase}/主控台/玩家.html${room}`;
   const pageIsHttp = location.protocol === 'http:' || location.protocol === 'https:';
   if (pageIsHttp && !isLoopbackHost(location.hostname)) {
     return `${location.origin}/主控台/玩家.html${room}`;
@@ -8434,7 +8455,7 @@ function buildStreamPayload() {
   const publicMap = m ? {
     id: m.id,
     name: m.name,
-    mapData: m.mapData || null,
+    mapData: cachedStreamMapAssetUrl(m) || m.mapData || null,
     mapW: m.mapW,
     mapH: m.mapH,
     gridSize: m.gridSize,
@@ -8455,6 +8476,7 @@ function buildStreamPayload() {
     sharedNotes: String(state.sharedNotes || '').slice(0, 4000),
     journal: CampaignJournal.normalize(state.journal, state.campaignId),
     encounter: publicEncounterState(visibleTokenIds),
+    _mapPreloads: state.maps.map(cachedStreamMapAssetUrl).filter(Boolean),
   };
   // 兼容旧版玩家页面；新页面使用 sharedResources。
   p._links = p.sharedResources.map((l) => ({ name: l.name, url: l.url }));
@@ -8933,15 +8955,30 @@ function startStreamClient() {
 }
 
 async function streamPush() {
-  if (!streamOn || streamPushing) return;
+  if (!streamOn) return;
+  if (streamPushing) {
+    streamDirty = true;
+    return;
+  }
   streamPushing = true;
+  streamDirty = false;
   try {
+    const sourceMap = activeMap();
+    const sourceMapData = sourceMap?.mapData || null;
+    const payload = buildStreamPayload();
     const res = await fetch(`${serverApiBase()}/api/state`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(buildStreamPayload()),
+      body: JSON.stringify(payload),
     });
     if (!res.ok) throw new Error('bad');
+    const result = await res.json().catch(() => ({}));
+    if (sourceMap && sourceMap.mapData === sourceMapData
+      && result.mapId === sourceMap.id
+      && typeof result.mapAssetUrl === 'string'
+      && result.mapAssetUrl.startsWith('/api/assets/')) {
+      streamMapAssetCache.set(sourceMap, { source: sourceMapData, url: result.mapAssetUrl });
+    }
     streamLastPushAt = Date.now();
     streamConnectionState = 'online';
     updateStreamUi();
@@ -8961,13 +8998,71 @@ async function streamPush() {
   }
 }
 
+function cachedStreamMapAssetUrl(map) {
+  if (!map) return '';
+  const cached = streamMapAssetCache.get(map);
+  return cached && cached.source === map.mapData ? cached.url : '';
+}
+
+function cancelStreamMapPreloads() {
+  streamMapPreloadGeneration += 1;
+  clearTimeout(streamMapPreloadTimer);
+  streamMapPreloadTimer = null;
+  if (streamMapPreloadController) streamMapPreloadController.abort();
+  streamMapPreloadController = null;
+}
+
+function scheduleStreamMapPreloads(delay = 1800) {
+  cancelStreamMapPreloads();
+  if (!streamOn) return;
+  const generation = streamMapPreloadGeneration;
+  streamMapPreloadTimer = setTimeout(() => {
+    streamMapPreloadTimer = null;
+    prepareStreamMapPreloads(generation);
+  }, delay);
+}
+
+async function prepareStreamMapPreloads(generation) {
+  const maps = state.maps.slice();
+  for (const map of maps) {
+    if (!streamOn || generation !== streamMapPreloadGeneration) return;
+    const source = map?.mapData;
+    if (!source || map === activeMap() || cachedStreamMapAssetUrl(map)) continue;
+    if (!String(source).startsWith('data:image/')) continue;
+    while (streamPushing) {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      if (!streamOn || generation !== streamMapPreloadGeneration) return;
+    }
+    const controller = new AbortController();
+    streamMapPreloadController = controller;
+    try {
+      const response = await fetch(`${serverApiBase()}/api/assets/cache-map`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mapData: source }),
+        signal: controller.signal,
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || typeof result.mapAssetUrl !== 'string'
+        || !result.mapAssetUrl.startsWith('/api/assets/')) continue;
+      if (!state.maps.includes(map) || map.mapData !== source) continue;
+      streamMapAssetCache.set(map, { source, url: result.mapAssetUrl });
+      streamDirty = true;
+    } catch (error) {
+      if (error?.name === 'AbortError') return;
+    } finally {
+      if (streamMapPreloadController === controller) streamMapPreloadController = null;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+  }
+}
+
 function streamTick() {
   if (!streamOn) return;
   const now = Date.now();
   // SSE 自身每 10 秒已有极小 ping；不再空闲时重复推送完整状态。
-  if (!streamDirty) return;
+  if (!streamDirty || streamPushing) return;
   if (now - streamLastPushAt < 300) return;
-  streamDirty = false;
   streamPush();
 }
 
@@ -9106,7 +9201,12 @@ async function refreshStreamPlayers() {
     const onlinePlayers = (data.players || []).filter((player) => player.online);
     const onlineCount = onlinePlayers.length;
     const readyCount = onlinePlayers.filter((player) => player.status === 'ready').length;
-    if (streamInfo) streamInfo = { ...streamInfo, playerCount: onlineCount, readyCount };
+    if (streamInfo) streamInfo = {
+      ...streamInfo,
+      playerCount: onlineCount,
+      readyCount,
+      publicBase: normalizeServerBase(data.publicBase) || streamInfo.publicBase || '',
+    };
     streamConnectionState = 'online';
     updateStreamUi();
   } catch (e) {
@@ -9136,6 +9236,7 @@ async function toggleStream() {
     streamConnectionState = 'off';
     clearInterval(streamTimer);
     clearInterval(streamPlayersTimer);
+    cancelStreamMapPreloads();
     if (streamES) { streamES.close(); streamES = null; }
     try { localStorage.removeItem('sangduoer-stream-on'); } catch (e) { /* 忽略 */ }
     streamInfo = null;
@@ -9162,8 +9263,15 @@ async function toggleStream() {
     streamPlayersTimer = setInterval(refreshStreamPlayers, 5000);
     startStreamClient();
     streamPush();
+    scheduleStreamMapPreloads();
     const ip = (info.ips || []).find((x) => x !== '127.0.0.1') || 'localhost';
-    streamInfo = { ip, port: info.port || 8090, roomCode: info.roomCode || '', playerCount: info.playerCount || 0 };
+    streamInfo = {
+      ip,
+      port: info.port || 8090,
+      roomCode: info.roomCode || '',
+      playerCount: info.playerCount || 0,
+      publicBase: normalizeServerBase(info.publicBase) || queryPublicBase(),
+    };
     updateStreamUi();
     refreshStreamPlayers();
     const room = info.roomCode ? `?room=${encodeURIComponent(info.roomCode)}` : '';
@@ -9192,6 +9300,7 @@ async function restoreStreamFromStorage() {
   clearInterval(streamPlayersTimer);
   streamPlayersTimer = setInterval(refreshStreamPlayers, 5000);
   streamPush();
+  scheduleStreamMapPreloads();
   try {
     const ctl = new AbortController();
     const t = setTimeout(() => ctl.abort(), 2500);
@@ -9199,7 +9308,13 @@ async function restoreStreamFromStorage() {
     clearTimeout(t);
     const info = await res.json();
     const ip = (info.ips || []).find((x) => x !== '127.0.0.1') || 'localhost';
-    streamInfo = { ip, port: info.port || 8090, roomCode: info.roomCode || '', playerCount: info.playerCount || 0 };
+    streamInfo = {
+      ip,
+      port: info.port || 8090,
+      roomCode: info.roomCode || '',
+      playerCount: info.playerCount || 0,
+      publicBase: normalizeServerBase(info.publicBase) || queryPublicBase(),
+    };
     updateStreamUi();
     refreshStreamPlayers();
     const room = info.roomCode ? `?room=${encodeURIComponent(info.roomCode)}` : '';
