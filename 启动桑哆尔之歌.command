@@ -2,6 +2,21 @@
 # 桑哆尔之歌 · macOS 双击启动入口
 cd "$(dirname "$0")" || exit 1
 
+SUNDOLL_ENGINE="程序包/主程序/launch_sundoll.py"
+if [ ! -f "$SUNDOLL_ENGINE" ]; then
+  for CANDIDATE in 程序包/*; do
+    if [ -f "$CANDIDATE/模块.json" ] && [ -f "$CANDIDATE/launch_sundoll.py" ]; then
+      SUNDOLL_ENGINE="$CANDIDATE/launch_sundoll.py"
+      break
+    fi
+  done
+fi
+if [ ! -f "$SUNDOLL_ENGINE" ]; then
+  echo "[启动失败] 找不到“程序包”。请将启动器与程序包放在同一文件夹。"
+  read -r -p "按回车退出……" _
+  exit 1
+fi
+
 PYTHON_BIN="$(command -v python3 2>/dev/null || true)"
 if [ -z "${PYTHON_BIN}" ]; then
   for CANDIDATE in /usr/bin/python3 /opt/homebrew/bin/python3 /usr/local/bin/python3; do
@@ -19,7 +34,13 @@ if [ -z "${PYTHON_BIN}" ]; then
   exit 1
 fi
 
-"${PYTHON_BIN}" "launch_sundoll.py" "$@"
+if ! "${PYTHON_BIN}" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 9) else 1)'; then
+  echo "[启动失败] 需要 Python 3.9 或更高版本。"
+  read -r -p "按回车退出……" _
+  exit 1
+fi
+
+"${PYTHON_BIN}" "$SUNDOLL_ENGINE" "$@"
 STATUS=$?
 if [ "${STATUS}" -ne 0 ]; then
   echo

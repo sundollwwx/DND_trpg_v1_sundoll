@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="封蜡信件">
+  <defs>
+    <linearGradient id="paper" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#fff0ce"/><stop offset=".58" stop-color="#e8cd98"/><stop offset="1" stop-color="#bc9864"/></linearGradient>
+    <linearGradient id="flap" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#fff6dc"/><stop offset="1" stop-color="#d8b67f"/></linearGradient>
+    <linearGradient id="wax" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#b75c57"/><stop offset="1" stop-color="#6c2936"/></linearGradient>
+    <filter id="shadow" x="-25%" y="-25%" width="150%" height="160%"><feDropShadow dx="0" dy="9" stdDeviation="8" flood-color="#211b1e" flood-opacity=".36"/></filter>
+  </defs>
+  <g filter="url(#shadow)" transform="rotate(-8 128 128)">
+    <path d="M33 72q0-12 12-12h166q12 0 12 12v121q0 12-12 12H45q-12 0-12-12Z" fill="url(#paper)" stroke="#88663e" stroke-width="5"/>
+    <path d="M36 72 116 133q12 9 24 0l80-61" fill="none" stroke="#9b794e" stroke-width="5"/>
+    <path d="M35 191 105 127M221 191l-70-64" fill="none" stroke="#a68351" stroke-width="4" opacity=".7"/>
+    <path d="M40 65 116 126q12 9 24 0l76-61" fill="none" stroke="#fff3d7" stroke-width="3" opacity=".8"/>
+    <path d="M37 75 113 131q15 11 30 0l76-56-2 5-77 61q-12 9-24 0L39 80Z" fill="url(#flap)"/>
+    <circle cx="128" cy="137" r="25" fill="url(#wax)" stroke="#5b2631" stroke-width="3"/>
+    <circle cx="128" cy="137" r="18" fill="none" stroke="#dfa189" stroke-opacity=".66" stroke-width="2"/>
+    <path d="m118 141 8-12 7 12 5-8" fill="none" stroke="#eac0a0" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>

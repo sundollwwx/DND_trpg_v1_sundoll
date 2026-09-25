@@ -1,0 +1,26 @@
+.danmaku-layer{position:absolute;inset:0;overflow:hidden;pointer-events:none;z-index:42}
+.danmaku-message{position:absolute;left:calc(100% + 16px);white-space:nowrap;pointer-events:none;font:600 20px/1.5 system-ui,sans-serif;color:#fff;text-shadow:0 2px 4px #000,0 0 3px #000;background:#101522c9;border:1px solid #ffffff24;border-radius:20px;padding:3px 14px;animation:danmaku-travel linear forwards;will-change:transform}
+.danmaku-message.danmaku-dm{color:#f7d68a;border-color:#d9b15a66}
+@keyframes danmaku-travel{to{transform:translateX(var(--danmaku-distance))}}
+.danmaku-controls{position:absolute;top:12px;right:12px;z-index:43;font:13px/1.4 system-ui,sans-serif;color:#eee}
+.danmaku-buttons{display:flex;justify-content:flex-end;gap:6px}
+.danmaku-controls button{border:1px solid #8b744c;border-radius:8px;background:#202536;color:#f1dcad;padding:7px 11px;cursor:pointer;font:inherit}
+.danmaku-controls button:disabled{opacity:.5;cursor:wait}
+.danmaku-controls button:focus-visible,.danmaku-controls input:focus-visible{outline:2px solid #e8c77c;outline-offset:2px}
+.danmaku-form{box-sizing:border-box;width:min(330px,calc(100vw - 48px));margin-top:8px;background:#171c2bee;border:1px solid #796747;border-radius:12px;padding:12px;box-shadow:0 6px 24px #0006}
+.danmaku-form[hidden],.danmaku-layer[hidden]{display:none!important}
+.danmaku-form label{display:block;color:#e9d7ae}
+.danmaku-form input{display:block;box-sizing:border-box;width:100%;margin-top:8px;border:1px solid #646575;border-radius:7px;background:#0c1120;color:#fff;padding:9px;font:14px/1.4 system-ui,sans-serif}
+.danmaku-footer{display:flex;align-items:center;justify-content:space-between;margin-top:8px;color:#b8bdd0}
+.danmaku-status{font-size:12px;color:#c8cbd4;margin:8px 0 0;min-height:17px}
+@media(max-width:600px){.danmaku-message{font-size:16px}.danmaku-controls{top:8px;right:8px}.danmaku-controls button{padding:6px 9px}}
+@media(prefers-reduced-motion:reduce){.danmaku-message{left:12px;white-space:normal;max-width:calc(100% - 56px);animation-name:danmaku-still;will-change:opacity}@keyframes danmaku-still{0%,85%{opacity:1}100%{opacity:0}}}
+
+.danmaku-controls.danmaku-docked{top:auto;right:auto;bottom:12px;left:12px}
+.danmaku-docked .danmaku-form{width:min(330px,calc(100vw - 48px));max-width:calc(100vw - 48px);margin:0}
+
+.travel-basket>#host-danmaku{margin-left:6px}
+.travel-basket>.danmaku-controls.danmaku-at-basket{top:auto;right:auto;bottom:48px;left:0}
+
+.travel-basket>.host-map-shortcut{margin-left:6px}
+.travel-basket>.host-map-shortcut.active{border-color:#dfba79;background:#403522;color:#ffe1a0}

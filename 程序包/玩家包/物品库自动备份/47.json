@@ -1,0 +1,571 @@
+{
+  "schemaVersion": 1,
+  "revision": 47,
+  "receipts": {
+    "4536fec5-56b5-455a-b972-7dea677844d2": {
+      "signature": "c63771d24aa978c8a193d56af1de4372337784c0b68d4b858287f718dc50d00e",
+      "templateId": "healing"
+    },
+    "85b7b085-633f-4077-bc1c-aa5ffddbb2ae": {
+      "signature": "3c5bb42028fe2341e79fd58ab147fa039218fece708eeff8f633ce538959341e",
+      "templateId": "greater-healing"
+    },
+    "ab750e57-5183-45e5-ab3a-6e97c2ceb0a1": {
+      "signature": "1ea4fc4284e966c4b384230b9480f592bdd0c9815ef121b29ee9d15916f3f896",
+      "templateId": "superior-healing"
+    },
+    "4865a28b-6e26-4369-bec7-171d7f1272fc": {
+      "signature": "9b47dd55519361b50525535afc68d1a457084cbee7d3452fbd43b162371a1a54",
+      "templateId": "supreme-healing"
+    },
+    "8538bfd9-2b0a-41a3-b278-f2a59ce08214": {
+      "signature": "df58ad38ab6d6d7ac09e9202c0971c2c04e5aa630b51249d2736f0ced77adbd3",
+      "templateId": "climbing"
+    },
+    "e33071e7-ee43-448d-bc95-a23e3c72cc3f": {
+      "signature": "8c07389d6d0fa084f6ae61d9fc4903d0ba679441b17afc07b499e2beaf539a09",
+      "templateId": "water-breathing"
+    },
+    "8f2f917c-f9ff-4107-a032-b1497a8e26e1": {
+      "signature": "614656592e91a9e2393be5e65a3cec71fa040d9265796cc0491a8b1c466d022a",
+      "templateId": "invisibility"
+    },
+    "e7bf8f50-3e60-4944-88b4-b26778b0780e": {
+      "signature": "be9e437529d7600954b9f62f49a51733cbf2fdbc61f7ab4c9bf9e7dd16b8618c",
+      "templateId": "fire-resistance"
+    },
+    "32322771-bc23-4f38-8a70-a1fe2656ce6c": {
+      "signature": "c504db5f146167ba2d99ac7e351b511184e05e1d1e56a9ea136b9fe8724b98be",
+      "templateId": "detect-magic"
+    },
+    "f670d94c-3d51-42ef-8049-b30dae9a70c9": {
+      "signature": "f068607e9e02a2138b8682bc3ce48fc4e8cd9b9d09465d3950a2f002ddf1afcf",
+      "templateId": "bag-of-holding"
+    },
+    "8069f966-f001-4aae-893f-de03caf9db84": {
+      "signature": "a89c5e5232fcac10d87bd9b61cad0412c76eecddae27df3820cdbe78e1f59da4",
+      "templateId": "driftglobe"
+    },
+    "5ae708bd-1f13-4746-be6c-4e103437b3e0": {
+      "signature": "0625a33b14add09f29d93b5411b6ac375f9ad0dad1e63d6cbf7dae6c7698030c",
+      "templateId": "treasure-chest"
+    },
+    "983cf179-6539-4639-a99b-654a98e3b3c6": {
+      "signature": "23f5d17f69ba032afb570b83a6a361045d4712e7a3e3455691b9f56ebe6428ed",
+      "templateId": "tpl_c0a1a010e6260d90b422eece44042d2f"
+    },
+    "5431278c-2021-4e6e-848f-5dea06af3368": {
+      "signature": "990a13dbcce3f91ec822b53d41b09bbbb14434991f367c7d6421a9812f3161c7",
+      "templateId": "tpl_f37ca61cedbfb8562891dcbd10d9ee34"
+    },
+    "0f506541-0262-4f91-8ecd-31efcda0bb1e": {
+      "signature": "3fb908b515d2de3cde7eba64fa210e073d823cef7d0db6fd802169345c0bed1c",
+      "templateId": "tpl_b1a6b3cae8c053c6f8b7bdd6d1f9b645"
+    },
+    "0724de8c-2e50-4621-86dc-af9675b9ea9c": {
+      "signature": "be4a2b6e9dd2fde492071fb8bdc92c9281be27a9451c8446013e9bc5e899c55d",
+      "templateId": "tpl_5133b37d105383e097692aa865685d0e"
+    },
+    "ae46b14a-3f46-4609-a9ab-100958852ea6": {
+      "signature": "7368ed1b172ae974f673694af546f468c86498706b89651e66964a87a5b61d25",
+      "templateId": "tpl_c4173e3fb4a145b2ac9e00e74f4acdbd"
+    },
+    "4807efe5-4a1b-4366-ac5e-9d89a4e1ad78": {
+      "signature": "9adce1f8cd7e80c9c724b449b33abd5746ed9b71102ab670658e3267bcca2d38",
+      "templateId": "tpl_b8c124a95864379e4aa2181eeb02a559"
+    },
+    "3993c7e4-9b39-4dfc-8663-7ecf1bb9a112": {
+      "signature": "7d06bd63396d700b9f2ef2c7a06b4b0a71290fccbf1028255671f746d78d6fc6",
+      "templateId": "tpl_888765162902650e910410759efb80bf"
+    },
+    "bde65894-7dc4-4523-ad03-cf3abea5dba5": {
+      "signature": "9ce0813f27caedd47274343533816fd0e055c33540682a0c6739ea1edaf37240",
+      "templateId": "tpl_eefe275527e6b7341356a9e9258b9fa0"
+    },
+    "b38c7835-b745-4a73-9935-c055aac8d023": {
+      "signature": "5cd58ad561cfcfb7ce605526c0990890476f8d76b9eab3aa57ca47760a8d87f8",
+      "templateId": "tpl_d5190993032a7214faf2eebaa67b25d1"
+    },
+    "2a8d2237-d78b-4098-af8f-8bf4572fa2af": {
+      "signature": "d044915de807bfd43275d1984c4d00f1f6c1c9c21d7ff5617a8ab899a4558efb",
+      "templateId": "tpl_79f9b6f8594ec623f58002bf482bde18"
+    },
+    "0ceb6b7d7b2e45ba9389c2a997dd8443": {
+      "signature": "f24725b6ca4280a3a38cd871f9e419fecc51368c9b7753bec5ad82ba726981bb",
+      "templateId": "healing"
+    },
+    "574d549bb7e94d9886110d1e599ad9bb": {
+      "signature": "abd133b940376fbaed798012850ee5c67f599c79a95c1c492f18486505381c84",
+      "templateId": "greater-healing"
+    },
+    "6b26daecb6d34b558b4e09efc17b2be1": {
+      "signature": "878b1b4c949643c741817ee162547768f6b9b985781b9ea180d629c7c0c8f637",
+      "templateId": "superior-healing"
+    },
+    "ea6f82ffe468489a8440e396035b0a76": {
+      "signature": "5fcd00394075dc24734424f6b444392e695de42747bfd02bf73d9ddee7312f86",
+      "templateId": "supreme-healing"
+    },
+    "4e361c2f68de4b4f94e554ba19aa54a5": {
+      "signature": "9045e4a18282d42108adeb5d988b96f8b02477ac8067b86ff3409dd4a0bb5534",
+      "templateId": "climbing"
+    },
+    "ab27293c165f4fc1be5bcc9b7e22273a": {
+      "signature": "df3506571f3eef46f108d159f0a72c3a499cbfcbe5d0dd7123171eb641f6b7ce",
+      "templateId": "water-breathing"
+    },
+    "7c40f83555944c1d8eb11903f3cd4d78": {
+      "signature": "18b3b50d1a372b34c5e861f780487f36ba5b93f7bd4d37641b8e6212e2107f85",
+      "templateId": "invisibility"
+    },
+    "0ccf220f71104472ab96f9df65af920e": {
+      "signature": "a9d49ec3568c0360ef38ef9697bf08adb5b9d247b5071ff89702b208ae8e11fa",
+      "templateId": "fire-resistance"
+    },
+    "d1101435038d4a68bfecc6142d33d57a": {
+      "signature": "bf9a2b552738bf2a750a4493c9b980b1b606e27638b0849497532c72fe5c594f",
+      "templateId": "detect-magic"
+    },
+    "232d57a4666c4d60a0629e7aeb1fee67": {
+      "signature": "d1a060fd9cf9fb018064bc71f5b69d49e4633c9a9ea478520e32d2e267fec6a3",
+      "templateId": "bag-of-holding"
+    },
+    "34495e50e13443b5a8028f20f754ef32": {
+      "signature": "2a2d4ab97e23675f7aa08d7f8820f5f3e3b55388523466d71cc1c1f12da64b5a",
+      "templateId": "driftglobe"
+    },
+    "a93dc1ad38954894a15ccc55cfeb567e": {
+      "signature": "1169efc9ec18243a060f9346cc79111f1b97dcaaa40a73bbe40871787324243a",
+      "templateId": "treasure-chest"
+    },
+    "d67f3b857eb64118bc01f2a841f9514d": {
+      "signature": "f7c51978bf801b3c72b0b02100dd0c07f3b3a90d45108b17ad510222365d49f5",
+      "templateId": "tpl_c0a1a010e6260d90b422eece44042d2f"
+    },
+    "702fff1d213c47a9a2a5951d8d6f71ff": {
+      "signature": "8684ed7f7529c5a4f6ad50673b89417469bef9b58c891347fef941d5a443dfd5",
+      "templateId": "tpl_f37ca61cedbfb8562891dcbd10d9ee34"
+    },
+    "d1420ebbb13b435cadfe7bf0942763e8": {
+      "signature": "d4037b316ff37b319cafc610f5a2407c1ee008a62e45a13ce0de5caf7ea63ff8",
+      "templateId": "tpl_b1a6b3cae8c053c6f8b7bdd6d1f9b645"
+    },
+    "3824a0739a1f43b8a5fb118cf33cfea7": {
+      "signature": "5d4e83afed2524a57a959236e3a3c78cd327b549fdb12701bcca91d4c46c3a25",
+      "templateId": "tpl_5133b37d105383e097692aa865685d0e"
+    },
+    "d62b2934d73f4a8b858ecc5519afc784": {
+      "signature": "1e91ffd6b1745da63e20e4901d80bc0f5ce3ab44f4b14004264e71d4af42aede",
+      "templateId": "tpl_c4173e3fb4a145b2ac9e00e74f4acdbd"
+    },
+    "a6803cd871ee41d9b095e0cf629e0abb": {
+      "signature": "c2df3e9563ff562023fef03ab6aa6596e834ef4f35fc01d1acd9d7c190350616",
+      "templateId": "tpl_b8c124a95864379e4aa2181eeb02a559"
+    },
+    "db2aa8ceaea845b799f844c7614549b9": {
+      "signature": "0b9ca38ff22302bf2452f68aa4e98cda4a4430b4d7081b67e705bacbc9d57298",
+      "templateId": "tpl_888765162902650e910410759efb80bf"
+    },
+    "2154d0f41bf24cb9b15bc589ae05c865": {
+      "signature": "702778f704c1a0a045ea337100d44cf7d22fa6184471ad4c2484eb87ac995784",
+      "templateId": "tpl_eefe275527e6b7341356a9e9258b9fa0"
+    },
+    "e7ea8efb38684f919c8bf622e95578d1": {
+      "signature": "93109310815a25fb4ad97dbe6b55708ca79fb5135d994dc8bf7cb085157081df",
+      "templateId": "tpl_d5190993032a7214faf2eebaa67b25d1"
+    },
+    "92e608446a5a4236b1f7f3e3054f3e6b": {
+      "signature": "42a259c8284384dc4690000073cb8510f2e728caeb21dd8757ffbb1a3f2a46eb",
+      "templateId": "tpl_79f9b6f8594ec623f58002bf482bde18"
+    },
+    "f69ce9c51a7b41fb9361ca4cc1527fef": {
+      "signature": "31ac748dfa6701f2f29f824b0e457e4b16a118beb93674a71c4157e8cfc124e0",
+      "templateId": "treasure-chest"
+    }
+  },
+  "containerTemplatesVersion": 1,
+  "templates": [
+    {
+      "name": "治疗药水",
+      "category": "potion",
+      "rarity": "普通",
+      "effect": "附赠动作饮用或喂用，恢复 2d4 + 2 点生命值。",
+      "consumable": true,
+      "description": "药水｜普通｜无需同调\n使用：以一个附赠动作饮用，或给另一个生物喂用。\n效果：饮用者立即恢复 2d4 + 2 点生命值，不能超过其生命值上限。\n消耗：一次性；使用后药水耗尽。恢复的是生命值，不是临时生命值。",
+      "image": "/api/module-assets/fc3da96388c2732f22b7c3931ab58e64d54bdfd7a1705a1ae0a1881dc1766b76",
+      "ruleId": "healing",
+      "ruleVersion": 1,
+      "scope": "general",
+      "campaignId": "",
+      "campaignName": "",
+      "location": "",
+      "usedIn": [],
+      "id": "healing",
+      "version": 3,
+      "archived": false
+    },
+    {
+      "name": "高等治疗药水",
+      "category": "potion",
+      "rarity": "非普通",
+      "effect": "附赠动作饮用或喂用，恢复 4d4 + 4 点生命值。",
+      "consumable": true,
+      "description": "药水｜非普通｜无需同调\n使用：以一个附赠动作饮用，或给另一个生物喂用。\n效果：饮用者立即恢复 4d4 + 4 点生命值，不能超过其生命值上限。\n消耗：一次性；使用后药水耗尽。恢复的是生命值，不是临时生命值。",
+      "image": "/api/module-assets/54a45ed3a84d1680e18f4ba24c22f9d3e7628ab82e93ea10627d932dba18cd59",
+      "ruleId": "greater-healing",
+      "ruleVersion": 1,
+      "scope": "general",
+      "campaignId": "",
+      "campaignName": "",
+      "location": "",
+      "usedIn": [],
+      "id": "greater-healing",
+      "version": 3,
+      "archived": false
+    },
+    {
+      "name": "强效治疗药水",
+      "category": "potion",
+      "rarity": "珍稀",
+      "effect": "附赠动作饮用或喂用，恢复 8d4 + 8 点生命值。",
+      "consumable": true,
+      "description": "药水｜珍稀｜无需同调\n使用：以一个附赠动作饮用，或给另一个生物喂用。\n效果：饮用者立即恢复 8d4 + 8 点生命值，不能超过其生命值上限。\n消耗：一次性；使用后药水耗尽。恢复的是生命值，不是临时生命值。",
+      "image": "/api/module-assets/1a8b61c69ca197b885cd0c19294bc56e71a9472a6f1fbec037a80a10fa4b68ce",
+      "ruleId": "superior-healing",
+      "ruleVersion": 1,
+      "scope": "general",
+      "campaignId": "",
+      "campaignName": "",
+      "location": "",
+      "usedIn": [],
+      "id": "superior-healing",
+      "version": 3,
+      "archived": false
+    },
+    {
+      "name": "顶级治疗药水",
+      "category": "potion",
+      "rarity": "极珍稀",
+      "effect": "附赠动作饮用或喂用，恢复 10d4 + 20 点生命值。",
+      "consumable": true,
+      "description": "药水｜极珍稀｜无需同调\n使用：以一个附赠动作饮用，或给另一个生物喂用。\n效果：饮用者立即恢复 10d4 + 20 点生命值，不能超过其生命值上限。\n消耗：一次性；使用后药水耗尽。恢复的是生命值，不是临时生命值。",
+      "image": "/api/module-assets/094e56a30ea78bef39ac9a29a555d42686c40641676be9c858c2d3a0443be32a",
+      "ruleId": "supreme-healing",
+      "ruleVersion": 1,
+      "scope": "general",
+      "campaignId": "",
+      "campaignName": "",
+      "location": "",
+      "usedIn": [],
+      "id": "supreme-healing",
+      "version": 3,
+      "archived": false
+    },
+    {
+      "name": "攀爬药水",
+      "category": "potion",
+      "rarity": "普通",
+      "effect": "附赠动作饮用；1 小时内获得等于速度的攀爬速度，攀爬的运动检定具有优势。",
+      "consumable": true,
+      "description": "药水｜普通｜无需同调\n使用：附赠动作饮用或给另一个生物喂用；使用后耗尽。\n效果：饮用者获得等于自身速度的攀爬速度，并在为攀爬进行的力量（运动）检定中具有优势。\n持续：1 小时，无需专注。不会自动获得贴壁、倒挂或腾空双手攀爬的能力。",
+      "image": "/api/module-assets/9ba019669ed2e129132d51b8f7075009d15a59d53254879a432a92c74d2ea2a1",
+      "scope": "general",
+      "campaignId": "",
+      "campaignName": "",
+      "location": "",
+      "usedIn": [],
+      "id": "climbing",
+      "version": 3,
+      "archived": false
+    },
+    {
+      "name": "水下呼吸药水",
+      "category": "potion",
+      "rarity": "非普通",
+      "effect": "附赠动作饮用；24 小时内可以在水下呼吸。",
+      "consumable": true,
+      "description": "药水｜非普通｜无需同调\n使用：附赠动作饮用或给另一个生物喂用；使用后耗尽。\n效果：饮用者可以在水下呼吸。此物品不额外提供游泳速度。\n持续：24 小时，无需专注。",
+      "image": "/api/module-assets/d33ba8bb92df4bad695eb7549122f7aa33ead825822b7281f1241f2f0fc24f2f",
+      "scope": "general",
+      "campaignId": "",
+      "campaignName": "",
+      "location": "",
+      "usedIn": [],
+      "id": "water-breathing",
+      "version": 3,
+      "archived": false
+    },
+    {
+      "name": "隐形药水",
+      "category": "potion",
+      "rarity": "珍稀",
+      "effect": "附赠动作饮用；隐形 1 小时。进行攻击检定、造成伤害或施法时提前结束。",
+      "consumable": true,
+      "description": "药水｜珍稀｜无需同调\n使用：附赠动作饮用或给另一个生物喂用；使用后耗尽。\n效果：饮用者获得隐形状态。\n持续：1 小时，无需专注；若饮用者进行攻击检定、造成伤害或施放法术，效果提前结束。\n隐形不等于躲藏：声音、足迹等仍可能暴露你的位置；能看见你的生物按隐形状态的相应例外处理。",
+      "image": "/api/module-assets/3ffa8828b011024dea0fa1e1fb8acea9256dadb4bfdb4880d5ed698ab4c7801a",
+      "scope": "general",
+      "campaignId": "",
+      "campaignName": "",
+      "location": "",
+      "usedIn": [],
+      "id": "invisibility",
+      "version": 3,
+      "archived": false
+    },
+    {
+      "name": "火焰抗性药水",
+      "category": "potion",
+      "rarity": "非普通",
+      "effect": "附赠动作饮用；1 小时内获得火焰伤害抗性。",
+      "consumable": true,
+      "description": "药水｜非普通｜无需同调\n使用：附赠动作饮用或给另一个生物喂用；使用后耗尽。\n效果：饮用者获得火焰伤害抗性，受到的火焰伤害减半，向下取整。\n持续：1 小时，无需专注。同一种伤害抗性不能叠加为四分之一伤害。",
+      "image": "/api/module-assets/d4a0a11e996ff74bd33208b472a88196c350ef28204020980fe13bb877366a06",
+      "scope": "general",
+      "campaignId": "",
+      "campaignName": "",
+      "location": "",
+      "usedIn": [],
+      "id": "fire-resistance",
+      "version": 3,
+      "archived": false
+    },
+    {
+      "name": "侦测魔法卷轴",
+      "category": "scroll",
+      "rarity": "普通",
+      "effect": "施放一环侦测魔法；专注至多 10 分钟，感知自身 30 尺内的魔法效应。",
+      "consumable": true,
+      "description": "卷轴｜普通｜无需同调\n使用条件：侦测魔法必须在你的法术列表中，否则无法读懂。以法术的正常施法时间施放（通常为一个魔法动作），不消耗法术位且无需材料成分。\n效果：需要专注，至多 10 分钟；感知自身 30 尺内是否存在魔法效应。感知到魔法后，可用魔法动作看见范围内可见生物或物体上的微光灵光；若效应由法术产生，还能得知其学派。\n阻隔：1 尺厚的石头、泥土或木材，1 寸厚的金属，或薄铅片会阻挡侦测。此法术不直接揭示物品的全部性质。\n卷轴消耗：施法完成后化为尘土；施法被打断则不消耗。若一环高于你通常能施放的法术环阶，须通过 DC 11 施法属性检定；失败时卷轴上的法术消失且无效果。\n抄录：法师可按抄录规则将法术抄入法术书，并进行 DC 11 智力（奥秘）检定；无论成功或失败，卷轴都会被摧毁。",
+      "image": "/api/module-assets/d4ca1b75217989956715bd53ca65c52383d983ed1b4a3a2375ee8818cc4f2901",
+      "scope": "general",
+      "campaignId": "",
+      "campaignName": "",
+      "location": "",
+      "usedIn": [],
+      "id": "detect-magic",
+      "version": 3,
+      "archived": false
+    },
+    {
+      "name": "次元袋",
+      "category": "wondrous",
+      "rarity": "非普通",
+      "effect": "最多容纳 500 磅、64 立方尺物品；袋重恒为 5 磅，取物需要使用动作。",
+      "consumable": false,
+      "description": "奇物｜非普通｜无需同调\n容量：总重量不超过 500 磅，体积不超过 64 立方尺；无论内容物多少，袋子本身重 5 磅。\n取物：从袋中取出物品需要一个使用动作（Utilize）。将袋子翻面会让内容物安全倾出；翻回后才能继续使用。\n破损：超载、被刺穿或撕裂会摧毁袋子，并将内容物散落到星界。\n空气：袋中空气可供一个需要呼吸的生物呼吸 10 分钟；多个生物共用时，以 10 分钟除以需要呼吸的生物数量。\n异次元危险：将次元袋放入便利袋、便携洞或类似物品创造的异次元空间，会立即摧毁两件物品，并在放入处打开单向星界通道。通道周围半径 10 尺球形区域内的生物会被吸往星界的随机地点，随后通道关闭，无法重新打开。",
+      "image": "/api/module-assets/30aa8ca79b2bc0e1c779bf93473b5fa4e4985e7423df0373f9cfce269f26f9bb",
+      "scope": "general",
+      "campaignId": "",
+      "campaignName": "",
+      "location": "",
+      "usedIn": [],
+      "id": "bag-of-holding",
+      "version": 3,
+      "archived": false
+    },
+    {
+      "name": "漂浮光球",
+      "category": "wondrous",
+      "rarity": "非普通",
+      "effect": "命令光球发出光亮术或昼明术等效光照；可悬浮跟随。昼明效果每黎明恢复。",
+      "consumable": false,
+      "description": "奇物｜非普通｜无需同调\n照明：在光球 60 尺内下令，选择产生相当于光亮术或昼明术的光照。昼明效果使用后，须等到下一次黎明才能再次使用。\n悬浮：用一个魔法动作命令已点亮的光球升起，悬浮高度不超过离地 5 尺；被你或其他生物抓住时停止悬浮。\n跟随：你离开超过 60 尺时，它沿最短路线跟随，直到与你相距不超过 60 尺；若路径受阻，它会落地、停止运作并熄灭。\n重量：1 磅。",
+      "image": "/api/module-assets/d87bf0004884bef3f3a75f8c14cd0612db84078b5cbb096df850349894982639",
+      "scope": "general",
+      "campaignId": "",
+      "campaignName": "",
+      "location": "",
+      "usedIn": [],
+      "id": "driftglobe",
+      "version": 3,
+      "archived": false
+    },
+    {
+      "name": "宝箱",
+      "category": "container",
+      "rarity": "",
+      "effect": "普通容器，容积 12 立方尺；可另配锁具。标准锁可用盗贼工具进行 DC 15 敏捷（巧手）检定开锁。",
+      "consumable": false,
+      "description": "冒险装备｜非魔法容器｜无需同调\n容量：标准箱子容积 12 立方尺，价格 5 金币；箱内物品按各自规则使用，箱子本身不赋予魔法效果。\n锁具：标准锁另购，价格 10 金币，附带钥匙。没有钥匙时，可用盗贼工具进行 DC 15 敏捷（巧手）检定，成功则开锁。特殊锁的难度由主控另行指定。\n裁定：先确认角色能够接触箱子、拥有所需工具，再进行开锁。2024 核心规则中，属性检定的天然 20／1 不自动成功／失败；若本团启用开锁大成功、大失败，则属于房规。",
+      "image": "/api/module-assets/2313b3ce86c47ed09283432b8d42c52abc74172b36545bb605cc9917395e4083",
+      "scope": "general",
+      "campaignId": "",
+      "campaignName": "",
+      "location": "",
+      "usedIn": [],
+      "id": "treasure-chest",
+      "version": 4,
+      "archived": false
+    },
+    {
+      "name": "精灵靴",
+      "category": "wondrous",
+      "rarity": "非普通",
+      "effect": "穿着时脚步无声，敏捷（隐匿）检定具有优势。",
+      "consumable": false,
+      "description": "奇物｜非普通｜无需同调\n效果：穿着这双靴子时，无论行走在何种表面，你的脚步都不会发出声音；你的敏捷（隐匿）检定具有优势。\n使用：穿着期间持续生效，不需要动作，也不消耗充能。脚步无声不会自动让你处于躲藏状态。",
+      "image": "/api/module-assets/5d6fcf3b19697aa9583cdeb1ecadce35e4e9a734f8444ead8259916b02c4cb80",
+      "scope": "general",
+      "campaignId": "",
+      "campaignName": "",
+      "location": "",
+      "usedIn": [],
+      "id": "tpl_c0a1a010e6260d90b422eece44042d2f",
+      "version": 2,
+      "archived": false
+    },
+    {
+      "name": "防护斗篷",
+      "category": "wondrous",
+      "rarity": "非普通",
+      "effect": "需要同调；穿戴期间 AC 和所有豁免检定获得 +1 加值。",
+      "consumable": false,
+      "description": "奇物｜非普通｜需要同调\n效果：同调后穿戴此物品时，你的护甲等级（AC）与所有豁免检定获得 +1 加值。\n使用：穿戴期间持续生效，无需动作，不消耗充能；不增加攻击检定或属性检定。",
+      "image": "/api/module-assets/c11fcacced09442a773b2366c7c539c7233c6d8da0a4b1146bcd133c59aa53c2",
+      "scope": "general",
+      "campaignId": "",
+      "campaignName": "",
+      "location": "",
+      "usedIn": [],
+      "id": "tpl_f37ca61cedbfb8562891dcbd10d9ee34",
+      "version": 2,
+      "archived": false
+    },
+    {
+      "name": "防护戒指",
+      "category": "wondrous",
+      "rarity": "珍稀",
+      "effect": "需要同调；穿戴期间 AC 和所有豁免检定获得 +1 加值。",
+      "consumable": false,
+      "description": "戒指｜珍稀｜需要同调\n效果：同调后穿戴此物品时，你的护甲等级（AC）与所有豁免检定获得 +1 加值。\n使用：穿戴期间持续生效，无需动作，不消耗充能；不增加攻击检定或属性检定。",
+      "image": "/api/module-assets/b5d3e92cfe64f36c5e7481ea4fce76e452d5a8963dc56c2c3becfc3c20e8e73e",
+      "scope": "general",
+      "campaignId": "",
+      "campaignName": "",
+      "location": "",
+      "usedIn": [],
+      "id": "tpl_b1a6b3cae8c053c6f8b7bdd6d1f9b645",
+      "version": 2,
+      "archived": false
+    },
+    {
+      "name": "魔法飞弹魔杖",
+      "category": "wondrous",
+      "rarity": "非普通",
+      "effect": "7 充能；消耗 1—3 点施放一至三环魔法飞弹。每黎明恢复 1d6 + 1 点。",
+      "consumable": false,
+      "description": "魔杖｜非普通｜无需同调\n施法：手持魔杖，以魔法动作消耗 1、2 或 3 点充能，分别施放一、二或三环魔法飞弹；不消耗法术位，无需法术成分。\n飞弹：射程 120 尺；一环产生 3 枚，每升一环增加 1 枚。每枚自动命中范围内你可见的一个生物，造成 1d4 + 1 点力场伤害；全部同时命中，可分配给不同目标。护盾术等明确防御仍有效。\n充能：最多 7 点，每天黎明恢复已消耗的 1d6 + 1 点，不超过上限。\n耗尽风险：消耗最后一点充能后掷 1d20；若为 1，魔杖化为灰烬并被摧毁。",
+      "image": "/api/module-assets/bda71b95df15a028d2e86d5afd327b22f0441b9c3fd3c87c187d1fbe8f037825",
+      "scope": "general",
+      "campaignId": "",
+      "campaignName": "",
+      "location": "",
+      "usedIn": [],
+      "id": "tpl_5133b37d105383e097692aa865685d0e",
+      "version": 2,
+      "archived": false
+    },
+    {
+      "name": "不动权杖",
+      "category": "wondrous",
+      "rarity": "非普通",
+      "effect": "使用动作按下按钮，将权杖固定在原位；承重 8,000 磅。",
+      "consumable": false,
+      "description": "权杖｜非普通｜无需同调\n启停：以使用动作（Utilize）按下按钮，使权杖魔法般固定在原位，不受重力影响。你或其他生物再次以使用动作按下按钮，即可解除固定。\n承重：最多 8,000 磅；超过此重量时，权杖会解除固定并掉落。\n强行移动：生物可用使用动作进行 DC 30 力量（运动）检定，成功可将已固定的权杖移动至多 10 尺。",
+      "image": "/api/module-assets/92b142dfd8807fc9d80f758e2b9231f1973cc9c89036df1971fe363973cbc864",
+      "scope": "general",
+      "campaignId": "",
+      "campaignName": "",
+      "location": "",
+      "usedIn": [],
+      "id": "tpl_c4173e3fb4a145b2ac9e00e74f4acdbd",
+      "version": 2,
+      "archived": false
+    },
+    {
+      "name": "夜视镜",
+      "category": "wondrous",
+      "rarity": "非普通",
+      "effect": "佩戴后获得 60 尺黑暗视觉；已有黑暗视觉则其范围增加 60 尺。",
+      "consumable": false,
+      "description": "奇物｜非普通｜无需同调\n效果：佩戴时获得 60 尺黑暗视觉；若已具有黑暗视觉，其范围增加 60 尺。\n视觉：在范围内，将微光视为明亮光照、黑暗视为微光；在黑暗中只能辨认灰阶颜色。\n限制：不会照亮环境，也不会自动看穿魔法黑暗。无需动作或充能，佩戴期间持续生效。",
+      "image": "/api/module-assets/25c94e7921b6d00383f2a776b1cbfdb7875acf2b088e13cc6bffc65540a97474",
+      "scope": "general",
+      "campaignId": "",
+      "campaignName": "",
+      "location": "",
+      "usedIn": [],
+      "id": "tpl_b8c124a95864379e4aa2181eeb02a559",
+      "version": 2,
+      "archived": false
+    },
+    {
+      "name": "攀爬绳",
+      "category": "wondrous",
+      "rarity": "非普通",
+      "effect": "60 尺魔法绳，承重 3,000 磅；可命令移动、系结与打结辅助攀爬。",
+      "consumable": false,
+      "description": "奇物｜非普通｜无需同调\n规格：长 60 尺，承重 3,000 磅。\n操控：手持一端，以魔法动作命令另一端朝指定地点移动；该端在你发出命令的回合移动 10 尺，此后在你的每个回合继续移动 10 尺，直到抵达地点或绳长用尽。也可命令它牢固系住物体、自行解开、打结、解结或盘起以便携带。\n攀爬：打结时每隔 1 尺形成一个大绳结，总长缩短为 50 尺；攀爬这种状态的绳子时，相关检定具有优势。\n耐久：AC 20，20 点生命值，免疫毒素和心灵伤害；只要仍有至少 1 点生命值，每 5 分钟恢复 1 点。生命值降至 0 时被摧毁。",
+      "image": "/api/module-assets/0c5196272a44b24c0a990fb65bf74d7e2ecf6162d0aaa6a88dc63056cd4902f8",
+      "scope": "general",
+      "campaignId": "",
+      "campaignName": "",
+      "location": "",
+      "usedIn": [],
+      "id": "tpl_888765162902650e910410759efb80bf",
+      "version": 2,
+      "archived": false
+    },
+    {
+      "name": "护盾胸针",
+      "category": "wondrous",
+      "rarity": "非普通",
+      "effect": "需要同调；获得力场伤害抗性，并免疫魔法飞弹的伤害。",
+      "consumable": false,
+      "description": "奇物｜非普通｜需要同调\n效果：同调后佩戴胸针时，你具有力场伤害抗性，受到的力场伤害减半，向下取整；此外，免疫魔法飞弹法术造成的伤害。\n使用：佩戴期间持续生效，无需动作或充能。此物品不提供 AC 加值。",
+      "image": "/api/module-assets/cea441e8ffa9e5dabb637dff7d471fcfd05aeb2a2c62e3f7a077898f8bee0126",
+      "scope": "general",
+      "campaignId": "",
+      "campaignName": "",
+      "location": "",
+      "usedIn": [],
+      "id": "tpl_eefe275527e6b7341356a9e9258b9fa0",
+      "version": 2,
+      "archived": false
+    },
+    {
+      "name": "灼热头环",
+      "category": "wondrous",
+      "rarity": "非普通",
+      "effect": "魔法动作施放灼热射线，攻击加值 +5；下一次黎明恢复使用。",
+      "consumable": false,
+      "description": "奇物｜非普通｜无需同调\n使用：佩戴时，以魔法动作从头环施放二环灼热射线，无需法术位或法术成分。\n效果：射程 120 尺，产生 3 道射线，可分别指向同一或不同目标。每道各进行一次远程法术攻击，攻击加值固定为 +5；命中造成 2d6 点火焰伤害。\n恢复：使用后直到下一次黎明才能再次用头环施放此法术。",
+      "image": "/api/module-assets/9f276080aec28a8c560f9528106ae4c6c3a7d8251d12837134e5975ba009e750",
+      "scope": "general",
+      "campaignId": "",
+      "campaignName": "",
+      "location": "",
+      "usedIn": [],
+      "id": "tpl_d5190993032a7214faf2eebaa67b25d1",
+      "version": 2,
+      "archived": false
+    },
+    {
+      "name": "遁术斗篷",
+      "category": "wondrous",
+      "rarity": "珍稀",
+      "effect": "魔法动作施放任意门，并在原位置留下短暂烟雾；下一次黎明恢复使用。",
+      "consumable": false,
+      "description": "奇物｜珍稀｜无需同调\n使用：穿着时，以魔法动作施放任意门，无需法术位或法术成分。可传送到 500 尺范围内按该法术指定的地点，并按法术规则携带一名自愿生物。\n烟雾：传送后，原本所在空间被烟雾轻度遮蔽，直到你的下个回合结束。\n恢复：使用后直到下一次黎明才能再次使用。传送目的地受阻等情况按任意门法术处理。",
+      "image": "/api/module-assets/e28b282731994d57f9ed8044b1bc98fa40b0facd711097ebb089dba5fa1e78d8",
+      "scope": "general",
+      "campaignId": "",
+      "campaignName": "",
+      "location": "",
+      "usedIn": [],
+      "id": "tpl_79f9b6f8594ec623f58002bf482bde18",
+      "version": 2,
+      "archived": false
+    }
+  ]
+}

@@ -10,6 +10,8 @@ __pycache__/
 .idea/
 .vscode/
 .tools/
+/cloudflared
+/cloudflared.exe
 
 # Runtime and temporary files
 *.log
@@ -17,8 +19,54 @@ __pycache__/
 *.temp
 ~$*
 
-# Formal campaign saves are versioned in the private repository.
+# Campaign saves and player content are versioned with the owner's authorization.
 
 # Regenerable multiplayer map/avatar cache.
 .sundoll-cache/
 音乐缓存/
+
+# Player login credentials are machine-private; reset after moving hosts.
+**/存档/玩家档案/认证/
+
+# OS-held server lock (not campaign data)
+**/存档/.server.lock
+
+# Machine-specific tunnel binaries live with the engine.
+/程序包/主程序/bin/cloudflared
+/程序包/主程序/bin/cloudflared.exe
+
+# Sibling-module credentials and local rebuildable coordination state.
+**/运行数据/认证/
+**/恢复备份/
+**/自动备份/
+**/迁移留存/
+**/运行数据/存档/模块存储/*.sqlite3*
+**/模块存储/导出暂存/
+/开发包/发行候选/
+/开发包/同级模块待切换/
+/程序包/用户数据/同级模块演练*/
+
+# Private backups and in-progress module imports
+**/运行数据/整套备份/
+**/运行数据/恢复任务/
+**/运行数据/待恢复.json
+**/运行数据/工作区代次.json
+**/模块存储/导入暂存/
+/开发包/代码恢复点/
+/旧恢复备份/
+/旧发行包/
+
+# This repository distributes the runnable workspace, not local production tools.
+/开发包/
+/创作包/
+/output/
+/备团/
+
+# Host-specific diagnostics and tunnel trust files are not portable game data.
+/程序包/运行数据/维护记录/
+/程序包/运行数据/运行日志/
+/程序包/运行数据/联机/
+/程序包/运行数据/正式切换记录*.json
+/程序包/运行数据/同级模块迁移报告.json
+/程序包/运行数据/存档/迁移报告.json
+/程序包/运行数据/存档/存档索引-恢复前-*.json

@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>地图创作台 · 桑哆尔之歌</title>
+<style>
+*{box-sizing:border-box}
+:root{
+  --bg:#10151a;--panel:#192127;--panel2:#202b31;--line:#35434a;--text:#edf1ec;--muted:#9ba9a8;
+  --teal:#83c8ba;--gold:#d5b778;--danger:#e58a8e;--paper:#d9c69c;--shadow:#07090b99;
+}
+html,body{min-height:100%;margin:0;background:radial-gradient(circle at 75% -10%,#27433f55,transparent 34%),var(--bg);color:var(--text);font:14px/1.55 system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif}
+button,input,select,textarea{font:inherit}
+button{border:1px solid var(--line);border-radius:9px;background:#263239;color:var(--text);padding:7px 11px;cursor:pointer;transition:.15s border-color,.15s background,.15s color}
+button:hover{border-color:#698087;background:#314148}
+button.primary{border-color:#66a99d;background:linear-gradient(135deg,#39766d,#2a4d4b);color:#effffb}
+button.primary:hover{border-color:#9ad8cc;background:linear-gradient(135deg,#43887e,#315b58)}
+button.quiet{background:transparent;color:var(--muted)}
+input,select,textarea{width:100%;min-width:0;border:1px solid var(--line);border-radius:8px;background:#11181d;color:var(--text);padding:8px 9px;outline:none}
+input:focus,select:focus,textarea:focus{border-color:#6eb4a7;box-shadow:0 0 0 2px #6eb4a71d}
+textarea{min-height:76px;resize:vertical}
+label{display:grid;gap:5px;color:#cbd4d0;font-size:12px}
+label>span{display:flex;align-items:center;justify-content:space-between;gap:8px}
+label small{color:#71817f;font-size:10px;font-weight:400}
+.topbar{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:16px;min-height:62px;padding:10px 18px;border-bottom:1px solid #53606666;background:#11181de8;box-shadow:0 8px 30px #0005;backdrop-filter:blur(15px)}
+.brand{display:flex;align-items:center;gap:11px;min-width:260px}
+.brand-mark{display:grid;place-items:center;width:38px;height:38px;border:1px solid #77b5aa77;border-radius:12px;background:radial-gradient(circle,#4d817855,#1b252b);color:#b9ede3;font-size:20px}
+.brand strong{display:block;color:#e8dfc9;font-family:Georgia,"Songti SC",serif;font-size:18px;letter-spacing:1px}
+.brand small{display:block;color:var(--muted);font-size:10px;letter-spacing:.08em;text-transform:uppercase}
+.top-actions{display:flex;justify-content:flex-end;gap:7px;margin-left:auto;flex-wrap:wrap}
+.workspace{display:grid;grid-template-columns:minmax(390px,540px) minmax(460px,1fr);gap:16px;max-width:1500px;margin:0 auto;padding:16px}
+.editor,.output{min-width:0}
+.editor{display:grid;align-content:start;gap:11px}
+.section{border:1px solid #ffffff12;border-radius:14px;background:linear-gradient(145deg,#1b242a,#171e23);box-shadow:0 12px 30px #0002;overflow:hidden}
+.section>summary{display:flex;align-items:center;gap:9px;padding:12px 14px;cursor:pointer;color:#e7dcc3;font-weight:700;list-style:none}
+.section>summary::-webkit-details-marker{display:none}
+.section>summary::before{content:'›';display:grid;place-items:center;width:20px;height:20px;border-radius:7px;background:#ffffff08;color:var(--teal);font-size:19px;transition:.15s transform}
+.section[open]>summary::before{transform:rotate(90deg)}
+.section-body{display:grid;gap:10px;padding:0 14px 14px}
+.grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.style-lock{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:10px;padding:10px;border:1px solid #77b5aa42;border-radius:10px;background:linear-gradient(135deg,#2c4d493e,#d5b77810)}
+.style-seal{display:grid;place-items:center;width:42px;height:42px;border:1px solid #d1ba8066;border-radius:50%;color:var(--gold);font-family:Georgia,serif;font-size:18px;box-shadow:inset 0 0 18px #d5b77816}
+.style-lock strong{display:block;color:#dcebe6}
+.style-lock small{display:block;color:var(--muted);font-size:10px}
+.field-note{margin:-2px 0 0;color:#758581;font-size:10px}
+.output{position:sticky;top:78px;display:flex;flex-direction:column;gap:10px;height:calc(100vh - 94px)}
+.output-head{display:flex;align-items:center;gap:10px;padding:12px 14px;border:1px solid #ffffff13;border-radius:14px;background:linear-gradient(135deg,#202c32,#182126)}
+.quality{display:flex;align-items:center;gap:8px;min-width:0}
+.quality-ring{display:grid;place-items:center;width:39px;height:39px;flex:0 0 auto;border:3px solid var(--teal);border-radius:50%;color:#c6eee6;font-size:11px;font-weight:800}
+.quality-copy{min-width:0}
+.quality-copy strong,.quality-copy small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.quality-copy small{color:var(--muted);font-size:10px}
+.anchor-id{margin-left:auto;padding:5px 8px;border:1px solid #d5b77833;border-radius:999px;color:#cdb984;font:10px/1.2 ui-monospace,SFMono-Regular,monospace}
+.tabs{display:flex;gap:5px;padding:4px;border:1px solid #ffffff12;border-radius:11px;background:#131a1f}
+.tabs button{flex:1;border-color:transparent;background:transparent;color:var(--muted);padding:7px}
+.tabs button.active{border-color:#65736e;background:#27332f;color:#d9eee8}
+.prompt-panel{display:flex;flex:1;min-height:0;flex-direction:column;border:1px solid #ffffff13;border-radius:14px;background:#151d22;overflow:hidden}
+.prompt-toolbar{display:flex;align-items:center;gap:8px;padding:9px 10px;border-bottom:1px solid #ffffff10;background:#1d272d}
+.prompt-toolbar strong{color:#d9dfda;font-size:12px}
+.prompt-toolbar span{margin-left:auto;color:var(--muted);font-size:10px}
+.prompt-toolbar button{padding:5px 9px;font-size:11px}
+.prompt-content{flex:1;margin:0;padding:15px;overflow:auto;color:#d9e4df;font:12px/1.75 ui-monospace,SFMono-Regular,Consolas,monospace;white-space:pre-wrap;overflow-wrap:anywhere;user-select:text}
+.variant-picker{display:flex;gap:6px;overflow-x:auto;padding:8px 10px;border-top:1px solid #ffffff10;background:#11181d}
+.variant-picker:empty{display:none}
+.variant-picker button{flex:0 0 auto;padding:5px 9px;color:var(--muted);font-size:10px}
+.variant-picker button.active{border-color:#9b8350;color:#e2c98d;background:#332e24}
+.checklist{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+.check{display:flex;gap:7px;align-items:flex-start;padding:7px 8px;border:1px solid #ffffff0d;border-radius:8px;color:var(--muted);font-size:10px}
+.check::before{content:'○';color:#7b8987}.check.ok::before{content:'✓';color:#7ed2b6}.check.warn::before{content:'!';color:#e2b96a}
+.footer-note{padding:2px 5px;color:#71817f;font-size:10px;text-align:center}
+#project-file{display:none}
+#toast{position:fixed;z-index:50;left:50%;bottom:22px;transform:translate(-50%,10px);padding:9px 14px;border:1px solid #6d7e78;border-radius:9px;background:#11191eef;color:#edf3ef;box-shadow:0 12px 40px #0009;opacity:0;pointer-events:none;transition:.18s opacity,.18s transform}
+#toast.show{transform:translate(-50%,0);opacity:1}
+@media(max-width:1050px){.workspace{grid-template-columns:1fr}.output{position:relative;top:0;height:700px}.brand{min-width:0}.brand small{display:none}}
+@media(max-width:650px){.topbar{align-items:flex-start;flex-direction:column;padding:10px}.top-actions{width:100%;justify-content:flex-start;margin:0}.top-actions button{flex:1;padding-inline:7px}.workspace{padding:9px}.grid2,.grid3{grid-template-columns:1fr}.output{height:78vh}.checklist{grid-template-columns:1fr}.brand strong{font-size:16px}}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand"><span class="brand-mark">✦</span><div><strong>地图创作台</strong><small>SD-ART 1.0 · SD-MAP 1.1</small></div></div>
+  <div class="top-actions">
+    <button id="new-project" class="quiet" type="button">新建</button>
+    <button id="load-project" type="button">载入项目</button>
+    <button id="save-project" type="button">导出 JSON</button>
+    <button id="export-brief" type="button">导出制作单</button>
+    <button id="copy-current" class="primary" type="button">复制当前提示词</button>
+    <input id="project-file" type="file" accept=".json,application/json">
+  </div>
+</header>
+
+<main class="workspace">
+  <section class="editor" aria-label="地图规划表单">
+    <details class="section" open>
+      <summary>项目与画风</summary>
+      <div class="section-body">
+        <div class="style-lock"><span class="style-seal">SD</span><div><strong>桑哆尔统一战术地图 · SD-MAP 1.1</strong><small>共享 SD-ART 1.0；固定正交俯视、手绘真实材质、柔和统一光照和清晰可玩空间。每个楼层与状态分别生成完整单图。</small></div></div>
+        <div class="grid2">
+          <label><span>项目名称</span><input id="projectName" maxlength="80" placeholder="例如：船骸号下层甲板"></label>
+          <label><span>所属战役</span><input id="campaignName" maxlength="80" placeholder="例如：风骸岛之龙"></label>
+          <label><span>地点名称</span><input id="locationName" maxlength="80" placeholder="例如：潮蚀船舱"></label>
+          <label><span>地图类型</span><select id="mapType"><option value="outdoor">室外战斗地图</option><option value="interior">建筑室内／楼层</option><option value="dungeon">地下城／洞穴</option><option value="ship">船舶／船舱</option><option value="regional">区域探索图</option><option value="settlement">聚落／城镇</option></select></label>
+          <label><span>主要用途</span><select id="mapPurpose"><option value="combat">战斗与遭遇</option><option value="exploration">探索与调查</option><option value="social">社交与叙事</option><option value="travel">旅行与区域导航</option></select></label>
+          <label><span>环境调色</span><select id="palette"><option value="coast">风蚀海岸 · 灰蓝与旧木</option><option value="ruin">古老遗迹 · 石灰与青铜</option><option value="underground">地下洞窟 · 冷岩与菌光</option><option value="forest">荒野林地 · 苔绿与土褐</option><option value="ship">旧船内部 · 焦褐与暗铜</option><option value="arcane">奥术异象 · 靛蓝与晶光</option><option value="parchment">区域羊皮图 · 墨褐与赭石</option></select></label>
+        </div>
+      </div>
+    </details>
+
+    <details class="section" open>
+      <summary>空间与可玩结构</summary>
+      <div class="section-body">
+        <label><span>场景核心描述 <small>地图里是什么</small></span><textarea id="scene" placeholder="描述场所、年代、损毁程度和最主要的视觉印象。"></textarea></label>
+        <div class="grid2">
+          <label><span>地面与自然地形</span><textarea id="terrain" placeholder="岩地、浅水、泥沙、木板、菌毯……"></textarea></label>
+          <label><span>建筑与人工结构</span><textarea id="architecture" placeholder="墙体、甲板、石柱、楼梯、平台……"></textarea></label>
+          <label><span>关键地标</span><textarea id="landmarks" placeholder="祭坛、沉船桅杆、火山裂缝、雕像……"></textarea></label>
+          <label><span>路线与战术空间</span><textarea id="routes" placeholder="主路、侧路、瓶颈、高低差、掩体和可绕行区。"></textarea></label>
+          <label><span>出入口与楼层连接</span><textarea id="entrances" placeholder="北侧石门、东侧楼梯、向下舱梯；写清各自通向哪里。"></textarea></label>
+          <label><span>不可改变的构图锚点</span><textarea id="anchors" placeholder="同地点不同状态必须保持的墙体轮廓、入口坐标、道路走向和地标位置。"></textarea></label>
+        </div>
+        <p class="field-note">构图锚点决定同一地点的多张地图能否顺畅切换。写位置关系，不写氛围形容词。</p>
+      </div>
+    </details>
+
+    <details class="section" open>
+      <summary>氛围与输出规格</summary>
+      <div class="section-body">
+        <div class="grid2">
+          <label><span>时间与光照</span><input id="lighting" maxlength="160" placeholder="例如：无阳光照入，冷色菌光与微弱烛火"></label>
+          <label><span>天气与环境状态</span><input id="weather" maxlength="160" placeholder="例如：室外暴雨，室内潮湿滴水"></label>
+          <label><span>情绪与叙事氛围</span><input id="mood" maxlength="160" placeholder="例如：寂静、压迫、仍有探索希望"></label>
+          <label><span>画幅比例</span><select id="ratio"><option value="16:9">16:9 横向</option><option value="4:3">4:3 横向</option><option value="1:1">1:1 方形</option><option value="3:4">3:4 纵向</option><option value="9:16">9:16 纵向</option></select></label>
+        </div>
+        <div class="grid3">
+          <label><span>横向格数</span><input id="gridWidth" type="number" min="5" max="100" value="32"></label>
+          <label><span>纵向格数</span><input id="gridHeight" type="number" min="5" max="100" value="20"></label>
+          <label><span>每格距离</span><select id="gridScale"><option value="5 feet">5 尺</option><option value="10 feet">10 尺</option><option value="1 mile">1 英里</option></select></label>
+        </div>
+        <label><span>网格输出</span><select id="gridMode"><option value="none">无网格底图（推荐，导入后设置网格）</option><option value="faint">极淡方格，边缘整齐对齐</option><option value="visible">清晰方格，适合直接使用</option></select></label>
+      </div>
+    </details>
+
+    <details class="section" open>
+      <summary>连续版本与额外约束</summary>
+      <div class="section-body">
+        <label><span>地图状态变体 <small>每行一个</small></span><textarea id="variants" placeholder="常态：完整但潮湿的船舱\n战后：中央甲板坍塌，积水与残骸增加\n疫病：木料枯败，灰白菌丝从裂隙蔓延"></textarea></label>
+        <p class="field-note">格式为“名称：只在此版本发生的变化”。所有变体自动继承相同构图锚点、镜头和画风。</p>
+        <label><span>额外必须出现</span><textarea id="mustHave" placeholder="特定颜色、机关、道具或叙事线索。"></textarea></label>
+        <label><span>额外禁止出现</span><textarea id="avoid" placeholder="例如：不要阳光、不要现代器材、不要完整家具。"></textarea></label>
+      </div>
+    </details>
+  </section>
+
+  <aside class="output" aria-label="提示词输出">
+    <div class="output-head">
+      <div class="quality"><span id="quality-score" class="quality-ring">0</span><div class="quality-copy"><strong id="quality-title">等待填写地图结构</strong><small id="quality-hint">至少补齐地点、场景、路线、出入口和构图锚点</small></div></div>
+      <span id="anchor-id" class="anchor-id">ANCHOR —</span>
+    </div>
+    <div class="tabs" role="tablist" aria-label="输出类型">
+      <button class="active" type="button" data-tab="positive">正向提示词</button>
+      <button type="button" data-tab="negative">负向提示词</button>
+      <button type="button" data-tab="anchor">连续性锚点</button>
+      <button type="button" data-tab="brief">制作说明</button>
+    </div>
+    <div class="prompt-panel">
+      <div class="prompt-toolbar"><strong id="output-label">正向提示词</strong><span id="output-meta">自动保存于本机浏览器</span><button id="copy-panel" type="button">复制</button></div>
+      <pre id="prompt-content" class="prompt-content"></pre>
+      <div id="variant-picker" class="variant-picker" aria-label="地图状态版本"></div>
+    </div>
+    <div id="checklist" class="checklist"></div>
+    <div class="footer-note">创作台只生成制作规范，不连接外部模型、不上传资料，也不写入正式战役。一次生成一张完整地图，用户确认后再从“寰宇图志”载入。</div>
+  </aside>
+</main>
+<div id="toast" role="status"></div>
+
+<script>
+(() => {
+  'use strict';
+  const STORAGE_KEY='sundoll-map-prompt-project-v1';
+  const STYLE_VERSION='SD-MAP 1.1';
+  const SCHEMA='sundoll-map-prompt-project@1';
+  const ids=['projectName','campaignName','locationName','mapType','mapPurpose','palette','scene','terrain','architecture','landmarks','routes','entrances','anchors','lighting','weather','mood','ratio','gridWidth','gridHeight','gridScale','gridMode','variants','mustHave','avoid'];
+  const defaults={projectName:'未命名地图项目',campaignName:'',locationName:'',mapType:'outdoor',mapPurpose:'combat',palette:'coast',scene:'',terrain:'',architecture:'',landmarks:'',routes:'',entrances:'',anchors:'',lighting:'',weather:'',mood:'',ratio:'16:9',gridWidth:32,gridHeight:20,gridScale:'5 feet',gridMode:'none',variants:'',mustHave:'',avoid:''};
+  const typeText={outdoor:'outdoor encounter map',interior:'building interior floor plan',dungeon:'dungeon or cave battle map',ship:'ship deck or ship interior battle map',regional:'regional exploration map',settlement:'settlement or town map'};
+  const purposeText={combat:'tactical combat and encounters',exploration:'exploration and investigation',social:'social scenes and narrative play',travel:'travel and regional navigation'};
+  const paletteText={
+    coast:'weathered coastal palette: slate blue water, salt gray stone, muted sand, aged dark wood, restrained rust and brass accents',
+    ruin:'ancient ruin palette: chalky limestone, soot gray shadow, oxidized bronze, muted terracotta and sparse moss',
+    underground:'subterranean palette: cold charcoal rock, damp gray, restrained mineral blue and localized bioluminescent crystal or fungus color',
+    forest:'wilderness palette: deep moss green, peat brown, weathered stone, muted leaf gold and cool water',
+    ship:'aged ship palette: tar-dark timber, worn umber planks, muted copper and iron, salt gray rope and cold bilge water',
+    arcane:'arcane palette: restrained indigo, deep mineral blue, pale cyan crystal light, black stone and limited antique gold',
+    parchment:'regional parchment palette: warm ivory ground, sepia ink, muted umber relief, desaturated green and blue washes'
+  };
+  const gridText={none:'Deliver a clean gridless base image. Do not draw any grid; the tactical grid will be configured after import.',faint:'Overlay a very faint square grid, perfectly even and aligned to the image edges, subordinate to the artwork.',visible:'Overlay a clear but elegant square grid, perfectly even and aligned to the image edges.'};
+  let activeTab='positive',activeVariant=0,timer=null;
+  const $=selector=>document.querySelector(selector);
+
+  function read(){
+    const data={schema:SCHEMA,styleVersion:STYLE_VERSION,updatedAt:new Date().toISOString()};
+    ids.forEach(id=>{const el=$('#'+id);data[id]=el.type==='number'?(Number(el.value)||0):el.value.trim();});
+    return data;
+  }
+  function write(raw){
+    const data={...defaults,...raw};
+    ids.forEach(id=>{const el=$('#'+id);if(el)el.value=data[id]??defaults[id];});
+    activeVariant=0;render();
+  }
+  function variantsOf(data){
+    const rows=String(data.variants||'').split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+    const parsed=rows.map((row,index)=>{const split=row.search(/[：:|]/);return split<0?{name:`版本 ${index+1}`,change:row}:{name:row.slice(0,split).trim()||`版本 ${index+1}`,change:row.slice(split+1).trim()};});
+    return [{name:'基础版本',change:''},...parsed];
+  }
+  function clean(value,fallback='未指定'){return String(value||'').trim()||fallback;}
+  function hash(text){let h=2166136261;for(let i=0;i<text.length;i++){h^=text.charCodeAt(i);h=Math.imul(h,16777619);}return (h>>>0).toString(36).toUpperCase().padStart(7,'0').slice(0,7);}
+  function anchorId(data){return 'SD-'+hash([data.campaignName,data.locationName,data.mapType,data.anchors,data.entrances,data.routes].join('|'));}
+  function positivePrompt(data,variant){
+    const variantLine=variant?.change?`\nSTATE VARIANT — ${variant.name}: ${variant.change}. Change only the described state effects; preserve every continuity anchor and all navigation geometry.`:'';
+    return `Full-frame fantasy tabletop ${typeText[data.mapType]||typeText.outdoor}, designed for ${purposeText[data.mapPurpose]||purposeText.combat}. STRICT ORTHOGRAPHIC TOP-DOWN CAMERA at exactly 90 degrees, zero perspective, zero horizon, zero isometric angle. The playable map fills the entire frame. Create ONE complete map for this floor or state, never a sheet of multiple maps or thumbnails.\n\nLOCATION — ${clean(data.locationName)}${data.campaignName?`, campaign: ${data.campaignName}`:''}.\nSCENE — ${clean(data.scene)}.\nGROUND AND TERRAIN — ${clean(data.terrain)}.\nARCHITECTURE AND BUILT STRUCTURES — ${clean(data.architecture)}.\nKEY LANDMARKS — ${clean(data.landmarks)}.\nTACTICAL ROUTES — ${clean(data.routes)}. Keep paths, bottlenecks, cover, open areas and elevation changes readable at play scale.\nENTRANCES AND CONNECTIONS — ${clean(data.entrances)}. Every entrance, stair, hatch and transition must be visually clear and usable.\nIMMUTABLE LAYOUT ANCHORS — ${clean(data.anchors)}. Preserve these exact spatial relationships in every related image.\n\nATMOSPHERE — time and lighting: ${clean(data.lighting)}; weather and environment: ${clean(data.weather)}; narrative mood: ${clean(data.mood)}.\nCOLOR DIRECTION — ${paletteText[data.palette]||paletteText.coast}.\nMANDATORY DETAILS — ${clean(data.mustHave,'none beyond the scene specification')}.\n\nSTYLE LOCK — SD-ART 1.0 / ${STYLE_VERSION}: refined hand-painted fantasy cartography, realistic tactile materials, restrained painterly texture, soft unified lighting, crisp readable silhouettes, believable wear, coherent scale, rich detail concentrated around landmarks, quieter texture on playable paths. Warm parchment-toned outer edge treatment may frame the composition, while the map interior keeps natural material colors. No decorative mini-map, no inset illustration, no split panel.\nOUTPUT — aspect ratio ${data.ratio}; planned tactical footprint ${data.gridWidth} by ${data.gridHeight} squares; each square represents ${data.gridScale}. ${gridText[data.gridMode]||gridText.none}\n${variantLine}\nThe final image contains only the environment: no characters, no creatures, no tokens, no labels, no room numbers, no legend, no UI and no watermark.`;
+  }
+  function negativePrompt(data){
+    return `perspective view, angled camera, oblique view, isometric view, horizon, vanishing point, side view, cinematic landscape, cutaway walls, dollhouse view, 3D render look, photobash inconsistency, fisheye distortion, warped rooms, impossible stairs, broken navigation, duplicated doors, random corridors, clutter blocking playable routes, unreadable dark floor, overexposed light, harsh spotlight, inconsistent scale, miniature diorama, decorative border covering the map, inset image, mini-map, multiple panels, contact sheet, map sheet, floor thumbnails, collage, character, person, adventurer, monster, creature, animal, token, portrait, silhouette, text, title, caption, room number, compass label, legend, icon, logo, watermark, signature, user interface${data.gridMode==='none'?', grid, hex grid, square grid':''}${data.avoid?', '+data.avoid:''}`;
+  }
+  function anchorPrompt(data){
+    return `CONTINUITY ANCHOR ${anchorId(data)}\nStyle profile: ${STYLE_VERSION}\nCamera: strict orthographic 90-degree top-down; identical framing and aspect ratio ${data.ratio}.\nCanvas plan: ${data.gridWidth} × ${data.gridHeight} squares at ${data.gridScale} per square.\nLocation: ${clean(data.locationName)}.\nImmutable geometry: ${clean(data.anchors)}.\nEntrances and transitions: ${clean(data.entrances)}.\nRoute network: ${clean(data.routes)}.\nLandmark positions: ${clean(data.landmarks)}.\nPalette family: ${paletteText[data.palette]||paletteText.coast}.\n\nFor every state variant, preserve the outer footprint, wall lines, room proportions, entrance positions, stairs, hatches, path widths, elevation boundaries and landmark coordinates. Alter only damage, growth, debris, water level, lighting or other state changes explicitly requested.`;
+  }
+  function brief(data,variant){
+    const variantText=variantsOf(data).slice(1).map(v=>`- ${v.name}：${v.change||'未写变化'}`).join('\n')||'- 无额外状态版本';
+    return `# ${clean(data.projectName)}\n\n- 战役：${clean(data.campaignName)}\n- 地点：${clean(data.locationName)}\n- 共享画风：SD-ART 1.0\n- 专用画风：${STYLE_VERSION}\n- 连续性编号：${anchorId(data)}\n- 类型：${typeText[data.mapType]}\n- 用途：${purposeText[data.mapPurpose]}\n- 画幅：${data.ratio}\n- 规划网格：${data.gridWidth} × ${data.gridHeight}，每格 ${data.gridScale}\n- 输出：${data.gridMode==='none'?'无网格底图':data.gridMode==='faint'?'极淡方格':'清晰方格'}\n\n## 当前生成版本\n\n${variant?.name||'基础版本'}${variant?.change?'：'+variant.change:''}\n\n## 审核重点\n\n1. 一次只审核一张完整地图，不接受楼层拼版、缩略小图或画中画。\n2. 镜头必须是严格 90° 正交俯视，无透视、无等距角度。\n3. 对照连续性锚点检查墙体、入口、路线和地标位置。\n4. 地图中不得出现人物、怪物、棋子、文字、编号、UI 或水印。\n5. 检查路线宽度、掩体、瓶颈和出入口是否适合实际跑团。\n6. 用户确认后从主控台“寰宇图志”载入，再设置战术网格。\n\n## 状态版本\n\n${variantText}`;
+  }
+  function outputFor(data,variant){if(activeTab==='negative')return negativePrompt(data);if(activeTab==='anchor')return anchorPrompt(data);if(activeTab==='brief')return brief(data,variant);return positivePrompt(data,variant);}
+  function checks(data){return [
+    ['地点已命名',!!data.locationName],['场景描述已建立',data.scene.length>=12],['战术路线已说明',data.routes.length>=8],['出入口已说明',data.entrances.length>=6],['构图锚点已锁定',data.anchors.length>=10],['光照条件已说明',data.lighting.length>=4],['规格可生成',data.gridWidth>=5&&data.gridHeight>=5],['禁止项已自动加入',true]
+  ];}
+  function render(){
+    const data=read(),variants=variantsOf(data);if(activeVariant>=variants.length)activeVariant=0;const variant=variants[activeVariant];
+    const items=checks(data),score=Math.round(items.filter(x=>x[1]).length/items.length*100);
+    $('#quality-score').textContent=score;$('#quality-score').style.borderColor=score>=88?'#83c8ba':score>=63?'#d5b778':'#bb7478';
+    $('#quality-title').textContent=score>=88?'可以进入生图审核':score>=63?'结构已建立，仍可补强':'等待填写地图结构';
+    const missing=items.filter(x=>!x[1]).map(x=>x[0].replace('已','')).join('、');$('#quality-hint').textContent=missing?'建议补充：'+missing:'画风、构图与输出约束齐全';
+    $('#anchor-id').textContent='ANCHOR '+anchorId(data);$('#prompt-content').textContent=outputFor(data,variant);
+    const labels={positive:'正向提示词',negative:'负向提示词',anchor:'连续性锚点',brief:'制作说明'};$('#output-label').textContent=labels[activeTab];
+    $('#checklist').innerHTML='';items.forEach(([label,ok])=>{const el=document.createElement('div');el.className='check '+(ok?'ok':'warn');el.textContent=label;$('#checklist').append(el);});
+    const picker=$('#variant-picker');picker.innerHTML='';variants.forEach((v,index)=>{const button=document.createElement('button');button.type='button';button.textContent=v.name;button.classList.toggle('active',index===activeVariant);button.onclick=()=>{activeVariant=index;render();};picker.append(button);});
+    clearTimeout(timer);timer=setTimeout(()=>{try{localStorage.setItem(STORAGE_KEY,JSON.stringify(data));$('#output-meta').textContent='草稿已自动保存于本机浏览器';}catch(e){$('#output-meta').textContent='浏览器草稿保存失败';}},180);
+  }
+  async function copy(text){
+    try{await navigator.clipboard.writeText(text);}catch(e){const area=document.createElement('textarea');area.value=text;area.style.position='fixed';area.style.opacity='0';document.body.append(area);area.select();document.execCommand('copy');area.remove();}
+    toast('已复制');
+  }
+  function download(name,text,type){const blob=new Blob([text],{type});const link=document.createElement('a');link.href=URL.createObjectURL(blob);link.download=name;link.click();setTimeout(()=>URL.revokeObjectURL(link.href),0);}
+  function safeName(value){return String(value||'地图项目').replace(/[\\/:*?"<>|]/g,'-').slice(0,80)||'地图项目';}
+  function toast(message){const el=$('#toast');el.textContent=message;el.classList.add('show');clearTimeout(toast.timer);toast.timer=setTimeout(()=>el.classList.remove('show'),1800);}
+
+  ids.forEach(id=>$('#'+id).addEventListener('input',render));
+  document.querySelectorAll('[data-tab]').forEach(button=>button.addEventListener('click',()=>{activeTab=button.dataset.tab;document.querySelectorAll('[data-tab]').forEach(item=>item.classList.toggle('active',item===button));render();}));
+  $('#copy-current').onclick=$('#copy-panel').onclick=()=>copy($('#prompt-content').textContent);
+  $('#new-project').onclick=()=>{if(confirm('新建空白地图项目？当前草稿可先导出 JSON 留存。')){write(defaults);toast('已新建空白项目');}};
+  $('#load-project').onclick=()=>$('#project-file').click();
+  $('#project-file').onchange=event=>{const file=event.target.files[0];event.target.value='';if(!file)return;const reader=new FileReader();reader.onload=()=>{try{const data=JSON.parse(reader.result);if(data.schema!==SCHEMA)throw new Error('schema');write(data);toast('项目已载入');}catch(e){toast('无法载入：不是地图创作台项目');}};reader.readAsText(file);};
+  $('#save-project').onclick=()=>{const data=read();download(safeName(data.projectName)+'.地图Prompt.json',JSON.stringify(data,null,2),'application/json');toast('项目 JSON 已导出');};
+  $('#export-brief').onclick=()=>{const data=read(),variant=variantsOf(data)[activeVariant]||variantsOf(data)[0];const text=brief(data,variant)+'\n\n## 正向提示词\n\n'+positivePrompt(data,variant)+'\n\n## 负向提示词\n\n'+negativePrompt(data)+'\n\n## 连续性锚点\n\n'+anchorPrompt(data);download(safeName(data.projectName)+'.地图制作单.md',text,'text/markdown');toast('制作单已导出');};
+
+  try{const saved=JSON.parse(localStorage.getItem(STORAGE_KEY)||'null');write(saved?.schema===SCHEMA?saved:defaults);}catch(e){write(defaults);}
+})();
+</script>
+</body>
+</html>

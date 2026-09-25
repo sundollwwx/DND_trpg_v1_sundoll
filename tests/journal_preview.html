@@ -1,8 +1,0 @@
-<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>日志界面隔离测试</title><link rel="stylesheet" href="../主控台/journal.css?v=24"><body style="background:#171b24"><button onclick="CampaignJournal.open()">打开测试日志</button><script src="../主控台/journal.js?v=24"></script><script>
-let journal={campaignId:'preview',entries:[
-  {id:'entry-1',title:'抵达古堡',text:('我们在黄昏抵达古堡。守门人提到，北塔的灯已经亮了三个晚上。\n').repeat(18),author:'Alice',createdAt:Date.now(),createdWorldSeconds:633600,updatedBy:'Alice',updatedAt:Date.now(),updatedWorldSeconds:633600},
-  {id:'entry-2',title:'北塔调查',text:('石阶潮湿，墙缝里长着发光的苔藓。我们记录了每一道门和每一处脚印。').repeat(24),author:'Bob',createdAt:Date.now(),createdWorldSeconds:720000,updatedBy:'Bob',updatedAt:Date.now(),updatedWorldSeconds:720000},
-  {id:'entry-3',title:'港口来信',text:'信上只有一句话：不要相信钟声。',author:'Alice',createdAt:Date.now(),createdWorldSeconds:806400,updatedBy:'Alice',updatedAt:Date.now(),updatedWorldSeconds:806400}
-],revision:1,history:[{author:'Alice',revision:1,at:Date.now()}]};
-window.journalBridge={isDM:true,actorName:()=> 'DM',worldTime:()=>633600,read:()=>journal,campaign:()=>'preview',mutate:async(mutation,revision)=>{if(revision!==journal.revision)throw new Error('日志已更新');const result=CampaignJournal.localMutation(journal,mutation,{author:'DM',isDM:true,campaignId:'preview',at:Date.now(),worldSeconds:633600});journal=result.journal;return result;}};
-</script></body></html>

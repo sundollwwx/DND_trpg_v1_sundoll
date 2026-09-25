@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="装饰皮封书籍">
+  <defs>
+    <linearGradient id="cover" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#44736a"/><stop offset=".55" stop-color="#24534f"/><stop offset="1" stop-color="#193f43"/></linearGradient>
+    <linearGradient id="spine" x1="0" y1="0" x2="1" y2="0"><stop stop-color="#173a3e"/><stop offset=".45" stop-color="#416f65"/><stop offset="1" stop-color="#1c4847"/></linearGradient>
+    <filter id="shadow" x="-25%" y="-25%" width="150%" height="160%"><feDropShadow dx="0" dy="10" stdDeviation="8" flood-color="#111c20" flood-opacity=".42"/></filter>
+  </defs>
+  <g filter="url(#shadow)" transform="rotate(6 128 128)">
+    <path d="M54 27h145q13 0 13 13v171q0 12-13 12H54q-12 0-12-12V40q0-13 12-13Z" fill="#e8d3a2" stroke="#8d744b" stroke-width="5"/>
+    <path d="M42 38q0-13 13-13h145q12 0 12 12v163q0 12-12 12H55q-13 0-13-12Z" fill="url(#cover)" stroke="#123b3e" stroke-width="5"/>
+    <path d="M44 38q0-12 12-12h30v184H56q-12 0-12-12Z" fill="url(#spine)"/>
+    <path d="M88 27v183" stroke="#cba965" stroke-width="3" opacity=".85"/>
+    <path d="M98 39h101v158H98Z" fill="none" stroke="#cbad70" stroke-width="3"/>
+    <path d="M111 53h75v130h-75Z" fill="none" stroke="#d7b67a" stroke-width="1.5" opacity=".7"/>
+    <path d="M149 75c-5 12-16 22-28 24 12 3 23 14 28 26 5-12 16-23 28-26-12-2-23-12-28-24Z" fill="#dfc17f"/>
+    <path d="M149 94v48m-16-16 16 16 16-16" fill="none" stroke="#dfc17f" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M121 161h56M120 168h58" stroke="#d8b777" stroke-width="2" stroke-linecap="round"/>
+    <path d="M55 49h23m-23 137h23" stroke="#d9b775" stroke-width="5" stroke-linecap="round"/>
+    <path d="M97 214h102" stroke="#b4935c" stroke-width="4"/>
+  </g>
+</svg>

@@ -1,0 +1,945 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<script src="../shared/workspace-session.js?v=20260923-network-perf-v1"></script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>桑哆尔之歌 · 主控台</title>
+  <link rel="icon" type="image/png" href="../asset/界面/品牌/桑哆尔之歌-logo.png">
+  <link rel="preload" as="image" href="../asset/界面/状态图标-v1.png">
+  <link rel="stylesheet" href="host/style.css?v=20260924-music-ui-v3-20260921-save-dialog-v1">
+  <link rel="stylesheet" href="../asset/界面/休息动画/休息动画.css?v=20260905-rest-scenes-v2">
+</head>
+<body>
+
+<header id="topbar">
+  <div class="brand">
+    <span class="logo" aria-hidden="true"><img src="../asset/界面/品牌/桑哆尔之歌-logo.png" alt=""></span>
+    <span>桑哆尔之歌-<em>主控台</em></span>
+  </div>
+  <div class="controls">
+    <div class="topbar-action-group" role="group" aria-label="工具、存档、棋子库、物品库与玩家档案">
+    <button id="btn-save-tools-open" type="button" aria-haspopup="dialog" aria-controls="save-tools-dialog">💾 存档</button>
+    <button id="btn-token-library" type="button" aria-haspopup="dialog" aria-controls="token-library-dialog" title="打开棋子库，选择棋子放入地图">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="5" r="3"/><path d="M9 9h6l-1 5 4 5H6l4-5-1-5ZM5 22h14"/></svg>
+      <span>棋子库</span>
+    </button>
+    <button id="btn-item-library" type="button" onclick="ItemLibrary.open()" aria-haspopup="dialog" title="打开物品库，制作物品或发给玩家">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6V5a4 4 0 0 1 8 0v1M7 6h10a3 3 0 0 1 3 3v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V9a3 3 0 0 1 3-3Z"/><path d="M4 11h16M10 10v3h4v-3M8 16h8"/></svg>
+      <span>物品库</span>
+    </button>
+    <button id="btn-player-profiles" class="topbar-profiles" type="button" aria-haspopup="dialog" title="管理玩家档案、个人棋子与背包">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="3"/><circle cx="12" cy="9" r="2.5"/><path d="M7.5 17c.5-4 8.5-4 9 0M2 7h4M2 12h4M2 17h4"/></svg>
+      <span>玩家档案</span>
+    </button>
+    </div>
+    <div class="topbar-session-controls" aria-label="存档与联机状态">
+      <span id="host-connection" class="host-connection" data-state="off" role="status">未联机</span>
+      <span id="save-status" class="save-status" title="存档状态">未保存</span>
+      <span id="app-version" class="app-version">v1.1</span>
+    </div>
+    <div id="map-settings">
+      <label class="toggle"><input type="checkbox" id="names-toggle" checked> 名字</label>
+      <label class="toggle" title="高清立绘开关：开启后按棋子屏幕尺寸在 192/512px 间自动切换；关闭后固定使用 192px 流畅档"><input type="checkbox" id="hd-toggle-check"> 高清</label>
+      <label class="toggle"><input type="checkbox" id="snap-toggle" checked> 吸附</label>
+    </div>
+  </div>
+</header>
+
+<main id="layout">
+  <aside id="left-panel" class="panel">
+    <nav id="workspace-tabs" aria-label="工具分类">
+      <button class="workspace-tab" type="button" data-workspace-tab="dice" aria-controls="workspace-panel" aria-expanded="false">⚄<span>骰子</span></button>
+      <button class="workspace-tab" type="button" data-workspace-tab="scene" aria-controls="workspace-panel" aria-expanded="false">⌖<span>场景</span></button>
+      <button class="workspace-tab" type="button" data-workspace-tab="resources" aria-controls="workspace-panel" aria-expanded="false">◈<span>资料</span></button>
+      <button class="workspace-tab" type="button" data-workspace-tab="room" aria-controls="workspace-panel" aria-expanded="false">●<span>房间</span></button>
+    </nav>
+    <section id="workspace-panel" role="region" aria-label="分类工具">
+      <div id="workspace-panel-content">
+
+    <section class="card host-room-card" data-workspace="room" data-tool-panel="room" data-no-collapse>
+      <div class="card-head host-room-head">
+        <h2>♟ 房间成员</h2>
+        <span id="host-room-code" class="host-room-code">未开启</span>
+      </div>
+      <div id="host-player-list" class="host-player-list" aria-live="polite"><span class="hint">开启联机后可查看房间成员。</span></div>
+      <div class="host-room-footer">
+        <span id="host-room-summary">联机尚未开启</span>
+        <div class="host-room-actions">
+          <button id="btn-host-room-toggle" class="small primary" type="button">开启联机</button>
+          <button id="btn-host-room-copy" class="small" type="button" disabled>复制邀请链接</button>
+        </div>
+      </div>
+    </section>
+    <section class="card" data-workspace="dice" data-tool-panel="dice">
+      <h2>⚄ 骰子</h2>
+      <div class="dice-grid">
+        <button class="die" data-die="d4">d4</button>
+        <button class="die" data-die="d6">d6</button>
+        <button class="die" data-die="d8">d8</button>
+        <button class="die" data-die="d10">d10</button>
+        <button class="die" data-die="d12">d12</button>
+        <button class="die" data-die="d20">d20</button>
+        <button class="die" data-die="d100">d100</button>
+      </div>
+      <div class="dice-advrow">
+        <button id="btn-adv" title="掷两颗 d20，取较大值">⇈ 优势 d20</button>
+        <button id="btn-dis" title="掷两颗 d20，取较小值">⇊ 劣势 d20</button>
+      </div>
+      <div class="custom-roll">
+        <input id="dice-expr" placeholder="如 2d6+3 / 4d8" enterkeyhint="go">
+        <button id="btn-roll" class="primary">掷!</button>
+      </div>
+      <label class="chk dice-visibility" title="关闭时骰点只记录在主控台；打开后才广播给玩家"><input type="checkbox" id="dice-broadcast"> ◉ 广播给玩家</label>
+      <div id="roll-log"></div>
+    </section>
+
+    <section class="card" data-workspace="dice" data-tool-panel="draw">
+      <h2>✎ 战术涂鸦</h2>
+      <button id="btn-host-measure" type="button" aria-pressed="false">⌖ 测距</button>
+      <p class="hint">拖动测距，吸附交点或格心；横竖每格 5 尺，斜向按 5、10 尺交替。Esc 退出。</p>
+      <div class="tool-grid">
+        <button class="board-tool" data-tool="doodle-pen">✎ 画笔</button>
+        <button class="board-tool" data-tool="doodle-line">╱ 直线</button>
+        <button class="board-tool" data-tool="doodle-arrow">↗ 箭头</button>
+        <button class="board-tool" data-tool="doodle-circle">○ 圆圈</button>
+        <button class="board-tool" data-tool="doodle-eraser">◇ 橡皮擦</button>
+        <button class="board-tool" data-tool="doodle-select">⌖ 选择</button>
+      </div>
+      <div class="doodle-opts">
+        <div class="doodle-colors">
+          <button class="doodle-color active" data-color="#ff4d4f" style="background:#ff4d4f"></button>
+          <button class="doodle-color" data-color="#ffd23f" style="background:#ffd23f"></button>
+          <button class="doodle-color" data-color="#4f7cff" style="background:#4f7cff"></button>
+          <button class="doodle-color" data-color="#4cc38a" style="background:#4cc38a"></button>
+          <button class="doodle-color" data-color="#ffffff" style="background:#ffffff"></button>
+        </div>
+        <select id="doodle-width" title="线条粗细">
+          <option value="3">细</option>
+          <option value="6" selected>中</option>
+          <option value="10">粗</option>
+        </select>
+      </div>
+      <div class="btn-row">
+        <button id="btn-doodle-undo">↩ 撤销</button>
+        <button id="btn-doodle-clear">× 一键清空</button>
+      </div>
+    </section>
+
+    <section class="card scene-shortcuts" data-workspace="scene" data-no-collapse aria-label="场景快捷功能">
+      <button id="btn-map-browser-open" type="button" aria-haspopup="dialog" aria-controls="map-browser-modal">⌖ 寰宇图志 <span aria-hidden="true">›</span></button>
+      <button id="btn-grid-settings-open" type="button" aria-haspopup="dialog" aria-controls="grid-tools">▦ 网格设置 <span aria-hidden="true">›</span></button>
+      <button id="btn-bgm-open" type="button" aria-haspopup="dialog" aria-controls="bgm-player">♫ 音乐 <span aria-hidden="true">›</span></button>
+    </section>
+
+    <section class="card collapsed" id="prep-card" data-workspace="resources" data-tool-panel="resources" data-default-collapsed>
+      <h2>◈ 备团手册</h2>
+      <p class="hint">按地块准备流程、棋子和线索，仅主持人可见。</p>
+      <button id="btn-prep-open" type="button" aria-haspopup="dialog">打开备团手册</button>
+    </section>
+
+    <section class="card collapsed" id="journal-card" data-workspace="resources" data-tool-panel="resources" data-default-collapsed>
+      <h2>▤ 战役日志</h2>
+      <button id="btn-journal-open" type="button" onclick="CampaignJournal.open()" aria-haspopup="dialog">打开日志</button>
+    </section>
+    <section class="card campaign-documents-card" id="campaign-documents-card" data-workspace="resources" data-tool-panel="resources" data-default-collapsed>
+      <div class="card-head">
+        <h2>▤ 战役资料</h2>
+        <span id="campaign-documents-count" class="hint">0 份</span>
+      </div>
+      <p id="campaign-documents-current" class="hint">选择正式战役后读取 Word / PDF 资料。</p>
+      <select id="campaign-document-quick-select" aria-label="选择当前战役资料" disabled>
+        <option value="">暂无资料</option>
+      </select>
+      <div class="campaign-document-quick-actions">
+        <button id="btn-campaign-documents-refresh" type="button" class="small">↻ 刷新</button>
+        <button id="btn-campaign-document-preview" type="button" class="small primary" disabled>预览选中文件</button>
+      </div>
+      <button id="btn-campaign-documents-open" type="button" aria-haspopup="dialog" aria-controls="campaign-documents-dialog">打开资料库</button>
+    </section>
+
+
+
+    <section class="card" id="links-card" data-workspace="resources" data-tool-panel="links" data-default-collapsed>
+      <h2>◈ 常用网站</h2>
+      <div id="links-list" class="links-list"></div>
+      <div class="links-add">
+        <input id="link-name" placeholder="名称">
+        <input id="link-url" placeholder="https://…">
+        <button id="btn-link-add" class="small primary">＋</button>
+      </div>
+    </section>
+
+    <section class="card" id="shared-note-card" data-workspace="room" data-tool-panel="announcement" data-default-collapsed>
+      <div class="card-head"><h2>▤ 共享公告 · 玩家可见</h2><span id="shared-note-count" class="hint">0/4000</span></div>
+      <textarea id="shared-note" rows="7" maxlength="4000" placeholder="给玩家看的规则约定、当前目标、线索或场景提示……"></textarea>
+      <p class="hint">内容会随联机状态同步到玩家端。</p>
+    </section>
+      </div>
+    </section>
+  </aside>
+
+  <section id="center">
+    <section id="board-wrap">
+      <div id="board" tabindex="0">
+        <div id="world">
+          <div id="names-layer"></div>
+          <canvas id="spell-range-canvas" class="map-layer"></canvas>
+          <canvas id="doodle-canvas" class="map-layer"></canvas>
+          <canvas id="turn-path-canvas" class="map-layer"></canvas>
+          <div id="reaction-layer" aria-live="polite"></div>
+        </div>
+        <div id="drop-hint"><div class="drop-icon">🗺️</div></div>
+        <div id="map-reaction-palette" class="reaction-palette" role="toolbar" aria-label="地图表情" hidden>
+          <button type="button" data-map-reaction="👍" title="赞">👍</button>
+          <button type="button" data-map-reaction="❤️" title="喜欢">❤️</button>
+          <button type="button" data-map-reaction="😂" title="大笑">😂</button>
+          <button type="button" data-map-reaction="😮" title="惊讶">😮</button>
+          <button type="button" data-map-reaction="🔥" title="精彩">🔥</button>
+          <button type="button" data-map-reaction="✨" title="灵光">✨</button>
+          <button type="button" data-map-reaction="❓" title="疑问">❓</button>
+          <button type="button" data-map-reaction="⚔️" title="战斗">⚔️</button>
+          <button type="button" data-map-reaction="🎯" title="目标">🎯</button>
+          <button type="button" data-map-reaction="👏" title="鼓掌">👏</button>
+          <span>选中后点击地图</span>
+        </div>
+        <svg id="host-measure-overlay" aria-hidden="true" hidden><line/><circle r="5"/><circle r="5"/></svg><div id="host-measure-label" role="status" hidden></div>
+        <div id="zoom-controls">
+          <button id="btn-zoom-in" title="放大">＋</button>
+          <button id="btn-zoom-out" title="缩小">－</button>
+          <button id="btn-zoom-fit" title="适应窗口">⛶</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="init-bar" class="collapsed" aria-label="游戏流程条">
+      <div class="init-head">
+        <button id="btn-init-collapse" class="init-title" type="button" aria-expanded="false">▸ 游戏流程</button>
+        <div class="init-mode-switch" role="group" aria-label="游戏模式">
+          <button id="init-mode-free" type="button" data-play-mode="free" aria-pressed="true">自由模式</button>
+          <button id="init-mode-turn" type="button" data-play-mode="prepare" aria-pressed="false">准备战斗</button>
+        </div>
+        <div class="init-readouts">
+          <span class="init-readout init-readout-current"><small>当前</small><b id="init-current-readout">所有单位可行动</b></span>
+          <span class="init-readout"><small>轮次</small><b id="init-round-readout">自由模式</b></span>
+          <span class="init-readout init-readout-time"><small>世界时间</small><b id="init-time-readout">第 1 年 · 第 1 周 · 第 1 天 08:00:00</b></span>
+          <span class="init-readout init-readout-weather"><small>天气</small><b id="init-weather-readout">☀️ 晴朗 · 18°C</b></span>
+        </div>
+      </div>
+      <div class="init-body">
+        <div class="init-tabs" role="tablist" aria-label="游戏流程页签">
+          <button type="button" data-encounter-panel="initiative" role="tab" aria-selected="true">⚔ 先攻与回合</button>
+          <button type="button" data-encounter-panel="time" role="tab" aria-selected="false">⌛ 时间与气候</button>
+        </div>
+        <section id="init-panel-initiative" class="init-panel initiative-panel" role="tabpanel">
+          <div class="initiative-focus-card">
+            <span class="initiative-eyebrow">当前行动</span>
+            <strong id="init-focus-current">所有单位自由行动</strong>
+            <div class="initiative-focus-meta"><span id="init-focus-round">自由模式</span><span id="init-focus-next">切换到回合制后锁定行动顺序</span></div>
+            <button id="btn-combat-start" class="primary combat-start-button" type="button" hidden>⚔ 开始战斗</button>
+            <div id="host-turn-path-actions" class="host-turn-path-actions" role="group" aria-label="当前回合路径操作" hidden>
+              <button id="btn-turn-path-toggle" class="turn-path-recording-toggle active" type="button" aria-pressed="true">路径</button>
+              <button id="btn-turn-path-undo" type="button" disabled>回退</button>
+              <button id="btn-turn-path-reset" type="button" disabled>重置</button>
+            </div>
+            <div id="initiative-turn-actions" class="initiative-turn-actions" hidden>
+              <button id="btn-init-next" class="primary" type="button">结束回合</button>
+              <button id="btn-combat-end" class="danger" type="button">结束战斗</button>
+            </div>
+          </div>
+          <div class="initiative-setup-card">
+            <span class="initiative-eyebrow">添加与管理</span>
+            <div id="init-selected-token" class="init-selected-token empty" aria-live="polite">
+              <span id="init-selected-icon" class="init-selected-icon" aria-hidden="true">◎</span>
+              <span class="init-selected-copy"><strong id="init-selected-name">未选择棋子</strong><small id="init-selected-meta">请先点击地图上的棋子</small></span>
+            </div>
+            <div class="init-bar-add">
+              <label class="init-value-field" for="init-value"><span>先攻</span><input id="init-value" type="number" min="-999" max="999" step="1" inputmode="numeric" placeholder="数值"></label>
+              <button id="btn-init-add" type="button" disabled>＋ 加入先攻</button>
+            </div>
+            <div class="init-actions"><button id="btn-init-reset-round">↺ 重置轮次</button><button id="btn-init-clear" class="init-clear-button" type="button">清空列表</button></div>
+          </div>
+          <div class="initiative-order-card">
+            <div class="initiative-order-title"><span>行动顺序</span></div>
+            <div id="init-bar-list" class="init-bar-list"></div>
+          </div>
+        </section>
+        <section id="init-panel-time" class="init-panel time-climate-panel" role="tabpanel" hidden>
+          <div class="world-time-main">
+            <span class="initiative-eyebrow">当前世界时间</span>
+            <div class="world-date-display" id="world-date-display">第 1 年 · 第 1 周 · 第 1 天</div>
+            <div class="world-clock-display" id="world-clock-display">08:00:00</div>
+            <div class="world-time-context"><span id="world-season-display">🌱 春季</span><span id="time-running-state">时间已暂停</span></div>
+            <div class="world-time-event">最近：<b id="time-event">—</b></div>
+          </div>
+          <div class="world-time-controls">
+            <div class="world-date-inputs">
+              <label>年<input id="time-year" type="number" min="1" max="99999"></label>
+              <label>周<input id="time-week" type="number" min="1" max="52"></label>
+              <label>日<input id="time-day" type="number" min="1" max="7"></label>
+              <label>时刻<input id="time-clock" type="time" step="1"></label>
+              <button id="btn-time-apply" type="button">应用时间</button>
+            </div>
+            <div class="time-shift-groups">
+              <div class="time-shift-row rewind"><span>回退</span><button type="button" data-time-shift="-86400" data-time-label="时间回退 1 天">−1 天</button><button type="button" data-time-shift="-3600" data-time-label="时间回退 1 小时">−1 小时</button><button type="button" data-time-shift="-600" data-time-label="时间回退 10 分钟">−10 分钟</button></div>
+              <div class="time-shift-row forward"><span>推进</span><button type="button" data-time-shift="600" data-time-label="时间推进 10 分钟">+10 分钟</button><button type="button" data-time-shift="3600" data-time-label="时间推进 1 小时">+1 小时</button><button type="button" data-time-shift="86400" data-time-label="时间推进 1 天">+1 天</button></div>
+            </div>
+            <div class="init-actions world-time-actions">
+              <button id="btn-init-timer" type="button">▶ 开始时间</button>
+              <button id="btn-time-short-rest" type="button">短休 +1 小时</button>
+              <button id="btn-time-long-rest" type="button">长休 +8 小时</button>
+              <button id="btn-time-reset" type="button">↺ 重置时间</button>
+            </div>
+          </div>
+          <div class="world-weather-panel">
+            <div class="world-weather-display"><span id="weather-icon-display">☀️</span><div><strong id="weather-name-display">晴朗</strong><small id="weather-detail-display">🌿 温带 · 🌱 春季 · 18°C · 微风</small></div></div>
+            <div class="weather-controls">
+              <label>气候带<select id="weather-climate"><option value="temperate">温带</option><option value="cold">寒带</option><option value="tropical">热带</option><option value="arid">干旱</option><option value="coastal">海洋</option><option value="highland">高山</option></select></label>
+              <label>当前天气<select id="weather-condition"><option value="clear">晴朗</option><option value="cloudy">多云</option><option value="rain">降雨</option><option value="storm">雷暴</option><option value="fog">浓雾</option><option value="snow">降雪</option><option value="wind">强风</option><option value="heat">酷热</option></select></label>
+              <label>温度 °C<input id="weather-temperature" type="number" min="-100" max="100" value="18"></label>
+              <label>风力<select id="weather-wind"><option value="calm">无风</option><option value="breeze">微风</option><option value="strong">强风</option><option value="gale">烈风</option></select></label>
+            </div>
+            <div class="weather-actions"><button id="btn-weather-generate" type="button">🎲 推演天气</button><button id="btn-weather-apply" type="button">应用气候</button></div>
+          </div>
+        </section>
+      </div>
+    </section>
+
+  </section>
+
+  <aside id="right-panel" class="panel">
+    <section class="card unit-detail-card" id="unit-card" data-no-collapse>
+      <div class="detail-panel-heading">
+        <div>
+          <span class="detail-panel-kicker">角色控制</span>
+          <h2>棋子状态</h2>
+        </div>
+        <button id="btn-detail-close" class="detail-close" type="button" aria-label="取消选择棋子" title="取消选择棋子">×</button>
+      </div>
+      <p id="detail-empty" class="empty">点击地图上的棋子，查看状态与战术设置。</p>
+      <div id="detail" hidden>
+        <div class="detail-head">
+          <div class="detail-title">
+            <div class="detail-name-row">
+              <input id="detail-name" class="name-input" placeholder="名称" maxlength="24">
+              <button id="btn-detail-portrait-preview" class="detail-portrait-preview-trigger" type="button" aria-haspopup="dialog" aria-controls="portrait-preview-modal">▣ 立绘</button>
+            </div>
+            <select id="detail-type-select" class="type-tag type-select" title="类型可随时更改，颜色圆环会同步变化">
+              <option value="pc">玩家角色</option>
+              <option value="enemy">敌人</option>
+              <option value="npc">中立NPC</option>
+              <option value="ally">友好NPC</option>
+            </select>
+            <div class="detail-context-row">
+              <button id="btn-detail-manage" type="button" aria-haspopup="dialog">⚙ 管理</button>
+              <span id="detail-turn-summary" class="detail-context-badge">自由模式</span>
+              <span id="detail-visibility-summary" class="detail-context-badge public">玩家可见</span>
+            </div>
+          </div>
+        </div>
+        <div class="detail-tabs" role="tablist" aria-label="角色详情分类">
+          <button id="detail-tab-status" class="active" type="button" role="tab" data-detail-tab="status" aria-selected="true" aria-controls="detail-panel-status">状态</button>
+          <button id="detail-tab-tactics" type="button" role="tab" data-detail-tab="tactics" aria-selected="false" aria-controls="detail-panel-tactics" tabindex="-1">战术</button>
+        </div>
+
+        <div id="detail-scroll" class="detail-scroll">
+          <section id="detail-panel-status" class="detail-tab-panel" role="tabpanel" aria-labelledby="detail-tab-status" data-detail-panel="status">
+            <section class="detail-block detail-vitals">
+              <div class="detail-block-title">
+                <div><strong>战斗状态</strong><small>HP 与 AC</small></div>
+                <span id="detail-hp-percent" class="detail-value-badge">100%</span>
+              </div>
+              <div class="ordinary-vitals">
+              <div class="vitals-row">
+                <label class="vital-input"><span>当前 HP</span><input type="number" id="detail-hp-current" min="0" max="99999" inputmode="numeric"></label>
+                <span class="vital-slash">/</span>
+                <label class="vital-input"><span>最大 HP</span><input type="number" id="detail-hp-max" min="1" max="99999" inputmode="numeric"></label>
+                <label class="vital-input ac"><span>AC</span><input id="detail-ac-input" type="number" min="0" max="99" inputmode="numeric"></label>
+              </div>
+              <div class="hp-bar"><div id="detail-hp-bar"></div></div>
+              <div class="hp-adjust-row">
+                <label for="detail-hp-delta">变化值</label>
+                <input id="detail-hp-delta" type="number" min="1" max="99999" value="5" inputmode="numeric" aria-label="生命值变化量">
+                <button id="btn-detail-damage" class="hp-action damage" type="button">− 伤害</button>
+                <button id="btn-detail-heal" class="hp-action heal" type="button">＋ 治疗</button>
+              </div>
+              <div class="hp-presets" aria-label="常用生命值变化量">
+                <span>常用</span>
+                <button type="button" data-hp-amount="1">1</button>
+                <button type="button" data-hp-amount="5" class="active">5</button>
+                <button type="button" data-hp-amount="10">10</button>
+                <button id="btn-detail-hp-full" type="button">回满</button>
+                <button id="btn-detail-hp-undo" type="button" disabled>↶ 撤销</button>
+              </div>
+              </div>
+              <details class="temporary-vitals">
+                <summary>◇ 临时生命值 <span id="detail-temp-hp-summary">0 / 0</span></summary>
+                <div class="temporary-vitals-inputs">
+                  <label>当前<input id="detail-temp-hp" type="number" min="0" max="99999" inputmode="numeric"></label>
+                  <span>/</span><label>总数<input id="detail-temp-hp-max" type="number" min="0" max="99999" inputmode="numeric"></label>
+                </div>
+                <div class="hp-bar" id="detail-temp-hp-track" hidden><div id="detail-temp-hp-bar" style="background:#a8e6b0"></div></div>
+                <div class="hp-adjust-row">
+                  <label for="detail-temp-hp-delta">变化值</label>
+                  <input id="detail-temp-hp-delta" type="number" min="1" max="99999" value="5" aria-label="临时生命值变化量">
+                  <button id="btn-temp-hp-decrease" class="hp-action damage" type="button">− 伤害</button>
+                  <button id="btn-temp-hp-increase" class="hp-action heal" type="button">＋ 治疗</button>
+                </div>
+                <div class="hp-presets" aria-label="常用临时生命值变化量">
+                  <span>常用</span>
+                  <button type="button" data-temp-hp-amount="1">1</button>
+                  <button type="button" data-temp-hp-amount="5" class="active">5</button>
+                  <button type="button" data-temp-hp-amount="10">10</button>
+                  <button id="btn-temp-hp-full" type="button">回满</button>
+                  <button id="btn-temp-hp-undo" type="button" disabled title="撤销该棋子上一次生命值变化">↶ 撤销</button>
+                </div>
+              </details>
+            </section>
+
+            <section class="detail-block condition-section">
+              <div class="detail-block-title">
+                <div><strong>状态效果</strong><small>只做记录与回合倒计时</small></div>
+                <button id="btn-detail-condition-open" class="small" type="button">＋ 添加</button>
+              </div>
+              <div id="detail-conditions" class="condition-list"></div>
+              <div id="detail-condition-editor" class="condition-editor" hidden>
+                <div class="condition-editor-head">
+                  <strong id="detail-condition-editor-title">添加状态</strong>
+                  <button id="btn-detail-condition-close" type="button" aria-label="关闭状态编辑">×</button>
+                </div>
+                <select id="detail-condition-select" aria-label="选择状态"></select>
+                <div id="detail-condition-custom-fields" class="condition-custom-fields" hidden>
+                  <input id="detail-condition-custom-icon" maxlength="4" placeholder="图标，如 ◆" aria-label="自定义状态图标">
+                  <input id="detail-condition-custom-name" maxlength="24" placeholder="状态名称" aria-label="自定义状态名称">
+                </div>
+                <div class="condition-duration-row">
+                  <span>持续</span>
+                  <div class="condition-duration-presets" role="group" aria-label="状态持续时间">
+                    <button type="button" data-condition-duration="1" class="active">1 回合</button>
+                    <button type="button" data-condition-duration="10">10 回合</button>
+                    <button type="button" data-condition-duration="">永久</button>
+                  </div>
+                  <input id="detail-condition-turns" type="number" min="1" max="999" value="1" placeholder="自定义回合数" aria-label="状态剩余回合数">
+                </div>
+                <div class="condition-visibility-switch" role="group" aria-label="状态可见性">
+                  <button type="button" data-condition-visibility="public" class="active" aria-pressed="true">👁 玩家可见</button>
+                  <button type="button" data-condition-visibility="gm" aria-pressed="false">🔒 仅 GM</button>
+                </div>
+                <div class="condition-editor-actions">
+                  <button id="btn-detail-condition-cancel" type="button">取消</button>
+                  <button id="btn-detail-condition-add" class="primary" type="button">添加状态</button>
+                </div>
+              </div>
+            </section>
+
+            <details class="detail-disclosure">
+              <summary><span>玩家可见备注</span><small id="detail-public-note-summary">未填写</small></summary>
+              <label class="note-field"><textarea id="detail-public-note" maxlength="240" placeholder="玩家可以看到的提示"></textarea></label>
+            </details>
+          </section>
+
+          <section id="detail-panel-tactics" class="detail-tab-panel" role="tabpanel" aria-labelledby="detail-tab-tactics" data-detail-panel="tactics" hidden>
+            <section class="detail-block spell-range-editor" id="detail-spell-range">
+              <div class="detail-block-title"><div><strong>施法范围</strong><small>在地图上显示环形或锥形范围</small></div><span id="detail-spell-summary" class="spell-range-summary">未显示</span></div>
+              <div class="spell-shape-switch" role="group" aria-label="施法范围形状">
+                <button type="button" data-spell-shape="off" aria-pressed="true">关闭</button>
+                <button type="button" data-spell-shape="radius" aria-pressed="false">◉ 环形</button>
+                <button type="button" data-spell-shape="cone" aria-pressed="false">◖ 锥形</button>
+              </div>
+              <div id="detail-spell-controls" class="spell-range-controls" hidden>
+                <div class="spell-range-value"><strong id="detail-spell-feet-output">30 尺</strong><span id="detail-spell-grid-output">6 格</span></div>
+                <input id="detail-spell-feet" type="range" min="5" max="180" step="5" value="30" aria-label="施法距离">
+                <div class="spell-range-presets" aria-label="常用施法距离">
+                  <button type="button" data-spell-feet="15">15</button><button type="button" data-spell-feet="30">30</button><button type="button" data-spell-feet="60">60</button><button type="button" data-spell-feet="90">90</button><button type="button" data-spell-feet="120">120</button><button type="button" data-spell-feet="180">180 尺</button>
+                </div>
+                <div id="detail-spell-direction-row" class="spell-direction-row" hidden>
+                  <label for="detail-spell-direction">方向 <output id="detail-spell-direction-output">东 · 0°</output></label>
+                  <input id="detail-spell-direction" type="range" min="0" max="355" step="5" value="0">
+                  <button id="btn-detail-spell-aim" type="button">⌖ 在地图上瞄准</button>
+                </div>
+              </div>
+            </section>
+            <section class="detail-block">
+              <div class="detail-block-title"><div><strong>骑乘关系</strong><small>管理骑手与坐骑控制组</small></div></div>
+              <div id="mount-box" class="mount-box"></div>
+            </section>
+          </section>
+
+          <section id="detail-panel-manage" class="detail-tab-panel">
+            <section class="detail-block">
+              <label class="field"><span>体型</span><select id="detail-size"><option value="tiny">微型 · ¼ 格</option><option value="small">小型 · 1×1</option><option value="medium">中型 · 1×1</option><option value="large">大型 · 2×2</option><option value="huge">超大型 · 3×3</option><option value="gargantuan">巨大型 · 4×4</option></select></label>
+            </section>
+            <section class="detail-block">
+              <div class="detail-block-title"><div><strong>控制与可见性</strong><small>分配玩家以及隐藏棋子</small></div></div>
+              <label class="field"><span>所属玩家</span><select id="detail-owner" aria-label="所属玩家"><option value="">GM 控制</option></select></label>
+              <label class="detail-visibility">
+                <input id="detail-hidden-players" type="checkbox">
+                <span class="detail-switch" aria-hidden="true"></span>
+                <span><strong>对玩家隐藏此棋子</strong><small>主控台仍可看到和操作</small></span>
+              </label>
+            </section>
+
+            <section class="detail-block">
+              <div class="detail-block-title"><div><strong>图标与立绘</strong><small>更换地图上的棋子外观</small></div></div>
+              <label class="field"><span>备用文字图标</span><input id="detail-icon-input" maxlength="4" placeholder="🗡️"></label>
+              <div class="detail-portrait-picker">
+                <label class="field"><span>当前形态</span><select id="detail-portrait" aria-label="切换棋子立绘"></select></label>
+                <button id="btn-portrait-manager-open" class="small" type="button" aria-haspopup="dialog" aria-controls="portrait-manager-modal">管理形态</button>
+              </div>
+              <p id="detail-appearance-status" class="hint" aria-live="polite"></p>
+              <div class="icon-actions">
+                <button id="btn-detail-icon-upload" class="small" type="button">🖼️ 更换当前立绘</button>
+                <button id="btn-detail-icon-remove" class="small danger" type="button" hidden>改用文字图标</button>
+              </div>
+            </section>
+
+            <section class="detail-block">
+              <div class="detail-block-title"><div><strong>地图位置</strong><small>移动会从当前地图移除原棋子</small></div></div>
+              <label class="field"><span>目标地图</span><select id="detail-map-move"></select></label>
+              <div class="map-transfer-actions">
+                <button id="btn-token-copy" class="small" type="button">复制到地图</button>
+                <button id="btn-token-move" class="primary small" type="button">移动到地图</button>
+                <button id="btn-player-tokens-move" class="small map-transfer-all" type="button">移动全部玩家棋子</button>
+              </div>
+            </section>
+
+            <section class="detail-block detail-library-action">
+              <div><strong>棋子库</strong><small>保存当前外观、HP 上限、AC 与施法范围</small></div>
+              <button id="btn-save-to-lib" type="button">🎖️ 存入棋子库</button>
+              <button id="btn-detail-give-player" type="button">发给玩家</button>
+              <small>将当前资料的独立副本发到玩家小库</small>
+            </section>
+
+            <section class="detail-danger-zone">
+              <div><strong>危险操作</strong><small>删除后需要通过存档恢复</small></div>
+              <button id="btn-detail-delete" class="danger" type="button">🗑 删除该单位</button>
+            </section>
+          </section>
+        </div>
+        <input type="file" id="file-detail-icon" accept="image/*" hidden>
+      </div>
+
+    </section>
+  </aside>
+</main>
+
+<div id="portrait-preview-modal" class="modal-mask" hidden>
+  <div class="modal portrait-preview-modal" role="dialog" aria-modal="true" aria-labelledby="portrait-preview-title">
+    <div class="portrait-preview-head">
+      <div>
+        <span class="detail-panel-kicker">完整立绘</span>
+        <h2 id="portrait-preview-title">棋子立绘</h2>
+      </div>
+      <button id="btn-portrait-preview-close" class="detail-close" type="button" aria-label="关闭立绘预览" title="关闭立绘预览">×</button>
+    </div>
+    <div class="portrait-preview-stage">
+      <img id="portrait-preview-image" alt="" hidden>
+      <span id="portrait-preview-status" role="status">正在读取立绘…</span>
+    </div>
+  </div>
+</div>
+
+<div id="portrait-manager-modal" class="modal-mask" hidden>
+  <div class="modal portrait-manager-modal" role="dialog" aria-modal="true" aria-labelledby="portrait-manager-title">
+    <div class="portrait-manager-head">
+      <div>
+        <span class="detail-panel-kicker">棋子外观</span>
+        <h2 id="portrait-manager-title">管理不同形态</h2>
+        <p id="portrait-manager-summary" class="hint">点击缩略图切换形态。</p>
+      </div>
+      <button id="btn-portrait-manager-close" class="detail-close" type="button" aria-label="关闭形态管理" title="关闭形态管理">×</button>
+    </div>
+    <div class="portrait-manager-rail">
+      <button id="btn-portrait-scroll-left" class="portrait-manager-scroll" type="button" aria-label="向左浏览形态">‹</button>
+      <div id="portrait-variant-strip" class="portrait-variant-strip" tabindex="0" aria-label="立绘形态缩略图列表"></div>
+      <button id="btn-portrait-scroll-right" class="portrait-manager-scroll" type="button" aria-label="向右浏览形态">›</button>
+    </div>
+    <div class="portrait-manager-actions">
+      <button id="btn-portrait-save-current" class="primary" type="button">＋ 保存当前立绘为形态</button>
+      <button id="btn-portrait-sync-library" type="button">同步形态到棋子库</button>
+      <button id="btn-portrait-manager-done" type="button">完成</button>
+    </div>
+  </div>
+</div>
+
+<div id="map-browser-modal" class="modal-mask" hidden>
+  <div class="modal map-browser-modal" role="dialog" aria-modal="true" aria-labelledby="map-browser-title">
+    <div class="map-browser-head">
+      <div>
+        <h2 id="map-browser-title">🗺️ 寰宇图志</h2>
+        <p class="hint">在这里载入、切换、排序和删除地图；每张地图都可单独显示、隐藏和调整网格。</p>
+      </div>
+      <div class="map-browser-head-actions">
+        <a id="btn-map-prompt-studio" class="map-prompt-studio-button" href="../asset/地图/地图创作台.html" title="进入统一画风的 AI 地图提示词创作台；完成后使用浏览器返回主控台">✦ 创作地图</a>
+        <button id="btn-map-chapter-add" type="button">＋ 章节</button>
+        <button id="btn-map-location-add" type="button">＋ 地点</button>
+        <button id="btn-map-browser-load" class="primary" type="button">＋ 载入地图</button>
+        <button id="btn-map-browser-present" type="button">◉ 展示给玩家</button>
+        <button id="btn-map-browser-close" type="button" aria-label="关闭寰宇图志">✕</button>
+      </div>
+    </div>
+    <div class="map-browser-summary"><span id="map-browser-count">0 张地图</span><span id="map-browser-current">主控台与玩家地图尚未设置</span></div>
+    <div class="map-chapter-row">
+      <div id="map-chapter-tabs" class="map-chapter-tabs" role="tablist" aria-label="战役章节"></div>
+      <button id="btn-map-chapter-prev" class="map-structure-edit" type="button" title="章节向左">←</button>
+      <button id="btn-map-chapter-next" class="map-structure-edit" type="button" title="章节向右">→</button>
+      <button id="btn-map-chapter-rename" class="map-structure-edit" type="button" title="重命名当前章节">✎ 章节</button>
+      <button id="btn-map-chapter-delete" class="map-structure-edit map-structure-delete" type="button" title="删除当前章节">× 章节</button>
+    </div>
+    <div id="map-thumbnail-strip" class="map-location-columns" tabindex="0" aria-label="当前章节的地点和楼层地图"></div>
+  </div>
+</div>
+
+<div id="map-image-import-modal" class="modal-mask map-image-import-mask" hidden>
+  <div class="modal map-image-import-modal" role="dialog" aria-modal="true" aria-labelledby="map-image-import-title">
+    <div class="map-browser-head">
+      <div>
+        <h2 id="map-image-import-title">📥 导入地图图片</h2>
+        <p class="hint">每张图片会独立成为一张地图；可先设定名称、是否显示网格和战术格距。</p>
+      </div>
+      <button id="btn-map-image-import-more" type="button">＋ 继续选择</button>
+    </div>
+    <div id="map-image-import-list" class="map-image-import-list"></div>
+    <p id="map-image-import-size" class="map-image-import-size"></p>
+    <p class="hint">不会压缩原图，以免降低地图清晰度；大图会相应增加存档体积。</p>
+    <div class="modal-actions">
+      <button id="btn-map-image-import-cancel" type="button">取消</button>
+      <button id="btn-map-image-import-confirm" class="primary" type="button">导入为新地图</button>
+    </div>
+  </div>
+</div>
+
+<div id="campaign-modal" class="modal-mask" hidden>
+  <div class="modal">
+    <h2>📂 管理存档</h2>
+    <p class="hint" id="campaign-current"></p>
+    <div class="campaign-manager-toolbar"><input id="campaign-search" type="search" placeholder="搜索战役名称" aria-label="搜索战役名称"><button id="btn-campaign-refresh" type="button">刷新</button></div>
+    <div id="campaign-list"></div>
+    <div class="modal-actions">
+      <button id="btn-save-folder-change">📁 备份与恢复</button>
+      <button id="btn-campaign-close">返回</button>
+    </div>
+  </div>
+</div>
+
+<div id="mount-modal" class="modal-mask" hidden>
+  <div class="modal">
+    <h2>🐎 选择坐骑</h2>
+    <p class="hint">选择体型等级比骑手更大的棋子作为坐骑</p>
+    <div id="mount-list" class="mount-list"></div>
+    <div class="modal-actions"><button id="btn-mount-cancel">取消</button></div>
+  </div>
+</div>
+
+<div id="rest-scene-modal" class="modal-mask" hidden>
+  <div class="modal rest-scene-picker" role="dialog" aria-modal="true" aria-labelledby="rest-scene-picker-title">
+    <div class="rest-scene-picker-head">
+      <div>
+        <h2 id="rest-scene-picker-title">选择休息场景</h2>
+        <p id="rest-scene-picker-hint" class="hint">选择一个场景后开始休息。</p>
+      </div>
+    </div>
+    <div id="rest-scene-options" class="rest-scene-options" role="group" aria-label="休息场景"></div>
+    <div class="modal-actions">
+      <button id="btn-rest-scene-cancel" type="button">取消</button>
+      <button id="btn-rest-scene-confirm" class="primary" type="button">开始休息</button>
+    </div>
+  </div>
+</div>
+
+<input type="file" id="file-map-load" accept="image/png,image/jpeg,image/webp,image/gif,.json,application/json" multiple hidden>
+<div id="toast" hidden></div>
+
+<div id="rest-transition" class="rest-transition" role="status" aria-live="polite" hidden>
+  <div class="rest-transition-sky" aria-hidden="true"></div>
+  <div class="rest-transition-card">
+    <span id="rest-transition-icon" class="rest-transition-icon" aria-hidden="true">🔥</span>
+    <strong id="rest-transition-title">短休</strong>
+    <span id="rest-transition-subtitle">围火喘息，片刻整备</span>
+    <span class="rest-transition-progress" aria-hidden="true"><i></i></span>
+  </div>
+</div>
+
+<div id="cover" class="cover" role="dialog" aria-modal="true" aria-labelledby="cover-title">
+  <div class="cover-shell">
+    <header class="cover-global-bar">
+      <div class="cover-brand"><span class="cover-brand-mark" aria-hidden="true"><img src="../asset/界面/品牌/桑哆尔之歌-logo.png" alt=""></span><strong>桑哆尔之歌</strong><span>主控台</span></div>
+      <div class="cover-global-actions">
+        <div id="cover-theme-picker" class="home-theme-picker" role="group" aria-label="切换主页背景">
+          <span class="home-theme-caption">背景</span>
+          <button type="button" data-cover-theme="a" aria-pressed="false" title="A · 冒险桌">A</button>
+          <button type="button" data-cover-theme="b" aria-pressed="false" title="B · 塔楼指挥室">B</button>
+          <button type="button" data-cover-theme="c" aria-pressed="false" title="C · 魔法档案馆">C</button>
+          <button type="button" data-cover-theme="d" aria-pressed="false" title="D · 羊皮世界地图">D</button>
+        </div>
+        <span id="cover-storage-status" class="cover-storage-status" data-state="checking">检查存档中</span>
+      </div>
+    </header>
+
+    <section class="cover-project-head" aria-label="当前战役">
+      <div class="cover-project-title"><span class="cover-project-icon" aria-hidden="true">◈</span><h1 id="cover-title">桑哆尔之歌 <span>/</span> <strong id="cover-project-name">战役总览</strong></h1><span class="cover-project-badge">本机</span></div>
+    </section>
+
+    <div class="cover-dashboard">
+      <main class="cover-main">
+        <article id="cover-current" class="cover-current" hidden>
+          <div class="cover-current-icon" aria-hidden="true">◈</div>
+          <div class="cover-current-copy"><span>上次打开</span><strong id="cover-current-name">未命名战役</strong><small id="cover-current-meta">等待读取摘要</small></div>
+          <button id="cover-continue" class="cover-btn primary" type="button" hidden><span>继续进入</span><b aria-hidden="true">→</b></button>
+        </article>
+
+        <section class="cover-recent-block" aria-labelledby="cover-recent-title">
+          <header class="cover-recent-head"><div><strong id="cover-recent-title">正式战役</strong><span>按最近保存时间排列</span></div><button id="cover-folder" type="button">刷新列表</button></header>
+          <div id="cover-recent" class="cover-recent"><span class="cover-recent-empty">正在检查存档文件夹…</span></div>
+        </section>
+      </main>
+
+      <aside class="cover-box" aria-label="战役操作">
+        <section class="cover-side-section">
+          <div class="cover-box-head"><h2>战役管理</h2></div>
+          <div class="cover-actions">
+            <button id="cover-load" class="cover-action-card" type="button"><span class="cover-action-icon" aria-hidden="true">📂</span><span><strong>冒险管理</strong><small>战役、玩家、模块与备份</small></span><b aria-hidden="true">→</b></button>
+            <button id="cover-player-profiles" class="cover-action-card" type="button"><span class="cover-action-icon" aria-hidden="true">♟</span><span><strong>管理玩家档案</strong><small>档案、棋子与背包</small></span><b aria-hidden="true">→</b></button>
+            <button id="cover-new" class="cover-action-card" type="button"><span class="cover-action-icon" aria-hidden="true">✦</span><span><strong>新建战役</strong><small>建立正式存档</small></span><b aria-hidden="true">＋</b></button>
+          </div>
+          <form id="cover-new-form" class="cover-new-form" hidden><label for="cover-new-name">战役名称</label><div><input id="cover-new-name" maxlength="80" autocomplete="off" placeholder="例如：烬鳞讨伐"><button class="primary" type="submit">创建</button><button id="cover-new-cancel" type="button">取消</button></div></form>
+        </section>
+        <p id="cover-feedback" class="cover-feedback" role="status" aria-live="polite">浏览器恢复点只用于防止意外关闭。</p>
+      </aside>
+    </div>
+  </div>
+</div>
+
+<dialog id="campaign-documents-dialog" aria-labelledby="campaign-documents-title">
+  <div class="campaign-documents-head">
+    <div><span class="campaign-documents-eyebrow">当前战役 · 主控台私有</span><h2 id="campaign-documents-title">战役资料库</h2></div>
+    <button id="btn-campaign-documents-close" type="button" aria-label="关闭战役资料库">关闭 ×</button>
+  </div>
+  <div class="campaign-documents-body">
+    <aside class="campaign-documents-browser" aria-label="资料列表">
+      <div class="campaign-documents-browser-head">
+        <strong id="campaign-documents-campaign-name">尚未选择战役</strong>
+        <button id="btn-campaign-documents-dialog-refresh" type="button" class="small">↻ 刷新</button>
+      </div>
+      <div id="campaign-documents-list"><p class="campaign-documents-empty">当前战役还没有 Word 或 PDF 资料。</p></div>
+      <p class="campaign-documents-storage hint">文件随战役保存在 <code>战役包/当前战役/资料/文档/战役/</code>。</p>
+    </aside>
+    <section class="campaign-document-viewer" aria-labelledby="campaign-document-viewer-title">
+      <div class="campaign-document-viewer-head">
+        <div><h3 id="campaign-document-viewer-title">选择一份资料</h3><p id="campaign-document-viewer-meta" class="hint">Word 会显示为只读页面，PDF 会在这里打开。</p></div>
+        <a id="campaign-document-original" class="button-link" href="#" target="_blank" rel="noopener noreferrer" hidden>打开原文件</a>
+      </div>
+      <div id="campaign-document-status" class="campaign-document-status" role="status">从左侧选择 Word 或 PDF 文件开始预览。</div>
+      <div id="campaign-document-docx" class="campaign-document-docx" role="document" hidden></div>
+      <iframe id="campaign-document-pdf" title="PDF 资料预览" referrerpolicy="no-referrer" hidden></iframe>
+    </section>
+  </div>
+</dialog>
+
+<dialog id="save-tools-dialog" aria-labelledby="save-tools-title">
+  <div class="save-tools-head">
+    <h2 id="save-tools-title">💾 存档</h2>
+    <button id="btn-save-tools-close" type="button" aria-label="关闭存档窗口">✕</button>
+  </div>
+  <div class="save-tools-actions">
+    <button type="button" data-save-action="save"><strong>💾 保存当前进度</strong><span>保存当前战役的最新状态</span></button>
+    <button type="button" data-save-action="home"><strong>⌂ 返回主页</strong><span>回到战役首页</span></button>
+  </div>
+</dialog>
+
+<dialog id="grid-tools" aria-labelledby="grid-tools-title">
+  <div class="grid-tools-head"><h2 id="grid-tools-title">▦ 网格设置</h2><button id="btn-grid-settings-close" type="button" aria-label="关闭网格设置">✕</button></div>
+      <label class="toggle"><input type="checkbox" id="grid-toggle" checked> 显示网格</label>
+        <button id="btn-grid-toggle" type="button" data-toggle-target="grid-toggle" title="隐藏当前地图网格" aria-label="网格已开启，点击隐藏当前地图网格" aria-pressed="true">▦<span>网格：开</span></button>
+      <div class="grid-settings-fields">
+        <label>格子大小（像素 / 5尺）<input id="grid-size-control" type="number" min="10" max="300" step="0.1"></label>
+        <label>线宽（像素）<input id="grid-width-control" type="number" min="0.5" max="8" step="0.5"></label>
+        <label>水平偏移（像素）<input id="grid-x-control" type="number" min="-3000" max="3000" step="1"></label>
+        <label>垂直偏移（像素）<input id="grid-y-control" type="number" min="-3000" max="3000" step="1"></label>
+      </div>
+      <button id="grid-position-reset" type="button">位置归零</button>
+      <p class="hint">设置随当前地图保存。正值向右、向下移动；棋子吸附跟随网格。工坊地图锁定格距与位置。</p>
+</dialog>
+<div hidden aria-hidden="true">
+  <span id="bgm-mini-title">音乐</span>
+  <button id="btn-bgm-mini-play" type="button" hidden>▶</button>
+  <button id="btn-bgm-mini-stop" type="button" hidden>■</button>
+  <button id="btn-bgm-resource-open" type="button">打开播放器</button>
+</div>
+
+<dialog id="bgm-player" aria-labelledby="bgm-player-title">
+  <div class="bgm-player-head">
+    <div class="bgm-heading"><span class="bgm-brand-icon" aria-hidden="true">♫</span><h2 id="bgm-player-title">音乐播放器</h2></div>
+    <button id="btn-bgm-close" type="button" aria-label="收起音乐播放器" title="收起">×</button>
+  </div>
+  <div class="bgm-player-body">
+    <section class="bgm-external" aria-labelledby="bgm-external-title">
+      <div class="bgm-section-heading"><h3 id="bgm-external-title">在线音源</h3><span id="bgm-live-status" role="status">未连接</span></div>
+      <div class="bgm-source-cards" role="group" aria-label="声音来源">
+        <button type="button" class="bgm-source-card" data-bgm-source="tab" aria-pressed="true"><span class="bgm-source-icon" aria-hidden="true">▣</span><span><strong>浏览器播放</strong></span><span class="bgm-source-check" aria-hidden="true">✓</span></button>
+        <button type="button" class="bgm-source-card" data-bgm-source="system" aria-pressed="false"><span class="bgm-source-icon" aria-hidden="true">◉</span><strong>系统声音</strong><span class="bgm-source-check" aria-hidden="true">✓</span></button>
+        <button type="button" class="bgm-source-card" data-bgm-source="device" aria-pressed="false"><span class="bgm-source-icon" aria-hidden="true">⌁</span><strong>输入设备</strong><span class="bgm-source-check" aria-hidden="true">✓</span></button>
+      </div>
+      <select id="bgm-live-source" aria-label="声音来源" hidden><option value="tab" selected>浏览器播放</option><option value="system">系统声音</option><option value="device">输入设备</option></select>
+      <div id="bgm-device-controls" hidden><select id="bgm-live-device" aria-label="音乐输入设备"><option value="">选择输入设备</option></select><button id="btn-bgm-devices" type="button">读取设备</button></div>
+      <button id="btn-bgm-live" type="button" class="primary">连接浏览器</button>
+      <nav class="bgm-websites" aria-label="常用网站"><span>常用网站</span><a href="https://www.bilibili.com/" target="_blank" rel="noopener noreferrer" aria-label="打开 B 站（新标签页）"><span class="bgm-bilibili-icon" aria-hidden="true">▣</span>B 站<span aria-hidden="true">↗</span></a></nav>
+    </section>
+    <section class="bgm-playing-panel" aria-label="当前播放">
+      <div class="bgm-now" id="bgm-now" data-state="stopped"><span class="bgm-now-icon" aria-hidden="true">♫</span><span><strong id="bgm-now-title">尚未播放</strong><small id="bgm-status" role="status">正在读取曲库…</small></span></div>
+      <div class="bgm-progress"><input id="bgm-seek" type="range" min="0" max="100" value="0" step="0.1" aria-label="播放进度" disabled><span id="bgm-time">00:00 / --:--</span></div>
+      <div class="bgm-controls">
+        <div class="bgm-transport"><button id="btn-bgm-prev" type="button" aria-label="同场景上一首" title="上一首">⏮</button><button id="btn-bgm-play" type="button" class="primary">继续</button><button id="btn-bgm-next" type="button" aria-label="同场景下一首" title="下一首">⏭</button><button id="btn-bgm-stop" type="button">停止</button></div>
+        <button id="btn-bgm-resync" type="button">重新同步</button>
+      </div>
+      <div class="bgm-settings"><label class="bgm-mode-label"><select id="bgm-mode" aria-label="播放方式"><option value="loop">单曲循环</option><option value="once">单次播放</option><option value="category">同类循环</option></select></label><div class="bgm-monitor"><label for="bgm-volume">本机音量</label><input type="range" id="bgm-volume" min="0" max="100" value="70"><output id="bgm-volume-value">70%</output></div></div>
+    </section>
+    <section class="bgm-local" aria-labelledby="bgm-library-title">
+      <div class="bgm-library-head"><h3 id="bgm-library-title">本地音乐 <span id="bgm-results-count">0 首</span></h3><div><button id="btn-bgm-refresh" type="button" class="small" aria-label="刷新曲库" title="刷新曲库">↻</button><button id="btn-bgm-pick" type="button" class="small">＋ 添加音乐</button><input type="file" id="file-bgm" accept="audio/*" multiple hidden></div></div>
+      <div class="bgm-filters"><label class="bgm-search-label"><input id="bgm-search" type="search" aria-label="搜索曲名" placeholder="搜索曲名" autocomplete="off"></label><label><select id="bgm-scene" aria-label="场景分类"></select></label><label><select id="bgm-scope" aria-label="曲目来源"><option value="all">全部来源</option><option value="general">通用曲库</option><option value="campaign">当前战役</option><option value="temporary">临时音乐</option></select></label></div>
+      <div class="bgm-library-columns"><section aria-label="曲目列表"><div id="bgm-list"></div></section><section class="bgm-detail" aria-labelledby="bgm-selected-title"><div class="bgm-selection-copy"><span class="bgm-eyebrow">已选曲目</span><h3 id="bgm-selected-title">未选择</h3><p id="bgm-selected-meta" class="hint"></p></div><div class="bgm-selection-actions"><button id="btn-bgm-preview" type="button" disabled>试听</button><button id="btn-bgm-selected-play" type="button" class="primary" disabled>播放</button></div><p id="bgm-preview-status" class="hint" role="status"></p><p id="bgm-broadcast-hint" hidden></p></section></div>
+    </section>
+  </div>
+</dialog>
+
+<dialog id="token-library-dialog" aria-labelledby="token-library-heading">
+<section class="card unit-browser-card" data-no-collapse>
+      <div class="card-head">
+        <h2 id="token-library-heading">♟ 棋子库</h2>
+        <button id="btn-lib-sync" class="small" title="从“存档”中的全局棋子库读取最新数据">⟳ 同步</button>
+        <button id="btn-token-library-close" type="button" aria-label="关闭棋子库">关闭</button>
+      </div>
+      <p class="hint">选择棋子放入当前地图，或制作临时单位。</p>
+      <div class="unit-source-switch" role="tablist" aria-label="单位来源">
+        <button class="active" type="button" role="tab" data-unit-source="library" aria-selected="true">棋子库</button>
+        <button type="button" role="tab" data-unit-source="custom" aria-selected="false">临时创建</button>
+      </div>
+
+      <div id="unit-library-panel" class="unit-source-panel" role="tabpanel">
+        <div class="lib-search-row">
+          <input id="lib-search" type="search" placeholder="搜索名称或分类…" maxlength="30" autocomplete="off">
+          <button id="btn-lib-search-clear" class="small" type="button" title="清空搜索" aria-label="清空棋子库搜索" hidden>×</button>
+        </div>
+        <div class="lib-filter-row">
+          <select id="lib-filter" aria-label="按阵营筛选">
+            <option value="all">全部阵营</option>
+            <option value="pc">玩家</option>
+            <option value="enemy">敌人</option>
+            <option value="npc">中立NPC</option>
+            <option value="ally">友好NPC</option>
+          </select>
+          <select id="lib-cat" title="按分类筛选（分类来自棋子库程序）" aria-label="按棋子分类筛选">
+            <option value="all">全部分类</option>
+          </select>
+        </div>
+        <section id="lib-recent-wrap" class="lib-recent-wrap" aria-labelledby="lib-recent-title" hidden>
+          <div class="lib-section-title"><span id="lib-recent-title">最近使用</span><small>快速再次放置</small></div>
+          <div id="lib-recent" class="lib-recent"></div>
+        </section>
+        <div class="lib-section-title lib-results-title"><span id="lib-results-meta">全部棋子</span><small>点击条目放到视野中央</small></div>
+        <div id="lib-list"></div>
+        <div class="unit-library-footer">
+          <button id="btn-lib-add" class="small">＋ 新建预设</button>
+          <span id="lib-persist-status" class="lib-persist-status">随“存档”文件夹保存</span>
+        </div>
+        <div id="lib-editor" hidden>
+          <input id="lib-name" placeholder="名称，如：地精" maxlength="24">
+          <select id="lib-type">
+            <option value="pc">玩家角色</option>
+            <option value="enemy">敌人</option>
+            <option value="npc">中立NPC</option>
+            <option value="ally">友好NPC</option>
+          </select>
+          <div class="row">
+            <select id="lib-cat1" title="一级分类（如：妖精、龙类、巨人）"></select>
+            <select id="lib-cat2" title="二级分类（可留空，如：地精、红龙、巨魔）"></select>
+          </div>
+          <div class="row">
+            <input id="lib-hp" type="number" placeholder="生命值" min="1" value="10">
+            <input id="lib-ac" type="number" placeholder="AC" min="0" value="10">
+            <select id="lib-size" title="占几格"><option value="tiny">微型 · ¼ 格</option><option value="small">小型 · 1×1</option><option value="medium" selected>中型 · 1×1</option><option value="large">大型 · 2×2</option><option value="huge">超大型 · 3×3</option><option value="gargantuan">巨大型 · 4×4</option></select>
+          </div>
+          <div class="row">
+            <input id="lib-icon" placeholder="图标 🐺" maxlength="4">
+            <button id="btn-lib-icon" class="small icon-btn" title="上传图片头像">🖼️</button>
+            <input type="file" id="file-lib-icon" accept="image/*" hidden>
+          </div>
+          <div class="icon-preview-row" id="lib-icon-preview-row" hidden>
+            <img id="lib-icon-preview" alt="图标预览">
+            <button id="btn-lib-icon-clear" class="small">移除图片</button>
+          </div>
+          <div class="btn-row">
+            <button id="btn-lib-save" class="primary">💾 保存</button>
+            <button id="btn-lib-cancel">取消</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="unit-custom-panel" class="unit-source-panel" role="tabpanel" hidden>
+        <p class="unit-source-hint">临时单位只加入当前地图，不会存入棋子库。</p>
+        <input id="token-name" placeholder="名称，如：凯尔 · 游侠" maxlength="24">
+        <select id="token-type">
+          <option value="pc">玩家角色</option>
+          <option value="enemy">敌人</option>
+          <option value="npc">中立NPC</option>
+          <option value="ally">友好NPC</option>
+        </select>
+        <div class="row">
+          <input id="token-hp" type="number" placeholder="生命值" min="1" value="10">
+          <input id="token-ac" type="number" placeholder="AC" min="0" value="10">
+          <input id="token-icon" placeholder="图标 🗡️" maxlength="4">
+          <button id="btn-icon-upload" class="small icon-btn" title="上传图片作为头像">🖼️</button>
+          <input type="file" id="file-icon" accept="image/*" hidden>
+        </div>
+        <div class="icon-preview-row" id="token-icon-preview-row" hidden>
+          <img id="token-icon-preview" alt="图标预览">
+          <button id="btn-icon-clear" class="small">移除图片</button>
+        </div>
+        <div class="row">
+          <select id="token-size" title="占几格"><option value="tiny">微型 · ¼ 格</option><option value="small">小型 · 1×1</option><option value="medium" selected>中型 · 1×1</option><option value="large">大型 · 2×2</option><option value="huge">超大型 · 3×3</option><option value="gargantuan">巨大型 · 4×4</option></select>
+          <button id="btn-place" class="primary">📌 放到视野中央</button>
+        </div>
+      </div>
+    </section>
+</dialog>
+
+<dialog id="prep-dialog" aria-labelledby="prep-heading">
+<header><div><h2 id="prep-heading">备团手册</h2><span id="prep-campaign"></span></div><button id="prep-save" type="button">立即保存</button><button id="prep-close" type="button" aria-label="关闭备团手册">关闭</button></header>
+<div class="prep-layout"><nav aria-label="备团地块"><input id="prep-search" type="search" aria-label="搜索备团内容" placeholder="搜索流程、人物、线索"><div id="prep-areas"></div><input id="prep-new-title" type="text" maxlength="120" aria-label="新地块名称" placeholder="新地块名称"><button id="prep-add" type="button">新增地块</button></nav><main id="prep-content"></main></div>
+</dialog>
+<link rel="stylesheet" href="host/prep-handbook.css?v=20260919-1">
+<script src="host/prep-handbook.js?v=20260919-1"></script>
+<script src="../asset/棋子库/默认预设.js?v=20260902-library-cleanup-v3"></script>
+<script src="../asset/界面/休息动画/休息场景.js?v=20260923-network-perf-v1"></script>
+<script src="../asset/界面/休息动画/休息音频.js?v=20260923-network-perf-v1"></script>
+<link rel="stylesheet" href="shared/journal.css?v=24">
+<script src="shared/journal.js?v=20260918-dialog-navigation-v1"></script>
+<script src="vendor/three.min.js"></script>
+<script src="shared/dice.js?v=20260922-mixed-dice-v14"></script>
+<script src="../asset/地图/tile-renderer.js?v=20260902-explicit-variants"></script>
+  <link rel="stylesheet" href="shared/backpack.css?v=20260924-wallet-coins-v1">
+  <script src="shared/travel-basket.js?v=20260921-basket-hit-v14"></script>
+  <link rel="stylesheet" href="shared/travel-basket.css?v=20260921-basket-hit-v14">
+  <link rel="stylesheet" href="shared/map-items.css?v=20260922-chest-art-v2">
+  <script src="shared/map-items.js?v=20260923-network-perf-v1"></script>
+  <script src="shared/backpack.js?v=20260924-wallet-empty-v1"></script>
+  <link rel="stylesheet" href="host/item-library.css?v=20260923-generic-art-v1">
+  <script src="host/item-library.js?v=20260923-story-reader-v1"></script>
+  <script src="shared/player-library.js?v=20260923-piece-card-v1"></script>
+  <script src="../shared/token-size.js?v=20260918-six-sizes-v1"></script>
+<script src="../shared/protocol.js?v=20260921-unified-1"></script>
+  <script src="../shared/rules.js?v=20260921-measure-v2"></script>
+  <link rel="stylesheet" href="shared/danmaku.css?v=20260924-v3">
+  <button id="host-danmaku" type="button" class="travel-toggle" aria-expanded="false" hidden>弹幕</button>
+  <script src="shared/danmaku.js?v=20260924-v2"></script>
+  <script src="shared/downed-portrait.js?v=20260924-v1"></script>
+  <script src="host/storage.js?v=20260923-basket-closed-v1"></script>
+  <script src="host/documents.js?v=20260921-measure-v2"></script>
+  <script src="host/music.js?v=20260924-music-ui-v3"></script>
+  <script src="host/app.js?v=20260924-delete-v15"></script>
+  <script src="host/bootstrap.js?v=20260923-item-dice-v1"></script>
+  <script src="host/travel-basket.js?v=20260924-delete-v15"></script>
+  <link rel="stylesheet" href="host/modules.css?v=20260922-home-management">
+  <script src="host/modules.js?v=20260921-unified-1"></script>
+</body>
+</html>

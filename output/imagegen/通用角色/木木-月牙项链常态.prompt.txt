@@ -1,9 +1,0 @@
-Use case: precise-object-edit
-Asset type: square fantasy RPG token portrait, normal form
-Primary request: Restore Mumu to the original warm parchment-background version shown in the input, while adding the approved moon necklace.
-Change only: replace the star-shaped ornament at the upper center of her chest with a clearly readable polished silver crescent-moon pendant, hanging naturally from a fine silver chain around her neck. The pendant must unmistakably be a crescent moon, neither a star nor a sun.
-Preserve exactly as closely as possible: her adult human female identity, beautiful face and expression, long dark-brown partly braided hair, tall slender proportions, ivory-and-gold clerical robes, silver armor, staff, healing-light hand gesture, full-body pose, scale and placement. Preserve the original PARCHMENT-GZ-1 warm honey golden-brown oval parchment background, its 85% by 87% extent, natural aged edge, and pure white outside.
-Constraints: one character only; entire head, feet, staff and effects remain inside the oval; western fantasy rulebook realistic painterly style; no city or scene; no text, watermark, UI, halo, wings, extra figures, thick border, decorative ring. Square output.
-
-生成方式：内置 image_gen，参考木木-v1.png编辑。待用户确认，尚未正式入库。
-

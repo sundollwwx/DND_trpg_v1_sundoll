@@ -1,0 +1,30 @@
+{
+  "format": "sangduoer-save-index",
+  "schemaVersion": 2,
+  "lastCampaignId": "c286",
+  "updatedAt": 1790299035409,
+  "campaigns": [
+    {
+      "id": "c286",
+      "name": "风骸岛之龙",
+      "savedAt": 1790299035245,
+      "folder": "c286-风骸岛之龙",
+      "cover": "封面.jpg"
+    },
+    {
+      "id": "test",
+      "name": "测试",
+      "savedAt": 1790294875429,
+      "folder": "test-测试",
+      "cover": "封面.png"
+    },
+    {
+      "id": "c184",
+      "name": "烬鳞讨伐-2026.8.8",
+      "savedAt": 1788927818503,
+      "folder": "c184-烬鳞讨伐-2026.8.8",
+      "cover": "封面.jpg"
+    }
+  ],
+  "lastOpenedAt": 1790299035412
+}

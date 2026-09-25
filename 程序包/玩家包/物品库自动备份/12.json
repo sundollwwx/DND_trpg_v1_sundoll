@@ -1,0 +1,261 @@
+{
+  "schemaVersion": 1,
+  "revision": 12,
+  "receipts": {
+    "4536fec5-56b5-455a-b972-7dea677844d2": {
+      "signature": "c63771d24aa978c8a193d56af1de4372337784c0b68d4b858287f718dc50d00e",
+      "templateId": "healing"
+    },
+    "85b7b085-633f-4077-bc1c-aa5ffddbb2ae": {
+      "signature": "3c5bb42028fe2341e79fd58ab147fa039218fece708eeff8f633ce538959341e",
+      "templateId": "greater-healing"
+    },
+    "ab750e57-5183-45e5-ab3a-6e97c2ceb0a1": {
+      "signature": "1ea4fc4284e966c4b384230b9480f592bdd0c9815ef121b29ee9d15916f3f896",
+      "templateId": "superior-healing"
+    },
+    "4865a28b-6e26-4369-bec7-171d7f1272fc": {
+      "signature": "9b47dd55519361b50525535afc68d1a457084cbee7d3452fbd43b162371a1a54",
+      "templateId": "supreme-healing"
+    },
+    "8538bfd9-2b0a-41a3-b278-f2a59ce08214": {
+      "signature": "df58ad38ab6d6d7ac09e9202c0971c2c04e5aa630b51249d2736f0ced77adbd3",
+      "templateId": "climbing"
+    },
+    "e33071e7-ee43-448d-bc95-a23e3c72cc3f": {
+      "signature": "8c07389d6d0fa084f6ae61d9fc4903d0ba679441b17afc07b499e2beaf539a09",
+      "templateId": "water-breathing"
+    },
+    "8f2f917c-f9ff-4107-a032-b1497a8e26e1": {
+      "signature": "614656592e91a9e2393be5e65a3cec71fa040d9265796cc0491a8b1c466d022a",
+      "templateId": "invisibility"
+    },
+    "e7bf8f50-3e60-4944-88b4-b26778b0780e": {
+      "signature": "be9e437529d7600954b9f62f49a51733cbf2fdbc61f7ab4c9bf9e7dd16b8618c",
+      "templateId": "fire-resistance"
+    },
+    "32322771-bc23-4f38-8a70-a1fe2656ce6c": {
+      "signature": "c504db5f146167ba2d99ac7e351b511184e05e1d1e56a9ea136b9fe8724b98be",
+      "templateId": "detect-magic"
+    },
+    "f670d94c-3d51-42ef-8049-b30dae9a70c9": {
+      "signature": "f068607e9e02a2138b8682bc3ce48fc4e8cd9b9d09465d3950a2f002ddf1afcf",
+      "templateId": "bag-of-holding"
+    }
+  },
+  "containerTemplatesVersion": 1,
+  "templates": [
+    {
+      "name": "治疗药水",
+      "category": "potion",
+      "rarity": "普通",
+      "effect": "饮用后恢复 2d4+2 点生命值。",
+      "consumable": true,
+      "description": "",
+      "image": "/api/module-assets/fc3da96388c2732f22b7c3931ab58e64d54bdfd7a1705a1ae0a1881dc1766b76",
+      "ruleId": "healing",
+      "ruleVersion": 1,
+      "scope": "general",
+      "campaignId": "",
+      "campaignName": "",
+      "location": "",
+      "usedIn": [],
+      "id": "healing",
+      "version": 2,
+      "archived": false
+    },
+    {
+      "name": "高等治疗药水",
+      "category": "potion",
+      "rarity": "非普通",
+      "effect": "饮用后恢复 4d4+4 点生命值。",
+      "consumable": true,
+      "description": "",
+      "image": "/api/module-assets/54a45ed3a84d1680e18f4ba24c22f9d3e7628ab82e93ea10627d932dba18cd59",
+      "ruleId": "greater-healing",
+      "ruleVersion": 1,
+      "scope": "general",
+      "campaignId": "",
+      "campaignName": "",
+      "location": "",
+      "usedIn": [],
+      "id": "greater-healing",
+      "version": 2,
+      "archived": false
+    },
+    {
+      "name": "强效治疗药水",
+      "category": "potion",
+      "rarity": "珍稀",
+      "effect": "饮用后恢复 8d4+8 点生命值。",
+      "consumable": true,
+      "description": "",
+      "image": "/api/module-assets/1a8b61c69ca197b885cd0c19294bc56e71a9472a6f1fbec037a80a10fa4b68ce",
+      "ruleId": "superior-healing",
+      "ruleVersion": 1,
+      "scope": "general",
+      "campaignId": "",
+      "campaignName": "",
+      "location": "",
+      "usedIn": [],
+      "id": "superior-healing",
+      "version": 2,
+      "archived": false
+    },
+    {
+      "name": "顶级治疗药水",
+      "category": "potion",
+      "rarity": "极珍稀",
+      "effect": "饮用后恢复 10d4+20 点生命值。",
+      "consumable": true,
+      "description": "",
+      "image": "/api/module-assets/094e56a30ea78bef39ac9a29a555d42686c40641676be9c858c2d3a0443be32a",
+      "ruleId": "supreme-healing",
+      "ruleVersion": 1,
+      "scope": "general",
+      "campaignId": "",
+      "campaignName": "",
+      "location": "",
+      "usedIn": [],
+      "id": "supreme-healing",
+      "version": 2,
+      "archived": false
+    },
+    {
+      "name": "攀爬药水",
+      "category": "potion",
+      "rarity": "普通",
+      "effect": "持续 1 小时：获得等于步行速度的攀爬速度，攀爬相关力量（运动）检定具有优势。",
+      "consumable": true,
+      "description": "",
+      "image": "/api/module-assets/9ba019669ed2e129132d51b8f7075009d15a59d53254879a432a92c74d2ea2a1",
+      "scope": "general",
+      "campaignId": "",
+      "campaignName": "",
+      "location": "",
+      "usedIn": [],
+      "id": "climbing",
+      "version": 2,
+      "archived": false
+    },
+    {
+      "name": "水下呼吸药水",
+      "category": "potion",
+      "rarity": "非普通",
+      "effect": "持续 1 小时：可以在水下呼吸。",
+      "consumable": true,
+      "description": "",
+      "image": "/api/module-assets/d33ba8bb92df4bad695eb7549122f7aa33ead825822b7281f1241f2f0fc24f2f",
+      "scope": "general",
+      "campaignId": "",
+      "campaignName": "",
+      "location": "",
+      "usedIn": [],
+      "id": "water-breathing",
+      "version": 2,
+      "archived": false
+    },
+    {
+      "name": "隐形药水",
+      "category": "potion",
+      "rarity": "极珍稀",
+      "effect": "持续至多 1 小时：你和携带的物品隐形。攻击或施法时效果结束。",
+      "consumable": true,
+      "description": "",
+      "image": "/api/module-assets/3ffa8828b011024dea0fa1e1fb8acea9256dadb4bfdb4880d5ed698ab4c7801a",
+      "scope": "general",
+      "campaignId": "",
+      "campaignName": "",
+      "location": "",
+      "usedIn": [],
+      "id": "invisibility",
+      "version": 2,
+      "archived": false
+    },
+    {
+      "name": "火焰抗性药水",
+      "category": "potion",
+      "rarity": "非普通",
+      "effect": "持续 1 小时：获得火焰伤害抗性。",
+      "consumable": true,
+      "description": "",
+      "image": "/api/module-assets/d4a0a11e996ff74bd33208b472a88196c350ef28204020980fe13bb877366a06",
+      "scope": "general",
+      "campaignId": "",
+      "campaignName": "",
+      "location": "",
+      "usedIn": [],
+      "id": "fire-resistance",
+      "version": 2,
+      "archived": false
+    },
+    {
+      "name": "侦测魔法卷轴",
+      "category": "scroll",
+      "rarity": "普通",
+      "effect": "按法术卷轴规则施放侦测魔法；持续至多 10 分钟，需要专注。使用资格由主控确认。",
+      "consumable": true,
+      "description": "",
+      "image": "/api/module-assets/d4ca1b75217989956715bd53ca65c52383d983ed1b4a3a2375ee8818cc4f2901",
+      "scope": "general",
+      "campaignId": "",
+      "campaignName": "",
+      "location": "",
+      "usedIn": [],
+      "id": "detect-magic",
+      "version": 2,
+      "archived": false
+    },
+    {
+      "name": "次元袋",
+      "category": "wondrous",
+      "rarity": "非普通",
+      "effect": "容纳至多 500 磅、64 立方尺的物品。取出物品需要一个动作；具体边界由主控裁定。",
+      "consumable": false,
+      "description": "",
+      "image": "/api/module-assets/30aa8ca79b2bc0e1c779bf93473b5fa4e4985e7423df0373f9cfce269f26f9bb",
+      "scope": "general",
+      "campaignId": "",
+      "campaignName": "",
+      "location": "",
+      "usedIn": [],
+      "id": "bag-of-holding",
+      "version": 2,
+      "archived": false
+    },
+    {
+      "name": "漂浮光球",
+      "category": "wondrous",
+      "rarity": "非普通",
+      "effect": "可发出光亮并漂浮跟随。昼明术每日黎明恢复；次数由主控和玩家记录。",
+      "consumable": false,
+      "description": "",
+      "image": "",
+      "id": "driftglobe",
+      "version": 1,
+      "archived": false,
+      "scope": "general",
+      "campaignId": "",
+      "campaignName": "",
+      "location": "",
+      "usedIn": []
+    },
+    {
+      "name": "宝箱",
+      "category": "container",
+      "rarity": "",
+      "effect": "可以装入物品的木制宝箱。放到地图后，打开宝箱查看和分配箱内物品。",
+      "consumable": false,
+      "description": "包铁木板与黄铜锁扣，妥善收起旅途中的发现。",
+      "image": "",
+      "id": "treasure-chest",
+      "version": 1,
+      "archived": false,
+      "scope": "general",
+      "campaignId": "",
+      "campaignName": "",
+      "location": "",
+      "usedIn": []
+    }
+  ]
+}
