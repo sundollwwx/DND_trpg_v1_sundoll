@@ -1,146 +1,104 @@
-"""Calendar and climate transitions with injectable random source."""
-import math, random
+"""Hourly climate simulation; every climate value lives in the general module.
+
+The simulation is a local model, not an official D&D weather generator. Official
+environment effects are documented separately in the same content module.
+"""
+import math
+import random
+
 from .values import finite_number
+
+# Structural calendar compatibility exports. The model reads its calendar from
+# climate.json; this existing campaign calendar is not a universal D&D calendar.
 WORLD_SECONDS_PER_DAY = 24 * 60 * 60
 WORLD_DAYS_PER_WEEK = 7
 WORLD_WEEKS_PER_YEAR = 52
-WEATHER_ROLLOVER_SECONDS = 8 * 60 * 60
-MAX_WEATHER_CATCHUP_DAYS = 3660
-WEATHER_KEYS = ('clear', 'cloudy', 'rain', 'storm', 'fog', 'snow', 'wind', 'heat')
-WIND_KEYS = ('calm', 'breeze', 'strong', 'gale')
-WEATHER_TEMPERATURE_DELTAS = {
-    'clear': 2, 'cloudy': 0, 'rain': -3, 'storm': -5,
-    'fog': -2, 'snow': -7, 'wind': -2, 'heat': 7,
-}
-WEATHER_MARKOV_TRANSITIONS = {
-    'clear':  {'clear': 7, 'cloudy': 3, 'rain': .6, 'storm': .15, 'fog': .8, 'snow': .4, 'wind': 1.2, 'heat': 2},
-    'cloudy': {'clear': 2.5, 'cloudy': 6, 'rain': 4, 'storm': 1.5, 'fog': 2.5, 'snow': 3, 'wind': 1.5, 'heat': .3},
-    'rain':   {'clear': 1.2, 'cloudy': 4, 'rain': 6, 'storm': 2.5, 'fog': 2, 'snow': .8, 'wind': 1.4, 'heat': .1},
-    'storm':  {'clear': .8, 'cloudy': 4, 'rain': 5, 'storm': 2, 'fog': .6, 'snow': .5, 'wind': 3, 'heat': .1},
-    'fog':    {'clear': 2, 'cloudy': 4, 'rain': 2, 'storm': .4, 'fog': 5, 'snow': 1.5, 'wind': .8, 'heat': .2},
-    'snow':   {'clear': 1.5, 'cloudy': 4, 'rain': .8, 'storm': .4, 'fog': 1.8, 'snow': 7, 'wind': 2, 'heat': .05},
-    'wind':   {'clear': 2.5, 'cloudy': 3, 'rain': 1.5, 'storm': 2, 'fog': .5, 'snow': 1.5, 'wind': 5, 'heat': 1},
-    'heat':   {'clear': 4, 'cloudy': 1, 'rain': .4, 'storm': .8, 'fog': .1, 'snow': .01, 'wind': 2, 'heat': 7},
-}
-WIND_MARKOV_TRANSITIONS = {
-    'calm': {'calm': 6, 'breeze': 4, 'strong': .5, 'gale': .1},
-    'breeze': {'calm': 2, 'breeze': 6, 'strong': 2, 'gale': .3},
-    'strong': {'calm': .4, 'breeze': 3, 'strong': 5, 'gale': 2},
-    'gale': {'calm': .2, 'breeze': 2, 'strong': 5, 'gale': 3},
-}
-WEATHER_WIND_WEIGHTS = {
-    'clear': {'calm': 4, 'breeze': 6, 'strong': 1, 'gale': .05},
-    'cloudy': {'calm': 2, 'breeze': 6, 'strong': 2, 'gale': .2},
-    'rain': {'calm': .8, 'breeze': 4, 'strong': 3, 'gale': .8},
-    'storm': {'calm': .05, 'breeze': .3, 'strong': 4, 'gale': 8},
-    'fog': {'calm': 5, 'breeze': 3, 'strong': .4, 'gale': .05},
-    'snow': {'calm': 1.5, 'breeze': 4, 'strong': 3, 'gale': .8},
-    'wind': {'calm': .1, 'breeze': 1, 'strong': 7, 'gale': 3},
-    'heat': {'calm': 3, 'breeze': 5, 'strong': 1.5, 'gale': .1},
-}
-CLIMATE_PROFILES = {
-    'temperate': {
-        'temperatures': {'spring': 14, 'summer': 25, 'autumn': 15, 'winter': 3},
-        'weather': {
-            'spring': ['clear', 'cloudy', 'rain', 'rain', 'fog', 'wind'],
-            'summer': ['clear', 'clear', 'cloudy', 'rain', 'storm', 'heat'],
-            'autumn': ['clear', 'cloudy', 'rain', 'fog', 'wind', 'wind'],
-            'winter': ['clear', 'cloudy', 'snow', 'snow', 'fog', 'wind'],
-        },
-    },
-    'cold': {
-        'temperatures': {'spring': 0, 'summer': 12, 'autumn': 2, 'winter': -15},
-        'weather': {
-            'spring': ['cloudy', 'snow', 'rain', 'wind', 'fog'],
-            'summer': ['clear', 'cloudy', 'rain', 'fog', 'wind'],
-            'autumn': ['cloudy', 'rain', 'snow', 'wind', 'fog'],
-            'winter': ['snow', 'snow', 'clear', 'wind', 'fog'],
-        },
-    },
-    'tropical': {
-        'temperatures': {'spring': 27, 'summer': 29, 'autumn': 28, 'winter': 26},
-        'weather': {
-            'spring': ['clear', 'rain', 'rain', 'storm', 'fog'],
-            'summer': ['clear', 'heat', 'rain', 'storm', 'storm'],
-            'autumn': ['clear', 'rain', 'rain', 'storm', 'cloudy'],
-            'winter': ['clear', 'clear', 'cloudy', 'rain', 'fog'],
-        },
-    },
-    'arid': {
-        'temperatures': {'spring': 22, 'summer': 36, 'autumn': 25, 'winter': 14},
-        'weather': {
-            'spring': ['clear', 'clear', 'heat', 'wind', 'cloudy'],
-            'summer': ['clear', 'heat', 'heat', 'wind', 'storm'],
-            'autumn': ['clear', 'clear', 'heat', 'wind', 'cloudy'],
-            'winter': ['clear', 'clear', 'cloudy', 'wind', 'rain'],
-        },
-    },
-    'coastal': {
-        'temperatures': {'spring': 15, 'summer': 23, 'autumn': 17, 'winter': 9},
-        'weather': {
-            'spring': ['cloudy', 'rain', 'fog', 'wind', 'clear'],
-            'summer': ['clear', 'cloudy', 'rain', 'fog', 'storm'],
-            'autumn': ['cloudy', 'rain', 'wind', 'storm', 'fog'],
-            'winter': ['cloudy', 'rain', 'wind', 'fog', 'snow'],
-        },
-    },
-    'highland': {
-        'temperatures': {'spring': 5, 'summer': 16, 'autumn': 7, 'winter': -6},
-        'weather': {
-            'spring': ['clear', 'cloudy', 'fog', 'rain', 'snow'],
-            'summer': ['clear', 'cloudy', 'rain', 'storm', 'wind'],
-            'autumn': ['cloudy', 'fog', 'rain', 'snow', 'wind'],
-            'winter': ['snow', 'snow', 'clear', 'fog', 'wind'],
-        },
-    },
-}
+WEATHER_ROLLOVER_SECONDS = 8 * 60 * 60  # Legacy import compatibility only.
+MAX_WEATHER_CATCHUP_DAYS = 3660  # Legacy import compatibility; no longer used.
+
+def _config_snapshot(config):
+    """The service supplies a validated snapshot; the domain never loads it."""
+    if config is None:
+        raise ValueError('天气算法需要显式传入气候配置')
+    return config
+
+
+def weather_hour_index(total_seconds, config=None):
+    config = _config_snapshot(config)
+    total = max(0, int(finite_number(total_seconds) or 0))
+    return total // int(config['schedule']['secondsPerStep'])
 
 
 def weather_day_index(total_seconds):
+    """Legacy callers can still ask for a calendar day; it no longer schedules."""
+    return max(0, int(finite_number(total_seconds) or 0)) // WORLD_SECONDS_PER_DAY
+
+
+def weather_season(total_seconds, config=None):
+    config = _config_snapshot(config)
+    calendar = config['calendar']
+    day_seconds = int(calendar['minutesPerDay']) * 60
+    days_per_week = int(calendar['daysPerWeek'])
+    days_per_year = days_per_week * int(calendar['weeksPerYear'])
     total = max(0, int(finite_number(total_seconds) or 0))
-    return int(math.floor((total - WEATHER_ROLLOVER_SECONDS) / float(WORLD_SECONDS_PER_DAY)))
+    week = (total // day_seconds % days_per_year) // days_per_week + 1
+    for season in config['seasons']:
+        if season['firstWeek'] <= week <= season['lastWeek']:
+            return season['key']
+    raise ValueError('通用气候配置的季节未覆盖当前周')
 
 
-def weather_season(total_seconds):
-    total = max(0, int(finite_number(total_seconds) or 0))
-    day_index = total // WORLD_SECONDS_PER_DAY
-    day_of_year = day_index % (WORLD_DAYS_PER_WEEK * WORLD_WEEKS_PER_YEAR)
-    week = day_of_year // WORLD_DAYS_PER_WEEK + 1
-    if week <= 13:
-        return 'spring'
-    if week <= 26:
-        return 'summer'
-    if week <= 39:
-        return 'autumn'
-    return 'winter'
+def _round_tenth(value):
+    # Match Math.round in the host exactly, including negative half-ties.
+    return math.floor(value * 10 + .5) / 10
 
 
-def normalize_weather(raw, total_seconds=None):
+def normalize_weather(raw, total_seconds=None, config=None):
+    config = _config_snapshot(config)
+    defaults = config['defaultWeather']
     source = raw if isinstance(raw, dict) else {}
-    climate = source.get('climate') if source.get('climate') in CLIMATE_PROFILES else 'temperate'
-    condition = source.get('condition') if source.get('condition') in WEATHER_KEYS else 'clear'
-    wind = source.get('wind') if source.get('wind') in WIND_KEYS else 'breeze'
+    climate = source.get('climate') if source.get('climate') in config['climates'] else defaults['climate']
+    condition = source.get('condition') if source.get('condition') in config['conditions'] else defaults['condition']
+    wind = source.get('wind') if source.get('wind') in config['winds'] else defaults['wind']
     temperature = finite_number(source.get('temperature'))
-    temperature = max(-100, min(100, int(round(temperature if temperature is not None else 18))))
-    generated_day = finite_number(source.get('generatedDay'))
-    if generated_day is None:
-        generated_day = weather_day_index(total_seconds if total_seconds is not None else WEATHER_ROLLOVER_SECONDS)
+    temperature = temperature if temperature is not None else defaults['temperature']
+    limits = config['temperature']
+    temperature = _round_tenth(max(limits['min'], min(limits['max'], temperature)))
+    generated_hour = finite_number(source.get('generatedHour'))
+    # Old generatedDay is intentionally not expanded into years of catch-up.
+    # Anchor once at the current world time, then persist the hourly marker.
+    if generated_hour is None:
+        generated_hour = weather_hour_index(total_seconds, config) if total_seconds is not None else None
     return {
-        'climate': climate,
-        'condition': condition,
-        'temperature': temperature,
-        'wind': wind,
-        'generatedDay': int(generated_day),
+        'climate': climate, 'condition': condition,
+        'temperature': temperature, 'wind': wind,
+        'generatedHour': max(0, int(generated_hour)) if generated_hour is not None else None,
+        'auto': source['auto'] if isinstance(source.get('auto'), bool) else defaults['auto'],
     }
 
 
+def effective_weather_temperature(raw, hour, config=None):
+    """Current temperature before whole-degree UI rounding, from module data.
+
+    Keep this derived value out of saves: its hourly offset changes with the
+    clock even while a DM has fixed the background temperature manually.
+    """
+    config = _config_snapshot(config)
+    normalized = normalize_weather(raw, config=config)
+    safe_hour = max(0, min(23, int(finite_number(hour) or 0)))
+    profile = config['climates'][normalized['climate']]
+    offset = math.floor(profile['diurnalRange'] * config['temperature']['hourlyCurve'][safe_hour] + .5)
+    settings = config['temperature']
+    return max(settings['min'], min(settings['max'], normalized['temperature'] + offset))
+
+
 def weighted_weather_choice(weights, random_fn=random.random):
-    options = [(key, float(weights.get(key, 0))) for key in weights if float(weights.get(key, 0)) > 0]
+    options = [(key, float(value)) for key, value in weights.items() if float(value) > 0]
     total = sum(weight for _, weight in options)
     if not options or total <= 0:
         return None
     sample = finite_number(random_fn())
-    sample = max(0.0, min(0.999999999999, sample if sample is not None else 0.0))
+    sample = max(0.0, min(0.9999999999999998, sample if sample is not None else 0.0))
     cursor = sample * total
     for key, weight in options:
         cursor -= weight
@@ -149,73 +107,95 @@ def weighted_weather_choice(weights, random_fn=random.random):
     return options[-1][0]
 
 
-def climate_weather_weights(profile, season, previous_condition):
+def climate_weather_weights(profile, season, previous_condition, config=None):
+    config = _config_snapshot(config)
     base = {}
-    for condition in profile.get('weather', {}).get(season, profile.get('weather', {}).get('spring', [])):
-        if condition in WEATHER_KEYS:
+    for condition in profile['weather'].get(season, profile['weather']['spring']):
+        if condition in config['conditions']:
             base[condition] = base.get(condition, 0) + 1
-    transition = WEATHER_MARKOV_TRANSITIONS.get(previous_condition, WEATHER_MARKOV_TRANSITIONS['clear'])
-    return dict((condition, weight * float(transition.get(condition, .01)))
-                for condition, weight in base.items())
+    transitions = profile['transitions']['weather']
+    transition = transitions.get(previous_condition, transitions[config['defaultWeather']['condition']])
+    return {condition: weight * float(transition.get(condition, 0))
+            for condition, weight in base.items()}
 
 
-def weather_wind_weights(condition, previous_wind):
-    weather_weights = WEATHER_WIND_WEIGHTS.get(condition, WEATHER_WIND_WEIGHTS['clear'])
-    transition = WIND_MARKOV_TRANSITIONS.get(previous_wind, WIND_MARKOV_TRANSITIONS['breeze'])
-    return dict((wind, float(weather_weights.get(wind, .01)) * float(transition.get(wind, .01)))
-                for wind in WIND_KEYS)
+def weather_wind_weights(condition, previous_wind, config=None, profile=None):
+    config = _config_snapshot(config)
+    profile = profile if profile is not None else config['climates'][config['defaultWeather']['climate']]
+    local = profile['transitions']
+    weather_weights = local['weatherWind'].get(
+        condition, local['weatherWind'][config['defaultWeather']['condition']])
+    transitions = local['wind']
+    transition = transitions.get(previous_wind, transitions[config['defaultWeather']['wind']])
+    return {wind: float(weather_weights.get(wind, 0)) * float(transition.get(wind, 0))
+            for wind in config['winds']}
 
 
 def generate_climate_weather(encounter, climate_key=None, total_seconds=None,
-                             random_fn=random.random, generated_day=None):
-    """运行一次天气马尔可夫转移；温度保留昨日惯性，风力也按独立链转移。"""
+                             random_fn=random.random, generated_hour=None, config=None):
+    """One hourly Markov transition with slow temperature and wind inertia."""
+    config = _config_snapshot(config)
     world = encounter.get('worldTime') if isinstance(encounter.get('worldTime'), dict) else {}
     if total_seconds is None:
         total_seconds = max(0, int(finite_number(world.get('totalSeconds')) or 0))
-    previous = normalize_weather(encounter.get('weather'), total_seconds)
-    climate = climate_key if climate_key in CLIMATE_PROFILES else previous['climate']
-    profile = CLIMATE_PROFILES[climate]
-    season = weather_season(total_seconds)
+    previous = normalize_weather(encounter.get('weather'), total_seconds, config)
+    climate = climate_key if climate_key in config['climates'] else previous['climate']
+    switched_climate = climate != previous['climate']
+    profile = config['climates'][climate]
+    season = weather_season(total_seconds, config)
     condition = weighted_weather_choice(
-        climate_weather_weights(profile, season, previous['condition']), random_fn
-    ) or 'clear'
-    expected = profile['temperatures'][season] + WEATHER_TEMPERATURE_DELTAS[condition]
-    noise = (max(0.0, min(1.0, finite_number(random_fn()) or 0.0)) * 4) - 2
-    temperature = max(-100, min(100, int(round(expected * .65 + previous['temperature'] * .35 + noise))))
-    wind = weighted_weather_choice(weather_wind_weights(condition, previous['wind']), random_fn) or 'breeze'
-    day = int(generated_day) if generated_day is not None else weather_day_index(total_seconds)
+        climate_weather_weights(profile, season, previous['condition'], config), random_fn
+    ) or config['defaultWeather']['condition']
+    expected = profile['temperatures'][season] + config['conditions'][condition]['temperatureDelta']
+    settings = config['temperature']
+    noise_sample = finite_number(random_fn())
+    noise = (max(0.0, min(1.0, noise_sample if noise_sample is not None else 0.0)) * 2 - 1) * settings['noise']
+    # A move between climates reanchors to the destination. Within one climate,
+    # hourly background temperature changes remain small and retain memory.
+    if switched_climate:
+        temperature = expected + noise
+    else:
+        step = (expected - previous['temperature']) * (1 - settings['inertia']) + noise
+        step = max(-settings['maxHourlyStep'], min(settings['maxHourlyStep'], step))
+        temperature = previous['temperature'] + step
+    temperature = _round_tenth(max(settings['min'], min(settings['max'], temperature)))
+    # Ordinary precipitation must agree with the current temperature, while
+    # retaining slow thermal inertia. The module's cutoff is a model choice,
+    # not an official D&D temperature threshold for snowfall.
+    hour_of_day = (max(0, int(finite_number(total_seconds) or 0)) // 3600) % 24
+    if (previous['auto'] and condition in ('snow', 'heavySnow')
+            and effective_weather_temperature({'climate': climate, 'temperature': temperature}, hour_of_day, config)
+            > settings['maxSnowTemperature']):
+        condition = 'heavyRain' if condition == 'heavySnow' else 'rain'
+    wind = weighted_weather_choice(weather_wind_weights(condition, previous['wind'], config, profile), random_fn) or config['defaultWeather']['wind']
+    hour = max(0, int(generated_hour)) if generated_hour is not None else weather_hour_index(total_seconds, config)
     encounter['weather'] = {
-        'climate': climate,
-        'condition': condition,
-        'temperature': temperature,
-        'wind': wind,
-        'generatedDay': day,
+        'climate': climate, 'condition': condition, 'temperature': temperature,
+        'wind': wind, 'generatedHour': hour, 'auto': previous['auto'],
     }
     return encounter['weather']
 
 
-def refresh_scheduled_weather(encounter, total_seconds, random_fn=random.random):
-    """跨过每日 08:00 时逐日推演，超长时间跳跃最多补算十年。"""
-    encounter['weather'] = normalize_weather(encounter.get('weather'), total_seconds)
-    current_day = weather_day_index(total_seconds)
-    generated_day = encounter['weather']['generatedDay']
-    if current_day < generated_day:
-        encounter['weather']['generatedDay'] = current_day
+def refresh_scheduled_weather(encounter, total_seconds, random_fn=random.random, config=None):
+    """Advance once per crossed hour; rewind or manual mode only reanchors.
+
+    Exact catch-up is bounded by the module's maxCatchupHours. Longer jumps run
+    only the final bounded interval; climate.json documents that approximation.
+    """
+    config = _config_snapshot(config)
+    encounter['weather'] = normalize_weather(encounter.get('weather'), total_seconds, config)
+    current_hour = weather_hour_index(total_seconds, config)
+    generated_hour = encounter['weather']['generatedHour']
+    if not encounter['weather']['auto'] or current_hour < generated_hour:
+        encounter['weather']['generatedHour'] = current_hour
         return None
-    if current_day == generated_day:
+    if current_hour == generated_hour:
         return None
-    missing_days = current_day - generated_day
-    first_day = (current_day - MAX_WEATHER_CATCHUP_DAYS + 1
-                 if missing_days > MAX_WEATHER_CATCHUP_DAYS else generated_day + 1)
-    for day in range(first_day, current_day + 1):
-        rollover_seconds = max(0, day * WORLD_SECONDS_PER_DAY + WEATHER_ROLLOVER_SECONDS)
+    first_hour = max(generated_hour + 1, current_hour - int(config['schedule']['maxCatchupHours']) + 1)
+    for hour in range(first_hour, current_hour + 1):
         generate_climate_weather(
-            encounter,
-            encounter['weather']['climate'],
-            rollover_seconds,
-            random_fn,
-            day,
+            encounter, encounter['weather']['climate'],
+            hour * int(config['schedule']['secondsPerStep']),
+            random_fn, hour, config,
         )
     return encounter['weather']
-
-

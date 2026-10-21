@@ -30,6 +30,8 @@ def rebuild(save_root):
     if temporary.exists():raise ValueError('有未处理的重建临时文件')
     original=store.database
     store.database=temporary
+    # Only this validated, unpublished rebuild may create a replacement coordinator.
+    store._rebuilding=True
     try:
         db=store.connect()
         try:

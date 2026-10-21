@@ -28,6 +28,8 @@ CATALOG = [
 CATALOG.append(CHEST)
 
 HEALING_RULES = {'healing': (2, 4, 2), 'greater-healing': (4, 4, 4), 'superior-healing': (8, 4, 8), 'supreme-healing': (10, 4, 20)}
+ORIGIN_FIELDS = ('sourcePackageId', 'sourceScope', 'sourceCampaignId', 'sourceTemplateId', 'sourceTemplateVersion',
+                 'sourcePlayerId', 'sourceCharacterId')
 for preset in CATALOG:
     if preset['id'] in HEALING_RULES:
         preset.update(ruleId=preset['id'], ruleVersion=1)
@@ -83,6 +85,13 @@ def item_definition(data, error):
             if not d.is_finite() or not 0 <= d <= 1000000 or d * 1000 != (d * 1000).to_integral_value(): raise ValueError()
         except (InvalidOperation, ValueError): raise error('重量应为 0–1000000 磅，最多三位小数')
         result['weightLb'] = v
+    if 'mapDefaults' in data:
+        defaults = data['mapDefaults']
+        if (not isinstance(defaults, dict) or set(defaults) - {'positionLocked', 'pickupAllowed'}
+                or any(type(v) is not bool for v in defaults.values())):
+            raise error('地图物品属性无效')
+        result['mapDefaults'] = dict(positionLocked=defaults.get('positionLocked', False),
+                                    pickupAllowed=defaults.get('pickupAllowed', True))
     return result
 
 
@@ -96,6 +105,19 @@ def validate_removed(value):
         seen.add(entry['id'])
         item = entry['item']; item_definition(item, ValueError)
         if not re.fullmatch(r'i[0-9a-f]{32}', str(item.get('id'))) or type(item.get('quantity')) is not int or not 1 <= item['quantity'] <= 999: raise ValueError()
+
+
+def inventory_request_signature(command, host=False):
+    """Preserve the exact established receipt encoding, including Unicode handling."""
+    op = command.get('op')
+    signed = {k: command.get(k) for k in ('op', 'itemId', 'presetId', 'item', 'quantity', 'revision')}
+    if 'templateId' in command or 'templateVersion' in command:
+        signed.update(templateId=command.get('templateId'), templateVersion=command.get('templateVersion'))
+    if op in ('restore', 'purge'): signed['removalId'] = command.get('removalId')
+    if op == 'annotate': signed.update(favorite=command.get('favorite'), notes=command.get('notes'))
+    signed['host'] = bool(host)
+    if 'characterId' in command: signed['characterId'] = command['characterId']
+    return hashlib.sha256(json.dumps(signed, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
 
 class InventoryStore:
@@ -159,6 +181,7 @@ class InventoryStore:
             merged = dict(playerId=pid, scope='player', revision=max(v['revision'] for _, v in sources)+1,
                           items=[], history=[], receipts={}, legacyReceipts={}, migratedFrom=[])
             seen = set()
+            removal_ids = set()
             for old_path, value in sources:
                 ids = {}
                 for item in value['items']:
@@ -168,6 +191,17 @@ class InventoryStore:
                         item['id'] = 'i' + hashlib.sha256((old_path.name + old_id).encode()).hexdigest()[:32]
                     if item['id'] in seen: raise self.error('旧背包物品编号冲突，请主控检查原档', 503)
                     ids[old_id] = item['id']; seen.add(item['id']); merged['items'].append(item)
+                for entry in value.get('removedItems', []):
+                    entry = copy.deepcopy(entry)
+                    old_id = entry['item']['id']
+                    if old_id not in ids:
+                        ids[old_id] = ('i' + hashlib.sha256((old_path.name + old_id).encode()).hexdigest()[:32]) if old_id in seen else old_id
+                        seen.add(ids[old_id])
+                    entry['item']['id'] = ids[old_id]
+                    if entry['id'] in removal_ids:
+                        entry['id'] = 'removed-' + hashlib.sha256((old_path.name + entry['id']).encode()).hexdigest()
+                    removal_ids.add(entry['id'])
+                    merged.setdefault('removedItems', []).append(entry)
                 def remap(event):
                     event = copy.deepcopy(event)
                     if event.get('itemId') in ids: event['itemId'] = ids[event['itemId']]
@@ -197,51 +231,86 @@ class InventoryStore:
         if old['revision'] > 0: self.impl.atomic(backup, old)
         self.impl.atomic(path, value)
 
-    def grant_definition(self, command):
+    def grant_definition(self, command, campaign=None, pid=None):
         preset = next((p for p in CATALOG if p['id'] == command.get('presetId')), None)
         if command.get('presetId') and not preset: raise self.error('物品预设不存在', 404)
         return item_definition(preset or command.get('item'), self.error)
+
+    def item_available(self, item, campaign):
+        return True
+
+    def require_item_available(self, item, campaign):
+        if not self.item_available(item, campaign):
+            raise self.error('物品所属内容包未在当前战役启用', 409)
+
+    def response(self, value, event, campaign, host=False):
+        return self.public(value), event
+
+    def require_item_capacity(self, value, item=None, releasing=None, message='背包物品种类已达 300 项，请先整理', character_id=None):
+        """Empty entries remain available for retries/undo, but do not occupy a slot."""
+        if item is not None and item['quantity'] > 0: return
+        released_id = releasing.get('id') if releasing is not None else None
+        character_id=character_id or (item or {}).get('ownerCharacterId')
+        if sum(i['quantity'] > 0 and i['id'] != released_id and (not character_id or i.get('ownerCharacterId')==character_id) for i in value['items']) >= 300:
+            raise self.error(message, 409)
+
+    @staticmethod
+    def stack_contents(item):
+        content = {k: v for k, v in item.items() if k not in ('id', 'quantity', 'resourceRevision')}
+        content.setdefault('notes', '')
+        content.setdefault('favorite', False)
+        content['ownerCharacterId'] = content.get('ownerCharacterId') or ''
+        return content
 
     def apply(self, pid, campaign, command, host=False):
         with self.impl.LOCK:
             value = self.read(pid, campaign)
             op = command.get('op')
-            if op not in ('grant', 'use', 'adjust', 'edit', 'annotate', 'delete', 'discard', 'restore', 'purge') or (op not in ('use', 'annotate', 'discard') and not host):
+            if op not in ('grant', 'use', 'adjust', 'edit', 'annotate', 'delete', 'discard', 'restore', 'purge', 'purgeAll') or (op not in ('use', 'annotate', 'discard', 'restore') and not host):
                 raise self.error('仅主控可以发放或调整物品', 403)
             request_id = command.get('requestId')
             if not isinstance(request_id, str) or not re.fullmatch(r'[A-Za-z0-9_-]{16,96}', request_id):
                 raise self.error('操作编号无效')
-            signed = {k: command.get(k) for k in ('op', 'itemId', 'presetId', 'item', 'quantity', 'revision')}
-            if 'templateId' in command or 'templateVersion' in command:
-                signed.update(templateId=command.get('templateId'), templateVersion=command.get('templateVersion'))
-            if op in ('restore', 'purge'): signed['removalId'] = command.get('removalId')
-            if op == 'annotate': signed.update(favorite=command.get('favorite'), notes=command.get('notes'))
-            signed['host'] = bool(host)
-            if 'characterId' in command:
-                signed['characterId'] = command['characterId']
-            signature = hashlib.sha256(json.dumps(signed, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+            signature = inventory_request_signature(command, host)
             previous = value['receipts'].get(request_id) or value.get('legacyReceipts', {}).get(campaign, {}).get(request_id)
             if previous:
                 if previous['signature'] != signature: raise self.error('操作编号已用于另一项操作，请重新打开背包', 409)
-                return self.public(value), previous['event']
+                return self.response(value, previous['event'], campaign, host)
             if type(command.get('revision')) is not int or command['revision'] != value['revision']:
                 raise self.error('背包已更新，请核对最新数量后再操作', 409)
             old = copy.deepcopy(value)
+            if op == 'purgeAll':
+                removed = [r for r in value.get('removedItems', []) if self.item_available(r['item'], campaign)]
+                if not removed: raise self.error('垃圾箱已清空', 409)
+                event = dict(id=request_id, at=int(time.time()*1000), op=op, name='垃圾箱',
+                             delta=0, remaining=0, count=len(removed), effect='', actor='主控')
+                removed_ids = {r['id'] for r in removed}
+                value['removedItems'] = [r for r in value.get('removedItems', []) if r['id'] not in removed_ids]
+                value['history'] = (value['history'] + [event])[-80:]
+                value['receipts'][request_id] = dict(signature=signature, event=event)
+                if len(value['receipts']) > 512: value['receipts'].pop(next(iter(value['receipts'])))
+                value['revision'] += 1
+                self.commit(pid, campaign, old, value)
+                return self.response(value, event, campaign, host)
             if op in ('restore', 'purge'):
                 removed = value.get('removedItems', [])
                 entry = next((r for r in removed if r['id'] == command.get('removalId')), None)
                 if not entry: raise self.error('这条移除记录已处理或不存在，请刷新', 409)
+                if not host and entry['op'] != 'discard':
+                    raise self.error('主控移除的物品只能由主控恢复', 403)
                 archived = entry['item']
+                self.require_item_available(archived, campaign)
                 if op == 'restore':
-                    item = next((i for i in value['items'] if i['id'] == archived['id']), None)
-                    comparable = lambda i: {k: v for k, v in i.items() if k not in ('quantity', 'resourceRevision')}
+                    original = next((i for i in value['items'] if i['id'] == archived['id']), None)
+                    candidates = sorted(value['items'], key=lambda i: i['id'] != archived['id'])
+                    item = next((i for i in candidates if self.stack_contents(i) == self.stack_contents(archived)
+                                 and i['quantity'] + archived['quantity'] <= 999), None)
                     # A later edit must survive restoration. Keep the archived text/notes in
                     # a separate entry when the original stack changed or is already full.
-                    if item is None or comparable(item) != comparable(archived) or item['quantity'] + archived['quantity'] > 999:
-                        if len(value['items']) >= 300: raise self.error('背包条目已满，请先整理后恢复', 409)
-                        old_item = item
+                    self.require_item_capacity(value, item, message='背包条目已满，请先整理后恢复', character_id=archived.get('ownerCharacterId'))
+                    if item is None:
                         item = copy.deepcopy(archived)
-                        if old_item is not None: item['id'] = 'i'+secrets.token_hex(16)
+                        if original is not None: item['id'] = 'i'+secrets.token_hex(16)
                         item['quantity'] = 0
                         value['items'].append(item)
                     delta = archived['quantity']
@@ -251,15 +320,18 @@ class InventoryStore:
                     delta = 0
                 removed.remove(entry)
             elif op == 'grant':
-                definition = self.grant_definition(command)
+                definition = self.grant_definition(command, campaign, pid)
+                self.require_item_available(definition, campaign)
                 quantity = command.get('quantity')
                 if type(quantity) is not int or not 1 <= quantity <= 999: raise self.error('发放数量应为 1–999')
                 character_id = command.get('characterId') or ''
+                if definition.get('boundCharacterId') and character_id != definition['boundCharacterId']:
+                    raise self.error('这件个人物品仍绑定原角色，请先由主控明确解除绑定', 403)
                 item = next((i for i in value['items'] if (i.get('ownerCharacterId') or '') == character_id
                              and item_definition(i, self.error) == item_definition(definition, self.error)
-                             and all(i.get(k) == definition.get(k) for k in ('sourceTemplateId', 'sourceTemplateVersion'))), None)
+                             and all(i.get(k) == definition.get(k) for k in ORIGIN_FIELDS + ('boundCharacterId',))), None)
+                self.require_item_capacity(value, item, character_id=character_id)
                 if item is None:
-                    if len(value['items']) >= 300: raise self.error('背包物品种类已达 300 项，请先整理')
                     item = dict(definition, id='i'+secrets.token_hex(16), quantity=0)
                     if character_id: item['ownerCharacterId'] = character_id
                     value['items'].append(item)
@@ -269,6 +341,7 @@ class InventoryStore:
             else:
                 item = next((i for i in value['items'] if i['id'] == command.get('itemId')), None)
                 if item is None: raise self.error('物品不存在，请刷新背包', 404)
+                self.require_item_available(item, campaign)
                 if op in ('delete', 'discard'):
                     quantity = item['quantity'] if op == 'delete' else command.get('quantity')
                     if type(quantity) is not int or not 1 <= quantity <= item['quantity']:
@@ -278,7 +351,7 @@ class InventoryStore:
                     delta = -quantity
                 elif op == 'edit':
                     definition = item_definition(command.get('item'), self.error)
-                    for key in ('ruleId', 'ruleVersion', 'body', 'documentType', 'valueCp', 'valueCurrency', 'weightLb'):
+                    for key in ('ruleId', 'ruleVersion', 'body', 'documentType', 'valueCp', 'valueCurrency', 'weightLb', 'mapDefaults'):
                         if key not in definition: item.pop(key, None)
                     item.update(definition)
                     delta = 0
@@ -295,11 +368,13 @@ class InventoryStore:
                 else:
                     quantity = command.get('quantity')
                     if type(quantity) is not int or not 0 <= quantity <= 999: raise self.error('数量应为 0–999')
+                    if quantity > 0: self.require_item_capacity(value, item)
                     delta = quantity - item['quantity']
                 item['quantity'] += delta
                 if op in ('delete', 'discard') and item['quantity'] == 0: value['items'].remove(item)
             event = dict(id=request_id, at=int(time.time()*1000), op=op, name=item['name'], itemId=item['id'],
                          delta=delta, remaining=0 if op == 'purge' else item['quantity'], effect=item['effect'] if op == 'use' else '', actor='主控' if host else '玩家')
+            event.update({key: copy.deepcopy(item[key]) for key in ORIGIN_FIELDS if key in item})
             if op in ('restore', 'purge'): event['removalId'] = command.get('removalId')
             value['history'] = (value['history'] + [event])[-80:]
             value['receipts'][request_id] = dict(signature=signature, event=event)
@@ -307,4 +382,4 @@ class InventoryStore:
             if len(value['receipts']) > 512: value['receipts'].pop(next(iter(value['receipts'])))
             value['revision'] += 1
             self.commit(pid, campaign, old, value)
-            return self.public(value), event
+            return self.response(value, event, campaign, host)

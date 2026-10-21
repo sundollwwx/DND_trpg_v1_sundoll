@@ -4,7 +4,7 @@ import hashlib
 import json
 import re
 import secrets
-from .workspace import read_catalog, write_catalog
+from .workspace import Workspace, read_catalog, write_catalog
 from .inventory import CATALOG, CHEST, item_definition
 
 
@@ -14,6 +14,54 @@ class ItemLibrary:
         self.impl = implementation
         self.error = implementation.ProfileError
         self.path = profiles.root / '物品库.json'
+        workspace = Workspace(profiles.save_root)
+        self.backup_root = workspace.root / '运行数据/备份/物品库' if workspace.active else profiles.save_root / '备份/物品库'
+        self.legacy_backup_root = self.path.parent / '物品库自动备份'
+
+    def backup(self, data):
+        Workspace(self.profiles.save_root).checked(self.backup_root)
+        self.impl.atomic(self.backup_root / ('%s.json' % data['revision']), data)
+
+    def read_backup(self, revision):
+        """Read either location, but never silently replace a damaged current file."""
+        if type(revision) is not int or revision < 1: raise self.error('备份版本无效')
+        workspace = Workspace(self.profiles.save_root)
+        for folder in (self.backup_root, self.legacy_backup_root):
+            path = workspace.checked(folder / ('%s.json' % revision))
+            if not path.is_file(): continue
+            try:
+                data = json.loads(path.read_text('utf-8'))
+                self.validate(data)
+                if data['revision'] != revision: raise ValueError('备份版本与文件名不一致')
+            except (ValueError, TypeError, KeyError, AttributeError, self.error) as error:
+                raise self.error('物品库备份损坏；当前物品库未覆盖', 503) from error
+            return data
+        raise self.error('物品库备份不存在', 404)
+
+    def validate(self, data):
+        if data.get('schemaVersion') != 1 or type(data.get('revision')) is not int or data['revision'] < 1 or not isinstance(data.get('templates'), list) or not isinstance(data.get('receipts'), dict): raise ValueError()
+        ids = set()
+        for t in data['templates']:
+            item_definition(t, ValueError)
+            self.metadata(t)
+            if not isinstance(t.get('id'), str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,96}', t['id']) or t['id'] in ids or type(t.get('version')) is not int or t['version'] < 1 or type(t.get('archived')) is not bool: raise ValueError()
+            ids.add(t['id'])
+        if any(not isinstance(r, dict) or not isinstance(r.get('signature'), str) or not isinstance(r.get('templateId'), str) for r in data['receipts'].values()): raise ValueError()
+
+    def restore_backup(self, backup_revision, expected_revision):
+        """Explicit maintenance restore with the same revision guard as edits."""
+        with self.impl.LOCK:
+            current = self.read()
+            if type(expected_revision) is not int or current['revision'] != expected_revision:
+                raise self.error('物品库已变化，请刷新后再恢复备份', 409)
+            restored = copy.deepcopy(self.read_backup(backup_revision))
+            versions = {item['id']:item['version'] for item in current['templates']}
+            for item in restored['templates']:
+                item['version'] = max(item['version'], versions.get(item['id'], 0))+1
+            restored.update(revision=current['revision']+1, receipts={})
+            self.backup(current)
+            write_catalog(self.profiles.save_root, 'item-template', restored)
+            return self.public(restored)
 
     def metadata(self, data):
         scope = data.get('scope', 'campaign' if data.get('category') == 'document' else 'general')
@@ -38,21 +86,14 @@ class ItemLibrary:
         with self.impl.LOCK:
             try:
                 data = read_catalog(self.profiles.save_root, 'item-template')
-                if data.get('schemaVersion') != 1 or type(data.get('revision')) is not int or data['revision'] < 1 or not isinstance(data.get('templates'), list) or not isinstance(data.get('receipts'), dict): raise ValueError()
-                ids = set()
-                for t in data['templates']:
-                    item_definition(t, ValueError)
-                    self.metadata(t)
-                    if not isinstance(t.get('id'), str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,96}', t['id']) or t['id'] in ids or type(t.get('version')) is not int or t['version'] < 1 or type(t.get('archived')) is not bool: raise ValueError()
-                    ids.add(t['id'])
-                if any(not isinstance(r, dict) or not isinstance(r.get('signature'), str) or not isinstance(r.get('templateId'), str) for r in data['receipts'].values()): raise ValueError()
+                self.validate(data)
                 if data.get('containerTemplatesVersion', 0) < 1:
                     old = copy.deepcopy(data)
                     if not any(t['id'] == CHEST['id'] for t in data['templates']):
                         data['templates'].append(dict(item_definition(CHEST, self.error), id=CHEST['id'], version=1, archived=False, **self.metadata({})))
                     data['containerTemplatesVersion'] = 1
                     data['revision'] += 1
-                    self.impl.atomic(self.path.parent / '物品库自动备份' / ('%s.json' % old['revision']), old)
+                    self.backup(old)
                     write_catalog(self.profiles.save_root, 'item-template', data)
                 return data
             except FileNotFoundError:
@@ -79,10 +120,11 @@ class ItemLibrary:
             data = self.read()
             if command.get('op') == 'get': return dict(library=self.public(data))
             op = command.get('op')
-            if op not in ('create', 'edit', 'duplicate', 'archive', 'restore', 'fromBag'): raise self.error('物品库操作无效')
+            if op not in ('create', 'edit', 'duplicate', 'archive', 'restore', 'purge', 'fromBag'): raise self.error('物品库操作无效')
             rid = command.get('requestId')
             if not isinstance(rid, str) or not re.fullmatch(r'[A-Za-z0-9_-]{16,96}', rid): raise self.error('操作编号无效')
             signed = {k: command.get(k) for k in ('op', 'revision', 'templateId', 'templateVersion', 'item', 'playerId', 'itemId', 'bagRevision')}
+            if 'characterId' in command: signed['characterId'] = command['characterId']
             signature = hashlib.sha256(json.dumps(signed, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
             prior = data['receipts'].get(rid)
             if prior:
@@ -91,25 +133,47 @@ class ItemLibrary:
             if type(command.get('revision')) is not int or command['revision'] != data['revision']: raise self.error('物品库已更新，请刷新后重试；编辑内容仍可保留', 409)
             old = copy.deepcopy(data)
             current = None
-            if op in ('edit', 'duplicate', 'archive', 'restore'):
+            if op in ('edit', 'duplicate', 'archive', 'restore', 'purge'):
                 current = next((t for t in data['templates'] if t['id'] == command.get('templateId')), None)
                 if not current or type(command.get('templateVersion')) is not int or command['templateVersion'] != current['version']: raise self.error('模板已更新，请刷新后重试', 409)
-            if op in ('archive', 'restore'):
+            if op == 'purge':
+                if not current['archived']: raise self.error('请先归档物品，再彻底删除', 409)
+                result = current
+                data['templates'].remove(current)
+            elif op in ('archive', 'restore'):
                 current.update(archived=op == 'archive', version=current['version'] + 1)
                 result = current
             else:
                 raw = command.get('item')
+                copied_package = None
                 if op == 'fromBag':
                     from .resources import ResourceStore
-                    bag = ResourceStore(self.profiles, self.impl).read(command.get('playerId'))
+                    resources = ResourceStore(self.profiles, self.impl)
+                    bag = resources.read(command.get('playerId'))
                     if type(command.get('bagRevision')) is not int or bag['revision'] != command['bagRevision']: raise self.error('背包已更新，请刷新后另存模板', 409)
                     source = next((i for i in bag['items'] if i['id'] == command.get('itemId') and i['quantity'] > 0), None)
                     if not source: raise self.error('背包物品不存在', 404)
-                    raw = dict(item_definition(source, self.error), **self.metadata(raw or {}))
+                    if source.get('ownerCharacterId'):
+                        if command.get('characterId') != source['ownerCharacterId']:
+                            raise self.error('请明确选择这件物品所属的角色', 400)
+                        resources.require_recipient(resources.ledger(), command.get('playerId'), command['characterId'])
+                    origin = resources.packages.normalize_origin(source)
+                    if not origin: raise self.error('请先确定这件旧物品的来源，再另存模板', 409)
+                    if origin['sourceScope'] == 'personal':
+                        raise self.error('角色自有物品保存在玩家包中，不能另存到公共物品库', 403)
+                    metadata = dict(raw or {})
+                    expected = dict(scope=origin['sourceScope'], campaignId=origin.get('sourceCampaignId', ''))
+                    if any(key in metadata and metadata[key] != value for key, value in expected.items()):
+                        raise self.error('另存模板会保留原物品来源；如需另一来源，请单独创建物品', 409)
+                    metadata.update(expected)
+                    raw = dict(item_definition(source, self.error), **self.metadata(metadata))
+                    copied_package = origin['sourcePackageId']
                 elif op == 'duplicate':
                     raw = dict(current, name=current['name'][:55]+' · 副本')
+                    copied_package = current.get('contentPackageId')
                 if not isinstance(raw, dict): raise self.error('物品资料无效')
                 result = dict(item_definition(raw, self.error), **self.metadata(raw))
+                if copied_package: result['contentPackageId'] = copied_package
                 if result['category'] == 'document' and not result.get('image'):
                     from .module_store import ModuleStore
                     kind = 'book' if result.get('documentType') == 'book' else 'letter'
@@ -119,13 +183,16 @@ class ItemLibrary:
                         result['image'] = ModuleStore(self.profiles.save_root).put_asset(artwork.read_bytes(), 'image/png', owner)
                 result.update(id=current['id'] if op == 'edit' else 'tpl_'+secrets.token_hex(16), version=current['version']+1 if op == 'edit' else 1, archived=current['archived'] if op == 'edit' else False)
                 if op == 'edit':
-                    if current.get('moduleId'): result['moduleId']=current['moduleId']
+                    if (current.get('scope'), current.get('campaignId', '')) == (result['scope'], result['campaignId']):
+                        for key in ('moduleId', 'contentPackageId'):
+                            if current.get(key): result[key] = current[key]
                     data['templates'][data['templates'].index(current)] = result
                 else:
                     if len(data['templates']) >= 3000: raise self.error('物品库已达 3000 项，请先整理')
                     data['templates'].append(result)
             data['revision'] += 1
             data['receipts'][rid] = dict(signature=signature, templateId=result['id'])
-            self.impl.atomic(self.path.parent / '物品库自动备份' / ('%s.json' % old['revision']), old)
+            if len(data['receipts']) > 512: data['receipts'].pop(next(iter(data['receipts'])))
+            self.backup(old)
             write_catalog(self.profiles.save_root, 'item-template', data)
             return dict(library=self.public(data), templateId=result['id'])

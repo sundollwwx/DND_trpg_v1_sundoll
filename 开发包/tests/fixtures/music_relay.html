@@ -1,0 +1,22 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>公网音频中转验收</title>
+<style>body{background:#171923;color:#eee;font:16px system-ui;padding:32px}button{padding:12px;margin:8px}pre{white-space:pre-wrap}</style>
+<h1>房间音频中转验收</h1><p>仅使用本页合成音，不采集麦克风或标签页。</p>
+<button id="start">开始测试音</button><button id="pause">暂停或继续</button><button id="join">模拟晚加入</button><button id="stop">停止测试</button>
+<p id="host-status">未开始</p><p id="player-audio-title"></p><p id="player-audio-status"></p><button id="player-audio-enable">启用声音</button><button id="player-audio-mute">静音</button><input id="player-audio-volume" type="range" value="10"><pre id="stats"></pre>
+<script src="/test-host-relay.js"></script><script src="/test-host-capture.js"></script><script src="/test-player-relay.js"></script><script src="/test-player-music.js"></script>
+<script>
+const $=s=>document.querySelector(s);let context,oscillator,sender,receiver,issued=Date.now(),analysis,analyser,observedStream;
+let uploads=0,downloads=0,receivedBytes=0,maxEnergy=0,errors=0;
+const measuredFetch=async(url,opts)=>{const r=await fetch(url,opts);if(String(url).includes('/api/music-live')){if(opts?.method==='POST')uploads++;else {downloads++;const data=await r.clone().json();receivedBytes+=(data.packets||[]).reduce((n,p)=>n+p.pcm.length*3/4,0);}}return r;};
+const testEnv=Object.create(window);testEnv.fetch=measuredFetch;for(const key of ['setTimeout','clearTimeout','btoa','atob'])testEnv[key]=window[key].bind(window);
+const relay=SundollHostRelay.create({env:testEnv,base:()=>location.origin,failed:message=>{errors++;$('#host-status').textContent=message;sender.stop();}});
+receiver=SundollPlayerMusic.create({$,env:testEnv,session:()=> 'relay-test-session',playerId:()=> 'relay-test-player',serverNow:()=>Date.now()});
+function command(action){receiver.apply({action,mode:'live',url:relay.url(),track:'合成测试音',issuedAt:++issued});}
+const captureEnv={navigator:{mediaDevices:{getUserMedia:async()=>{context=new AudioContext();await context.resume();oscillator=context.createOscillator();oscillator.frequency.value=440;const gain=context.createGain();gain.gain.value=.08;const out=context.createMediaStreamDestination();oscillator.connect(gain).connect(out);oscillator.start();return out.stream;}}}};
+sender=SundollLiveAudio.create({relay,env:captureEnv,online:()=>true,players:()=>[],started:()=>command('play'),stopped:()=>{command('stop');oscillator?.stop();context?.close();},command,changed:()=>{$('#host-status').textContent=JSON.stringify(sender.status());}});
+$('#start').onclick=()=>sender.start('device','synthetic','测试音').catch(e=>{$('#host-status').textContent=e.message;errors++;});
+$('#pause').onclick=()=>sender.togglePause();$('#stop').onclick=()=>sender.stop();$('#join').onclick=()=>{receiver.reset();maxEnergy=0;command('play');};
+setInterval(async()=>{const audio=receiver.backgrounds()[1];if(audio.srcObject&&audio.srcObject!==observedStream){await analysis?.close();analysis=new AudioContext();await analysis.resume();analyser=analysis.createAnalyser();analysis.createMediaStreamSource(audio.srcObject).connect(analyser);observedStream=audio.srcObject;}
+let energy=0;if(analyser&&audio.srcObject){const values=new Float32Array(analyser.fftSize);analyser.getFloatTimeDomainData(values);energy=values.reduce((n,v)=>n+v*v,0)/values.length;maxEnergy=Math.max(maxEnergy,energy);}
+$('#stats').textContent=JSON.stringify({uploads,downloads,receivedBytes,energy,maxEnergy,errors,paused:audio.paused,audioTracks:audio.srcObject?.getAudioTracks().length||0},null,2);},300);
+</script></html>

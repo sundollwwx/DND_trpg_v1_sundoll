@@ -13,12 +13,6 @@ const APP_VERSION = 'v1.10';
 const MAX_DOODLE_POINTS = 800;
 const CONDITION_SPRITE_URL = '../asset/界面/状态图标-v1.png';
 const REST_TRANSITION_DURATIONS = Object.freeze({ short: 2200, long: 4400 });
-const COVER_HOME_THEMES = Object.freeze({
-  a: { label: '冒险桌', image: '../asset/界面/主页背景/a-主控台.jpg' },
-  b: { label: '塔楼指挥室', image: '../asset/界面/主页背景/b-主控台.jpg' },
-  c: { label: '魔法档案馆', image: '../asset/界面/主页背景/c-主控台.jpg' },
-  d: { label: '羊皮世界地图', image: '../asset/界面/主页背景/d-主控台.jpg' },
-});
 
 const TYPE_META = {
   pc:    { label: '玩家角色', ring: '#5b8cff', glow: 'rgba(91,140,255,.45)', defaultIcon: '🧙' },
@@ -78,7 +72,6 @@ function catParts(c) {
 
 const $ = (sel) => document.querySelector(sel);
 const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
-const snapToCell = (v, grid) => Math.round(v / grid - 0.5) * grid + grid / 2;
 // 微型使用半格网格，奇数边长占格吸附格心，偶数边长占格吸附交点。
 const snapTokenCenter = (v, grid, size, offset = 0) => SundollSize.snap(v, grid, size, offset);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => (
@@ -92,9 +85,15 @@ function preloadConditionPixels() {
   image.src = CONDITION_SPRITE_URL;
 }
 
-const WORLD_MINUTES_PER_DAY = 24 * 60;
-const WORLD_DAYS_PER_WEEK = 7;
-const WORLD_WEEKS_PER_YEAR = 52;
+const CLIMATE_CONFIG = window.SundollClimateConfig;
+const CLIMATE_AVAILABLE = Boolean(CLIMATE_CONFIG?.calendar && CLIMATE_CONFIG?.climates
+  && (CLIMATE_CONFIG?.transitions || Object.values(CLIMATE_CONFIG.climates).every(profile => profile.transitions))
+  && CLIMATE_CONFIG?.temperature && CLIMATE_CONFIG?.defaultWeather);
+// 现有战役历；这个364日历不是所有D&D世界的通用历法。
+// 日历属于游戏时钟；缺少可选气候包时仍须能够推进回合与日期。
+const WORLD_MINUTES_PER_DAY = CLIMATE_CONFIG?.calendar?.minutesPerDay ?? 1440;
+const WORLD_DAYS_PER_WEEK = CLIMATE_CONFIG?.calendar?.daysPerWeek ?? 7;
+const WORLD_WEEKS_PER_YEAR = CLIMATE_CONFIG?.calendar?.weeksPerYear ?? 52;
 const WORLD_MINUTES_PER_YEAR = WORLD_MINUTES_PER_DAY * WORLD_DAYS_PER_WEEK * WORLD_WEEKS_PER_YEAR;
 const MAX_MOVE_POINTS = 60;
 const MAX_TURN_PATH_POINTS = 200;
@@ -112,127 +111,16 @@ const MAP_THUMBNAIL_HEIGHT = 225;
 const MAX_DIRECT_MAP_IMPORTS = 30;
 const AUTOSAVE_INTERVAL_MS = 60 * 1000;
 const WORLD_SECONDS_PER_DAY = WORLD_MINUTES_PER_DAY * 60;
-const WEATHER_ROLLOVER_SECONDS = 8 * 60 * 60;
-const MAX_WEATHER_CATCHUP_DAYS = 3660;
-// 08:00 为当天基准温度；凌晨最低，午后最高，每个整点更新一次。
-const HOURLY_TEMPERATURE_CURVE = [
-  -0.60, -0.72, -0.82, -0.90, -1.00, -0.95,
-  -0.70, -0.35, 0, 0.25, 0.50, 0.70,
-  0.85, 0.95, 1.00, 0.95, 0.80, 0.55,
-  0.25, 0, -0.15, -0.30, -0.42, -0.52,
-];
-
-const SEASON_META = [
-  { key: 'spring', label: '春季', icon: '🌱', firstWeek: 1, lastWeek: 13 },
-  { key: 'summer', label: '夏季', icon: '☀️', firstWeek: 14, lastWeek: 26 },
-  { key: 'autumn', label: '秋季', icon: '🍂', firstWeek: 27, lastWeek: 39 },
-  { key: 'winter', label: '冬季', icon: '❄️', firstWeek: 40, lastWeek: 52 },
-];
-
-const WEATHER_META = {
-  clear: { label: '晴朗', icon: '☀️', temperatureDelta: 2 },
-  cloudy: { label: '多云', icon: '☁️', temperatureDelta: 0 },
-  rain: { label: '降雨', icon: '🌧️', temperatureDelta: -3 },
-  storm: { label: '雷暴', icon: '⛈️', temperatureDelta: -5 },
-  fog: { label: '浓雾', icon: '🌫️', temperatureDelta: -2 },
-  snow: { label: '降雪', icon: '🌨️', temperatureDelta: -7 },
-  wind: { label: '强风', icon: '💨', temperatureDelta: -2 },
-  heat: { label: '酷热', icon: '🏜️', temperatureDelta: 7 },
-};
-
-const WIND_META = {
-  calm: { label: '无风', icon: '·' },
-  breeze: { label: '微风', icon: '〰' },
-  strong: { label: '强风', icon: '≋' },
-  gale: { label: '烈风', icon: '➰' },
-};
-
-// 天气并非每天独立抽签：季节/气候决定可出现的天气，昨日状态决定转移倾向。
-const WEATHER_MARKOV_TRANSITIONS = {
-  clear:  { clear: 7, cloudy: 3, rain: 0.6, storm: 0.15, fog: 0.8, snow: 0.4, wind: 1.2, heat: 2 },
-  cloudy: { clear: 2.5, cloudy: 6, rain: 4, storm: 1.5, fog: 2.5, snow: 3, wind: 1.5, heat: 0.3 },
-  rain:   { clear: 1.2, cloudy: 4, rain: 6, storm: 2.5, fog: 2, snow: 0.8, wind: 1.4, heat: 0.1 },
-  storm:  { clear: 0.8, cloudy: 4, rain: 5, storm: 2, fog: 0.6, snow: 0.5, wind: 3, heat: 0.1 },
-  fog:    { clear: 2, cloudy: 4, rain: 2, storm: 0.4, fog: 5, snow: 1.5, wind: 0.8, heat: 0.2 },
-  snow:   { clear: 1.5, cloudy: 4, rain: 0.8, storm: 0.4, fog: 1.8, snow: 7, wind: 2, heat: 0.05 },
-  wind:   { clear: 2.5, cloudy: 3, rain: 1.5, storm: 2, fog: 0.5, snow: 1.5, wind: 5, heat: 1 },
-  heat:   { clear: 4, cloudy: 1, rain: 0.4, storm: 0.8, fog: 0.1, snow: 0.01, wind: 2, heat: 7 },
-};
-
-const WIND_MARKOV_TRANSITIONS = {
-  calm:   { calm: 6, breeze: 4, strong: 0.5, gale: 0.1 },
-  breeze: { calm: 2, breeze: 6, strong: 2, gale: 0.3 },
-  strong: { calm: 0.4, breeze: 3, strong: 5, gale: 2 },
-  gale:   { calm: 0.2, breeze: 2, strong: 5, gale: 3 },
-};
-
-const WEATHER_WIND_WEIGHTS = {
-  clear:  { calm: 4, breeze: 6, strong: 1, gale: 0.05 },
-  cloudy: { calm: 2, breeze: 6, strong: 2, gale: 0.2 },
-  rain:   { calm: 0.8, breeze: 4, strong: 3, gale: 0.8 },
-  storm:  { calm: 0.05, breeze: 0.3, strong: 4, gale: 8 },
-  fog:    { calm: 5, breeze: 3, strong: 0.4, gale: 0.05 },
-  snow:   { calm: 1.5, breeze: 4, strong: 3, gale: 0.8 },
-  wind:   { calm: 0.1, breeze: 1, strong: 7, gale: 3 },
-  heat:   { calm: 3, breeze: 5, strong: 1.5, gale: 0.1 },
-};
-
-const CLIMATE_META = {
-  temperate: {
-    label: '温带', icon: '🌿', diurnalRange: 5, temperatures: { spring: 14, summer: 25, autumn: 15, winter: 3 },
-    weather: {
-      spring: ['clear', 'cloudy', 'rain', 'rain', 'fog', 'wind'],
-      summer: ['clear', 'clear', 'cloudy', 'rain', 'storm', 'heat'],
-      autumn: ['clear', 'cloudy', 'rain', 'fog', 'wind', 'wind'],
-      winter: ['clear', 'cloudy', 'snow', 'snow', 'fog', 'wind'],
-    },
-  },
-  cold: {
-    label: '寒带', icon: '🧊', diurnalRange: 6, temperatures: { spring: 0, summer: 12, autumn: 2, winter: -15 },
-    weather: {
-      spring: ['cloudy', 'snow', 'rain', 'wind', 'fog'],
-      summer: ['clear', 'cloudy', 'rain', 'fog', 'wind'],
-      autumn: ['cloudy', 'rain', 'snow', 'wind', 'fog'],
-      winter: ['snow', 'snow', 'clear', 'wind', 'fog'],
-    },
-  },
-  tropical: {
-    label: '热带', icon: '🌴', diurnalRange: 3, temperatures: { spring: 27, summer: 29, autumn: 28, winter: 26 },
-    weather: {
-      spring: ['clear', 'rain', 'rain', 'storm', 'fog'],
-      summer: ['clear', 'heat', 'rain', 'storm', 'storm'],
-      autumn: ['clear', 'rain', 'rain', 'storm', 'cloudy'],
-      winter: ['clear', 'clear', 'cloudy', 'rain', 'fog'],
-    },
-  },
-  arid: {
-    label: '干旱', icon: '🏜️', diurnalRange: 9, temperatures: { spring: 22, summer: 36, autumn: 25, winter: 14 },
-    weather: {
-      spring: ['clear', 'clear', 'heat', 'wind', 'cloudy'],
-      summer: ['clear', 'heat', 'heat', 'wind', 'storm'],
-      autumn: ['clear', 'clear', 'heat', 'wind', 'cloudy'],
-      winter: ['clear', 'clear', 'cloudy', 'wind', 'rain'],
-    },
-  },
-  coastal: {
-    label: '海洋', icon: '🌊', diurnalRange: 3, temperatures: { spring: 15, summer: 23, autumn: 17, winter: 9 },
-    weather: {
-      spring: ['cloudy', 'rain', 'fog', 'wind', 'clear'],
-      summer: ['clear', 'cloudy', 'rain', 'fog', 'storm'],
-      autumn: ['cloudy', 'rain', 'wind', 'storm', 'fog'],
-      winter: ['cloudy', 'rain', 'wind', 'fog', 'snow'],
-    },
-  },
-  highland: {
-    label: '高山', icon: '⛰️', diurnalRange: 7, temperatures: { spring: 5, summer: 16, autumn: 7, winter: -6 },
-    weather: {
-      spring: ['clear', 'cloudy', 'fog', 'rain', 'snow'],
-      summer: ['clear', 'cloudy', 'rain', 'storm', 'wind'],
-      autumn: ['cloudy', 'fog', 'rain', 'snow', 'wind'],
-      winter: ['snow', 'snow', 'clear', 'fog', 'wind'],
-    },
-  },
-};
+const WEATHER_STEP_SECONDS = CLIMATE_CONFIG?.schedule?.secondsPerStep;
+const MAX_WEATHER_CATCHUP_HOURS = CLIMATE_CONFIG?.schedule?.maxCatchupHours;
+const HOURLY_TEMPERATURE_CURVE = CLIMATE_CONFIG?.temperature?.hourlyCurve || [];
+const SEASON_META = CLIMATE_CONFIG?.seasons || [];
+const WEATHER_META = CLIMATE_CONFIG?.conditions || {};
+const WIND_META = CLIMATE_CONFIG?.winds || {};
+const WEATHER_MARKOV_TRANSITIONS = CLIMATE_CONFIG?.transitions?.weather || {};
+const WIND_MARKOV_TRANSITIONS = CLIMATE_CONFIG?.transitions?.wind || {};
+const WEATHER_WIND_WEIGHTS = CLIMATE_CONFIG?.transitions?.weatherWind || {};
+const CLIMATE_META = CLIMATE_CONFIG?.climates || {};
 
 function seasonForWeek(week) {
   const safeWeek = clamp(Math.trunc(Number(week) || 1), 1, WORLD_WEEKS_PER_YEAR);
@@ -240,24 +128,30 @@ function seasonForWeek(week) {
 }
 
 function defaultWeatherState() {
-  return { climate: 'temperate', condition: 'clear', temperature: 18, wind: 'breeze', generatedDay: 0 };
+  return CLIMATE_AVAILABLE ? { ...CLIMATE_CONFIG.defaultWeather, generatedHour: null } : {};
 }
 
-function normalizeWeather(raw) {
-  const defaults = defaultWeatherState();
+function normalizeWeather(raw, totalSeconds = null) {
   const source = raw && typeof raw === 'object' ? raw : {};
+  // A missing model must not rewrite a saved sky or invent substitute data.
+  if (!CLIMATE_AVAILABLE) return { ...source };
+  const defaults = defaultWeatherState();
   const climate = CLIMATE_META[source.climate] ? source.climate : defaults.climate;
   const condition = WEATHER_META[source.condition] ? source.condition : defaults.condition;
   const wind = WIND_META[source.wind] ? source.wind : defaults.wind;
-  const numericTemperature = Number(source.temperature);
-  const numericGeneratedDay = source.generatedDay === null || source.generatedDay === ''
-    ? NaN : Number(source.generatedDay);
+  const numericTemperature = source.temperature === null || source.temperature === ''
+    ? NaN : Number(source.temperature);
+  const numericGeneratedHour = source.generatedHour === null || source.generatedHour === ''
+    ? NaN : Number(source.generatedHour);
+  const limits = CLIMATE_CONFIG.temperature;
   return {
-    climate,
-    condition,
-    temperature: Number.isFinite(numericTemperature) ? clamp(Math.round(numericTemperature), -100, 100) : defaults.temperature,
-    wind,
-    generatedDay: Number.isFinite(numericGeneratedDay) ? Math.trunc(numericGeneratedDay) : null,
+    climate, condition, wind,
+    temperature: Math.round(clamp(Number.isFinite(numericTemperature) ? numericTemperature : defaults.temperature, limits.min, limits.max) * 10) / 10,
+    // Old generatedDay is migrated by anchoring at the current hour once.
+    generatedHour: Number.isFinite(numericGeneratedHour)
+      ? Math.max(0, Math.trunc(numericGeneratedHour))
+      : totalSeconds === null ? null : weatherHourIndex(totalSeconds),
+    auto: typeof source.auto === 'boolean' ? source.auto : defaults.auto,
   };
 }
 
@@ -266,6 +160,7 @@ function defaultEncounterState() {
     collapsed: true,
     panel: 'initiative',
     playMode: 'free',
+    allowInitiativeSwap: false,
     round: 1,
     currentEntryId: null,
     turnSerial: 1,
@@ -295,6 +190,8 @@ const state = {
   presentedMapId: null,
   mapChapters: [],
   mapLocations: [],
+  worldWeatherLocationId: null,
+  worldWeatherDefault: null,
   snap: true,
   showNames: true,
   campaignId: null,
@@ -303,6 +200,7 @@ const state = {
   sharedResources: [],
   sharedNotes: '',
   prepHandbook: [],
+  combatQuickCards: [],
   selectedId: null,
   encounter: defaultEncounterState(),
 };
@@ -330,7 +228,17 @@ let streamPushing = false;
 let streamES = null;
 let streamAppliedSeq = 0;
 let streamServerSessionId = '';
+let hostStateRevision = null;
+let hostStateSessionId = '';
+let hostStateConflict = null;
+let hostStateReadPromise = null;
+let hostStateWriteQueue = Promise.resolve();
+let hostStatePostPending = false;
+let hostStatePendingActions = [];
+let hostEditGeneration = 0;
 let streamInfo = null;
+let hostStreamAccountConfig = null;
+let hostStreamAccountRead = null;
 let streamConnectionState = 'off';
 let streamPlayersTimer = null;
 let pendingLegacyPortraitMigrations = 0;
@@ -374,12 +282,16 @@ let unitSource = 'library';
 let libRecentIds = [];
 let libEditorId = null;
 let libAvatar = null;
-let libEqDraft = [];
 let encounterClockTimer = null;
 let spellAimTokenId = null;
 let pendingMapReaction = null;
 let spellRangeRaf = null;
 let lastInitiativeScrollEntryId = null;
+let initiativeManagerReturnFocus = null;
+const hostInitiativeValueDrafts = new Map();
+let mapInitiativePopoverKey = null;
+let mapInitiativeDismissedKey = null;
+const mapInitiativeValueDrafts = new Map();
 const localReactionIds = new Set();
 
 /* ==================== 地图（多楼层） ==================== */
@@ -397,7 +309,12 @@ function normalizeEncounter(raw) {
   const defaults = defaultEncounterState();
   const source = raw && typeof raw === 'object' ? raw : {};
   const usedIds = new Set();
-  const sourceEntries = Array.isArray(source.entries) ? source.entries : [];
+  let hasEnvironment = false;
+  const sourceEntries = SundollRules.normalizeInitiativeEntryOrders(Array.isArray(source.entries) ? source.entries : []).filter(entry => {
+    if (entry.kind !== 'environment') return true;
+    if (hasEnvironment) return false;
+    hasEnvironment = true; return true;
+  });
   const entries = sourceEntries.map((entry, index) => {
     const candidateId = String(entry && entry.id || '').trim();
     let id = candidateId || `i${uid++}`;
@@ -407,10 +324,11 @@ function normalizeEncounter(raw) {
     const order = Number.isFinite(Number(entry && entry.order)) ? Number(entry.order) : index;
     return {
       id,
-      name: String(entry && entry.name || '未命名单位').trim().slice(0, 24) || '未命名单位',
+      ...(entry.kind === 'environment' ? { kind: 'environment' } : {}),
+      name: String(entry.kind === 'environment' ? '环境回合' : entry && entry.name || '未命名单位').trim().slice(0, 24) || '未命名单位',
       value: Number.isFinite(numericValue) ? clamp(Math.trunc(numericValue), -999, 999) : 0,
       color: String(entry && entry.color || '#e0b34c'),
-      tokenId: entry && entry.tokenId ? String(entry.tokenId) : null,
+      tokenId: entry.kind !== 'environment' && entry.tokenId ? String(entry.tokenId) : null,
       order,
     };
   });
@@ -440,10 +358,7 @@ function normalizeEncounter(raw) {
     rate: Number.isFinite(rawRate) && rawRate > 0 ? clamp(rawRate, 0.01, 60) : 1,
     resumeAfterTurn: worldSource.resumeAfterTurn === true,
   };
-  const weather = normalizeWeather(source.weather);
-  if (!Number.isInteger(weather.generatedDay)) {
-    weather.generatedDay = weatherDayIndex(worldTimeNow({ worldTime }));
-  }
+  const weather = normalizeWeather(source.weather, worldTimeNow({ worldTime }));
   const panel = source.panel === 'time' ? 'time' : 'initiative';
   const rawTurnSerial = Number(source.turnSerial);
   const turnSerial = Number.isFinite(rawTurnSerial) ? Math.max(1, Math.trunc(rawTurnSerial)) : 1;
@@ -471,6 +386,7 @@ function normalizeEncounter(raw) {
     collapsed: source.collapsed !== false,
     panel,
     playMode,
+    allowInitiativeSwap: false,
     round: Math.max(1, Math.trunc(Number(source.round)) || 1),
     currentEntryId,
     turnSerial,
@@ -491,6 +407,7 @@ function encounterState() {
   if (!Array.isArray(e.entries)) e.entries = [];
   if (e.panel !== 'time') e.panel = 'initiative';
   if (!['free', 'prepare', 'turn'].includes(e.playMode)) e.playMode = 'free';
+  e.allowInitiativeSwap = false;
   e.round = Math.max(1, parseInt(e.round, 10) || 1);
   e.turnSerial = Math.max(1, parseInt(e.turnSerial, 10) || 1);
   e.secondsPerRound = clamp(Math.trunc(Number(e.secondsPerRound) || 6), 1, 3600);
@@ -518,10 +435,7 @@ function encounterState() {
   e.worldTime.runningSince = Number.isFinite(Number(e.worldTime.runningSince)) && Number(e.worldTime.runningSince) > 0
     ? Number(e.worldTime.runningSince) : null;
   e.worldTime.resumeAfterTurn = e.worldTime.resumeAfterTurn === true;
-  e.weather = normalizeWeather(e.weather);
-  if (!Number.isInteger(e.weather.generatedDay)) {
-    e.weather.generatedDay = weatherDayIndex(worldTimeNow(e));
-  }
+  e.weather = normalizeWeather(e.weather, worldTimeNow(e));
   return e;
 }
 
@@ -684,7 +598,7 @@ function updateHostTurnPathControls(e = encounterState()) {
   const context = hostTurnPathContext(e);
   const inTurn = e.playMode === 'turn';
   const canChange = inTurn && context.points.length > 1;
-  actions.hidden = !inTurn;
+  actions.hidden = !inTurn || context.entry?.kind === 'environment';
   toggle.classList.toggle('active', hostTurnPathRecording);
   toggle.setAttribute('aria-pressed', String(hostTurnPathRecording));
   toggle.textContent = '路径';
@@ -763,34 +677,52 @@ function formatWorldClock(parts) {
   return `${String(parts.hour).padStart(2, '0')}:${String(parts.minute).padStart(2, '0')}:${String(parts.second).padStart(2, '0')}`;
 }
 
+function weatherHourIndex(totalSeconds) {
+  return Math.floor(Math.max(0, Math.floor(Number(totalSeconds) || 0)) / WEATHER_STEP_SECONDS);
+}
+
 function weatherDayIndex(totalSeconds) {
-  const total = Math.max(0, Math.floor(Number(totalSeconds) || 0));
-  return Math.floor((total - WEATHER_ROLLOVER_SECONDS) / WORLD_SECONDS_PER_DAY);
+  // Compatibility only: scheduling now uses weatherHourIndex.
+  return Math.floor(Math.max(0, Math.floor(Number(totalSeconds) || 0)) / WORLD_SECONDS_PER_DAY);
 }
 
 function hourlyTemperatureOffset(climateKey, hour) {
-  const climate = CLIMATE_META[climateKey] || CLIMATE_META.temperate;
+  if (!CLIMATE_AVAILABLE) return 0;
+  const climate = CLIMATE_META[climateKey] || CLIMATE_META[CLIMATE_CONFIG.defaultWeather.climate];
   const safeHour = clamp(Math.trunc(Number(hour) || 0), 0, 23);
-  return Math.round((Number(climate.diurnalRange) || 0) * HOURLY_TEMPERATURE_CURVE[safeHour]);
+  return Math.round(climate.diurnalRange * HOURLY_TEMPERATURE_CURVE[safeHour]);
 }
 
-function currentWeatherTemperature(weather, hour) {
+function effectiveWeatherTemperature(weather, hour) {
   const normalized = normalizeWeather(weather);
-  return clamp(normalized.temperature + hourlyTemperatureOffset(normalized.climate, hour), -100, 100);
+  if (!CLIMATE_AVAILABLE) return typeof normalized.temperature === 'number' && Number.isFinite(normalized.temperature)
+    ? normalized.temperature : null;
+  const limits = CLIMATE_CONFIG.temperature;
+  return clamp(normalized.temperature + hourlyTemperatureOffset(normalized.climate, hour), limits.min, limits.max);
 }
 
 function weatherPresentation(weather, worldParts) {
   const normalized = normalizeWeather(weather);
+  if (!CLIMATE_AVAILABLE) return {
+    ...normalized, available: false, baseTemperature: normalized.temperature,
+    effectiveTemperature: null, temperature: normalized.temperature,
+    season: { icon: '', label: '季节资料未加载' },
+    conditionIcon: '⌁', conditionLabel: '天气已暂停',
+    compact: '天气已暂停', detail: '天气资料不可用，保留当前天气；安装或修复日常小事通用包后刷新。',
+    modeLabel: '天气已暂停', description: '',
+  };
   const climate = CLIMATE_META[normalized.climate];
   const condition = WEATHER_META[normalized.condition];
   const wind = WIND_META[normalized.wind];
   const world = worldParts && typeof worldParts === 'object'
     ? worldParts : { week: Number(worldParts) || 1, hour: 8 };
   const season = seasonForWeek(world.week);
-  const temperature = currentWeatherTemperature(normalized, world.hour);
+  const effectiveTemperature = effectiveWeatherTemperature(normalized, world.hour);
+  const temperature = Math.round(effectiveTemperature * 10) / 10;
   return {
     ...normalized,
     baseTemperature: normalized.temperature,
+    effectiveTemperature,
     temperature,
     climateLabel: climate.label,
     climateIcon: climate.icon,
@@ -798,9 +730,31 @@ function weatherPresentation(weather, worldParts) {
     conditionIcon: condition.icon,
     windLabel: wind.label,
     season,
+    description: condition.description || '',
+    modeLabel: normalized.auto ? '每小时演化' : '手动天气',
     compact: `${condition.icon} ${condition.label} · ${temperature}°C`,
     detail: `${climate.icon} ${climate.label} · ${season.icon} ${season.label} · ${temperature}°C · ${wind.label}`,
   };
+}
+
+function weatherEnvironmentEffects(raw, worldParts) {
+  if (!CLIMATE_AVAILABLE) return [];
+  const weather = weatherPresentation(raw, worldParts);
+  const condition = WEATHER_META[weather.condition];
+  const effects = (condition.effects || []).map(effect => ({ ...effect }));
+  if (!effects.length) effects.push({ title: condition.label, detail: condition.description, sourceId: 'environment' });
+  if (weather.condition === 'storm') effects.push({ title: '雷暴', detail: condition.description });
+  const addRule = (id, when, pending = false) => {
+    const rule = CLIMATE_CONFIG.rulesNotes.find(item => item.id === id);
+    if (rule) effects.push({ title: rule.title, detail: rule.detail, sourceId: 'environment', when, pending });
+  };
+  if (weather.wind === 'strong' || weather.wind === 'gale') addRule('wind', '实际处在强风中');
+  if (weather.effectiveTemperature <= (0 - 32) * 5 / 9) addRule('cold', '暴露、抗性与免疫待主持人确认', true);
+  if (weather.effectiveTemperature >= (100 - 32) * 5 / 9) addRule('heat', '暴露、饮用水、护甲与抗性待主持人确认', true);
+  if (['fog', 'lightFog'].includes(weather.condition) && ['strong', 'gale'].includes(weather.wind)) {
+    effects.push({ title: '特殊雾景', detail: '普通雾会被强风驱散；保留这个手动组合时，请确认特殊成因。', pending: true });
+  }
+  return effects;
 }
 
 function weightedWeatherChoice(weights, randomFn = Math.random) {
@@ -817,22 +771,27 @@ function weightedWeatherChoice(weights, randomFn = Math.random) {
 }
 
 function climateWeatherWeights(profile, seasonKey, previousCondition) {
+  if (!CLIMATE_AVAILABLE) return {};
   const pool = profile.weather[seasonKey] || profile.weather.spring || [];
   const base = pool.reduce((weights, condition) => {
     if (WEATHER_META[condition]) weights[condition] = (weights[condition] || 0) + 1;
     return weights;
   }, {});
-  const transition = WEATHER_MARKOV_TRANSITIONS[previousCondition] || WEATHER_MARKOV_TRANSITIONS.clear;
+  const transitions = profile.transitions?.weather || WEATHER_MARKOV_TRANSITIONS;
+  const transition = transitions[previousCondition] || transitions[CLIMATE_CONFIG.defaultWeather.condition];
   return Object.fromEntries(Object.entries(base).map(([condition, weight]) => (
-    [condition, weight * (Number(transition[condition]) || 0.01)]
+    [condition, weight * (Number(transition[condition]) || 0)]
   )));
 }
 
-function weatherWindWeights(condition, previousWind) {
-  const weatherWeights = WEATHER_WIND_WEIGHTS[condition] || WEATHER_WIND_WEIGHTS.clear;
-  const transition = WIND_MARKOV_TRANSITIONS[previousWind] || WIND_MARKOV_TRANSITIONS.breeze;
+function weatherWindWeights(condition, previousWind, profile = CLIMATE_META[CLIMATE_CONFIG?.defaultWeather?.climate]) {
+  if (!CLIMATE_AVAILABLE) return {};
+  const weatherWind = profile?.transitions?.weatherWind || WEATHER_WIND_WEIGHTS;
+  const windTransitions = profile?.transitions?.wind || WIND_MARKOV_TRANSITIONS;
+  const weatherWeights = weatherWind[condition] || weatherWind[CLIMATE_CONFIG.defaultWeather.condition];
+  const transition = windTransitions[previousWind] || windTransitions[CLIMATE_CONFIG.defaultWeather.wind];
   return Object.fromEntries(Object.keys(WIND_META).map((wind) => (
-    [wind, (Number(weatherWeights[wind]) || 0.01) * (Number(transition[wind]) || 0.01)]
+    [wind, (Number(weatherWeights[wind]) || 0) * (Number(transition[wind]) || 0)]
   )));
 }
 
@@ -841,51 +800,98 @@ function generateClimateWeather(
   climateKey = null,
   totalSeconds = worldTimeNow(e),
   randomFn = Math.random,
-  generatedDay = null,
+  generatedHour = null,
 ) {
+  if (!CLIMATE_AVAILABLE) return weatherPresentation(e.weather, worldTimeParts(totalSeconds));
   const world = worldTimeParts(totalSeconds);
   const season = seasonForWeek(world.week);
-  const previous = normalizeWeather(e.weather);
+  const previous = normalizeWeather(e.weather, totalSeconds);
   const climate = CLIMATE_META[climateKey] ? climateKey : previous.climate;
+  const switchedClimate = climate !== previous.climate;
   const profile = CLIMATE_META[climate];
-  const condition = weightedWeatherChoice(
-    climateWeatherWeights(profile, season.key, previous.condition),
-    randomFn,
-  ) || 'clear';
-  const weatherMeta = WEATHER_META[condition];
-  const expectedTemperature = profile.temperatures[season.key] + weatherMeta.temperatureDelta;
-  const temperature = clamp(
-    Math.round(expectedTemperature * 0.65 + previous.temperature * 0.35 + (randomFn() * 4 - 2)),
-    -100,
-    100,
-  );
-  const wind = weightedWeatherChoice(weatherWindWeights(condition, previous.wind), randomFn) || 'breeze';
-  const day = Number.isInteger(generatedDay) ? generatedDay : weatherDayIndex(world.totalSeconds);
-  e.weather = { climate, condition, temperature, wind, generatedDay: day };
+  let condition = weightedWeatherChoice(climateWeatherWeights(profile, season.key, previous.condition), randomFn)
+    || CLIMATE_CONFIG.defaultWeather.condition;
+  const expectedTemperature = profile.temperatures[season.key] + WEATHER_META[condition].temperatureDelta;
+  const settings = CLIMATE_CONFIG.temperature;
+  const noise = (clamp(Number(randomFn()) || 0, 0, 1) * 2 - 1) * settings.noise;
+  const step = clamp((expectedTemperature - previous.temperature) * (1 - settings.inertia) + noise,
+    -settings.maxHourlyStep, settings.maxHourlyStep);
+  const temperature = Math.round(clamp(switchedClimate ? expectedTemperature + noise : previous.temperature + step,
+    settings.min, settings.max) * 10) / 10;
+  // This ordinary-snow cutoff belongs to the shared model, not D&D rules.
+  if (previous.auto && (condition === 'snow' || condition === 'heavySnow')
+      && effectiveWeatherTemperature({ climate, temperature }, world.hour) > settings.maxSnowTemperature) {
+    condition = condition === 'heavySnow' ? 'heavyRain' : 'rain';
+  }
+  const wind = weightedWeatherChoice(weatherWindWeights(condition, previous.wind, profile), randomFn)
+    || CLIMATE_CONFIG.defaultWeather.wind;
+  const hour = Number.isInteger(generatedHour) ? Math.max(0, generatedHour) : weatherHourIndex(world.totalSeconds);
+  e.weather = { climate, condition, temperature, wind, generatedHour: hour, auto: previous.auto };
   return weatherPresentation(e.weather, world);
 }
 
 function refreshScheduledWeather(e = encounterState(), totalSeconds = worldTimeNow(e), randomFn = Math.random) {
-  e.weather = normalizeWeather(e.weather);
-  const currentDay = weatherDayIndex(totalSeconds);
-  if (!Number.isInteger(e.weather.generatedDay)) {
-    e.weather.generatedDay = currentDay;
+  if (!CLIMATE_AVAILABLE) return null;
+  e.weather = normalizeWeather(e.weather, totalSeconds);
+  const currentHour = weatherHourIndex(totalSeconds);
+  const generatedHour = e.weather.generatedHour;
+  // Manual mode and a rewind preserve the current sky, then reanchor. Saving
+  // this marker prevents duplicate rolls after refresh or a repeated snapshot.
+  if (!e.weather.auto || currentHour < generatedHour) {
+    e.weather.generatedHour = currentHour;
     return null;
   }
-  if (currentDay > e.weather.generatedDay) {
-    const missingDays = currentDay - e.weather.generatedDay;
-    const firstDay = missingDays > MAX_WEATHER_CATCHUP_DAYS
-      ? currentDay - MAX_WEATHER_CATCHUP_DAYS + 1
-      : e.weather.generatedDay + 1;
-    for (let day = firstDay; day <= currentDay; day += 1) {
-      const rolloverSeconds = Math.max(0, day * WORLD_SECONDS_PER_DAY + WEATHER_ROLLOVER_SECONDS);
-      generateClimateWeather(e, e.weather.climate, rolloverSeconds, randomFn, day);
-    }
-    return weatherPresentation(e.weather, worldTimeParts(totalSeconds));
+  if (currentHour === generatedHour) return null;
+  const firstHour = Math.max(generatedHour + 1, currentHour - MAX_WEATHER_CATCHUP_HOURS + 1);
+  for (let hour = firstHour; hour <= currentHour; hour += 1) {
+    generateClimateWeather(e, e.weather.climate, hour * WEATHER_STEP_SECONDS, randomFn, hour);
   }
-  // 回退时间后同步天气日标记；再次向前经过 08:00 时会重新生成。
-  if (currentDay < e.weather.generatedDay) e.weather.generatedDay = currentDay;
-  return null;
+  return weatherPresentation(e.weather, worldTimeParts(totalSeconds));
+}
+
+// The team location is independent of the GM's map preview and player display.
+// Inactive locations catch up from their saved hour only when the team returns.
+function rememberWorldWeather(e = encounterState()) {
+  const saved = { ...normalizeWeather(e.weather, worldTimeNow(e)) };
+  const location = mapLocationById(state.worldWeatherLocationId);
+  if (location) location.weather = saved;
+  else {
+    state.worldWeatherLocationId = null;
+    state.worldWeatherDefault = saved;
+  }
+}
+
+function arriveAtWorldLocation(locationId, climateKey = null, e = encounterState(), totalSeconds = worldTimeNow(e), randomFn = Math.random) {
+  if (!CLIMATE_AVAILABLE) return false;
+  const targetId = locationId ? String(locationId) : null;
+  const location = mapLocationById(targetId);
+  if (targetId && !location) return false;
+  const cached = location?.weather || (!targetId ? state.worldWeatherDefault : null);
+  const climate = CLIMATE_META[climateKey] ? climateKey
+    : location?.climateKey || cached?.climate || e.weather.climate;
+  if (!CLIMATE_META[climate]) return false;
+  refreshScheduledWeather(e, totalSeconds, randomFn);
+  const previousId = state.worldWeatherLocationId || null;
+  const samePlace = previousId === targetId;
+  if (samePlace && e.weather.climate === climate) {
+    if (location) location.climateKey = climate;
+    rememberWorldWeather(e);
+    return true;
+  }
+  rememberWorldWeather(e);
+  state.worldWeatherLocationId = targetId;
+  if (location) location.climateKey = climate;
+  const initial = cached || {
+    ...defaultWeatherState(), climate,
+    temperature: CLIMATE_META[climate].temperatures[seasonForWeek(worldTimeParts(totalSeconds).week).key],
+  };
+  e.weather = normalizeWeather(initial, totalSeconds);
+  if (!cached || e.weather.climate !== climate) {
+    e.weather.auto = CLIMATE_CONFIG.defaultWeather.auto;
+    generateClimateWeather(e, climate, totalSeconds, randomFn);
+  } else refreshScheduledWeather(e, totalSeconds, randomFn);
+  rememberWorldWeather(e);
+  return true;
 }
 
 function materializeWorldTime(e = encounterState(), now = Date.now()) {
@@ -904,21 +910,26 @@ function sortInitiativeEntries(e) {
 }
 
 function applyInitiativeRemoteAction(e, action) {
-  if (!e || e.playMode !== 'prepare' || !action) return false;
-  const serial = Math.max(1, Math.trunc(Number(action.turnSerial) || 1));
-  const nextSerial = Math.max(serial + 1, Math.trunc(Number(action.nextTurnSerial) || (serial + 1)));
-  if (Number(e.turnSerial) === nextSerial) return true;
-  if (Number(e.turnSerial) !== serial) return false;
-  const entry = e.entries.find((item) => item.id === action.entryId);
-  if (!entry) return false;
-  if (action.op === 'initiativeSwap') {
-    const target = e.entries.find((item) => item.id === action.targetEntryId);
-    const entryOrder = Number(action.entryOrder);
-    const targetOrder = Number(action.targetOrder);
-    if (!target || Number(entry.value) !== Number(target.value) || !Number.isFinite(entryOrder) || !Number.isFinite(targetOrder)) return false;
-    entry.order = entryOrder;
-    target.order = targetOrder;
-  } else return false;
+  if (!e || e.playMode !== 'prepare' || e.allowInitiativeSwap === false || action?.op !== 'initiativeSwap') return false;
+  const number = (raw) => (typeof raw === 'number' || (typeof raw === 'string' && raw.trim())) && Number.isFinite(Number(raw)) ? Number(raw) : null;
+  const serial = number(action.turnSerial), nextSerial = number(action.nextTurnSerial);
+  if (!Number.isInteger(serial) || serial < 1 || nextSerial !== serial + 1) return false;
+  const entries = SundollRules.normalizeInitiativeEntryOrders(e.entries);
+  const index = entries.findIndex((item) => item.id === action.entryId);
+  const targetIndex = entries.findIndex((item) => item.id === action.targetEntryId);
+  const entry = entries[index], target = entries[targetIndex];
+  const entryOrder = number(action.entryOrder), targetOrder = number(action.targetOrder);
+  const previousEntryOrder = number(action.previousEntryOrder), previousTargetOrder = number(action.previousTargetOrder);
+  if (!entry || !target || entry === target || Number(entry.value) !== Number(target.value)
+    || [entryOrder, targetOrder, previousEntryOrder, previousTargetOrder].includes(null)
+    || entryOrder !== previousTargetOrder || targetOrder !== previousEntryOrder) return false;
+  if (Number(e.turnSerial) === nextSerial) return entry.order === entryOrder && target.order === targetOrder;
+  // 主持人可能已重新排序；延迟到达的旧动作不能覆盖新顺序或制造重复 order。
+  if (Number(e.turnSerial) !== serial || Math.abs(index - targetIndex) !== 1
+    || entry.order !== previousEntryOrder || target.order !== previousTargetOrder) return false;
+  entry.order = entryOrder;
+  target.order = targetOrder;
+  e.entries = entries;
   sortInitiativeEntries(e);
   e.turnSerial = nextSerial;
   e.turnPath = emptyTurnPath();
@@ -940,8 +951,12 @@ function scrollCurrentInitiativeIntoView(list, e) {
     if (!current || !list.isConnected) return;
     const listRect = list.getBoundingClientRect();
     const itemRect = current.getBoundingClientRect();
-    const top = list.scrollTop + itemRect.top - listRect.top - (listRect.height - itemRect.height) / 2;
-    list.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+    const body = list.closest('.initiative-manager-body'), bodyScrollTop = body?.scrollTop;
+    let top = list.scrollTop;
+    if (itemRect.top < listRect.top) top += itemRect.top - listRect.top;
+    else if (itemRect.bottom > listRect.bottom) top += itemRect.bottom - listRect.bottom;
+    list.scrollTo({ top: Math.max(0, top), behavior: 'auto' });
+    if (body) body.scrollTop = bodyScrollTop;
   });
 }
 
@@ -970,6 +985,7 @@ function initiativeGroupLabel(token, representative = token) {
 }
 
 function initiativeEntryToken(entry) {
+  if (entry?.kind === 'environment') return null;
   return entry?.tokenId ? findToken(String(entry.tokenId)) : null;
 }
 
@@ -1018,7 +1034,7 @@ function reconcileInitiativeEntries({ linkLegacyNames = false } = {}) {
 
   if (linkLegacyNames) {
     e.entries.forEach((entry) => {
-      if (!entry || entry.tokenId) return;
+      if (!entry || entry.tokenId || entry.kind === 'environment') return;
       const name = String(entry.name || '').trim();
       const matches = tokens.filter((token) => String(token.name || '').trim() === name);
       if (matches.length !== 1) return;
@@ -1088,35 +1104,118 @@ function reconcileInitiativeEntries({ linkLegacyNames = false } = {}) {
 }
 
 function renderInitiativeSelection() {
-  const card = $('#init-selected-token');
+  renderMapInitiativePopover();
+}
+
+function mapInitiativeSelection() {
+  const map = activeMap();
+  const token = map?.tokens?.find(item => item.id === state.selectedId);
+  return map && token ? { map, token, key: JSON.stringify([state.campaignId, map.id, token.id]) } : null;
+}
+
+function closeMapInitiativePopover() {
+  const popover = $('#map-initiative-popover');
+  if (!popover) return;
+  mapInitiativeDismissedKey = mapInitiativePopoverKey;
+  popover.hidden = true;
+  if (popover.contains(document.activeElement)) board.focus({ preventScroll: true });
+}
+
+function positionMapInitiativePopover() {
+  const popover = $('#map-initiative-popover');
+  if (!popover) return;
+  const selected = mapInitiativeSelection();
+  if (encounterState().playMode !== 'prepare' || !selected || selected.key !== mapInitiativePopoverKey || selected.key === mapInitiativeDismissedKey
+    || !$('#initiative-manager-modal').hidden) { popover.hidden = true; return; }
+  const { map, token } = selected;
+  const anchor = token.mountId ? map.tokens.find(item => item.id === token.mountId) || token : token;
+  const boardRect = board.getBoundingClientRect();
+  const wrapRect = $('#board-wrap').getBoundingClientRect();
+  const worldRect = world.getBoundingClientRect();
+  const zoom = Number(map.cam.zoom) || 1;
+  // The rendered world origin includes camera translation and any native board scrolling.
+  const x = worldRect.left - boardRect.left + Number(anchor.x) * zoom;
+  const y = worldRect.top - boardRect.top + Number(anchor.y) * zoom;
+  const radius = Math.max(8, (Number(map.gridSize) || 50) * (Number(anchor.size) || 1) * zoom / 2);
+  if (boardRect.width <= 0 || boardRect.height <= 0 || x + radius < 0 || y + radius < 0
+    || x - radius > boardRect.width || y - radius > boardRect.height) { popover.hidden = true; return; }
+  popover.hidden = false;
+  const margin = 8, gap = 10;
+  const width = popover.offsetWidth, height = popover.offsetHeight;
+  // Prefer the right side of the piece; near an edge use the left, then clamp to the visible board.
+  const preferredX = x + radius + gap;
+  const left = preferredX + width <= boardRect.width - margin ? preferredX : x - radius - gap - width;
+  popover.style.left = `${boardRect.left - wrapRect.left + clamp(left, margin, Math.max(margin, boardRect.width - width - margin))}px`;
+  popover.style.top = `${boardRect.top - wrapRect.top + clamp(y - height / 2, margin, Math.max(margin, boardRect.height - height - margin))}px`;
+}
+
+function renderMapInitiativePopover() {
+  const card = $('#map-initiative-popover');
   const button = $('#btn-init-add');
   if (!card || !button) return;
+  if (encounterState().playMode !== 'prepare') {
+    card.hidden = true;
+    button.disabled = true;
+    return;
+  }
+  const selected = mapInitiativeSelection();
+  if (!selected) {
+    mapInitiativePopoverKey = null;
+    card.hidden = true;
+    delete card.dataset.mapId; delete card.dataset.tokenId;
+    return;
+  }
+  const { map, token, key } = selected;
   const icon = $('#init-selected-icon');
   const name = $('#init-selected-name');
   const meta = $('#init-selected-meta');
-  const token = state.selectedId ? findToken(state.selectedId) : null;
-  if (!token) {
-    card.classList.add('empty');
-    card.style.setProperty('--initiative-token-color', '#596477');
-    icon.textContent = '◎';
-    name.textContent = '未选择棋子';
-    meta.textContent = '请先点击地图上的棋子';
-    button.disabled = true;
-    button.textContent = '＋ 加入先攻';
-    return;
-  }
   const type = TYPE_META[token.type] || TYPE_META.npc;
   const group = mountedInitiativeGroup(token);
   const existing = initiativeEntryForToken(encounterState(), token);
-  card.classList.remove('empty');
+  const subject = initiativeRepresentativeForSelection(token, existing);
+  const input = $('#init-value');
+  const switched = mapInitiativePopoverKey !== key;
+  if (switched || !mapInitiativeValueDrafts.has(key)) {
+    input.value = mapInitiativeValueDrafts.has(key) ? mapInitiativeValueDrafts.get(key) : (existing ? String(existing.value) : '');
+    input.setCustomValidity('');
+  }
+  mapInitiativePopoverKey = key;
+  card.dataset.mapId = map.id;
+  card.dataset.tokenId = token.id;
   card.style.setProperty('--initiative-token-color', type.ring);
   icon.textContent = token.icon || type.defaultIcon;
-  name.textContent = initiativeGroupLabel(token, token);
-  meta.textContent = existing
+  name.textContent = subject.label || initiativeGroupLabel(token, token);
+  name.title = name.textContent;
+  meta.textContent = subject.error || (existing
     ? `${group.mount ? '骑乘组 · ' : ''}已在先攻（${existing.value}）`
-    : `${type.label}${group.mount ? ' · 骑手与坐骑共用一项' : ''}`;
-  button.disabled = false;
-  button.textContent = existing ? '↻ 更新先攻' : '＋ 加入先攻';
+    : `${type.label}${group.mount ? ' · 骑手与坐骑共用一项' : ''}`);
+  button.disabled = Boolean(subject.error || !subject.token);
+  button.textContent = existing ? '更新先攻' : '加入先攻';
+  positionMapInitiativePopover();
+}
+
+function bindMapInitiativePopoverEvents() {
+  const popover = $('#map-initiative-popover');
+  const input = $('#init-value');
+  // This layer is a sibling of #board: even capture-phase map tools cannot receive these events.
+  for (const type of ['pointerdown', 'pointermove', 'pointerup', 'pointercancel', 'mousedown', 'click', 'dblclick', 'contextmenu', 'wheel']) {
+    popover.addEventListener(type, event => event.stopPropagation());
+  }
+  input.addEventListener('input', () => {
+    const selected = mapInitiativeSelection();
+    if (selected && selected.key === mapInitiativePopoverKey) mapInitiativeValueDrafts.set(selected.key, input.value);
+    input.setCustomValidity('');
+  });
+  popover.addEventListener('keydown', event => {
+    event.stopPropagation();
+    if (event.key === 'Escape') { event.preventDefault(); closeMapInitiativePopover(); return; }
+    if (event.key === 'Enter' && event.target === input) { event.preventDefault(); upsertSelectedInitiativeEntry(); }
+  });
+  $('#btn-map-initiative-close').addEventListener('click', closeMapInitiativePopover);
+  $('#btn-init-add').addEventListener('click', upsertSelectedInitiativeEntry);
+  if (typeof ResizeObserver === 'function') new ResizeObserver(positionMapInitiativePopover).observe($('#board-wrap'));
+  window.addEventListener('resize', positionMapInitiativePopover);
+  board.addEventListener('scroll', positionMapInitiativePopover, { passive: true });
 }
 
 function addInitiativeEntry(e, { name, value, color = '#e0b34c', tokenId = null }) {
@@ -1130,22 +1229,28 @@ function addInitiativeEntry(e, { name, value, color = '#e0b34c', tokenId = null 
   };
   e.entries.push(entry);
   sortInitiativeEntries(e);
-  if (e.playMode === 'turn' && !e.currentEntryId) e.currentEntryId = entry.id;
   return entry;
 }
 
 function upsertSelectedInitiativeEntry() {
-  const token = state.selectedId ? findToken(state.selectedId) : null;
-  if (!token) { toast('请先在地图上选择一个棋子'); return; }
+  const e = encounterState();
+  const selected = mapInitiativeSelection();
+  const popover = $('#map-initiative-popover');
+  if (e.playMode !== 'prepare' || !selected || !popover || popover.hidden || selected.key !== mapInitiativePopoverKey
+    || String(popover.dataset.mapId) !== String(selected.map.id) || String(popover.dataset.tokenId) !== String(selected.token.id)) return false;
+  const { token, key } = selected;
   const input = $('#init-value');
   const rawValue = String(input.value || '').trim();
   const numericValue = Number(rawValue);
-  if (!rawValue || !Number.isFinite(numericValue)) { toast('请输入先攻值'); input.focus(); return; }
-  const e = encounterState();
+  if (!rawValue || !Number.isFinite(numericValue) || !Number.isInteger(numericValue) || numericValue < -999 || numericValue > 999) {
+    input.setCustomValidity('请输入 -999 到 999 之间的整数先攻值');
+    toast('请输入 -999 到 999 之间的整数先攻值'); input.focus(); return false;
+  }
   const existing = initiativeEntryForToken(e, token);
   const subject = initiativeRepresentativeForSelection(token, existing);
-  if (!subject.token || subject.error) { toast(subject.error || '无法关联这个棋子'); return; }
-  const value = clamp(Math.trunc(numericValue), -999, 999);
+  if (!subject.token || subject.error) { toast(subject.error || '无法关联这个棋子'); return false; }
+  const value = numericValue;
+  e.entries.forEach((item, index) => { item.order = index; });
   let entry = existing;
   let verb = '加入';
   if (entry) {
@@ -1163,11 +1268,14 @@ function upsertSelectedInitiativeEntry() {
       tokenId: subject.token.id,
     });
   }
-  if (e.playMode !== 'free') bumpEncounterTurn(e);
-  input.value = '';
+  mapInitiativeValueDrafts.delete(key);
+  if (entry) hostInitiativeValueDrafts.delete(entry.id);
+  input.setCustomValidity('');
   setEncounterEvent(e, `${verb}先攻单位：${subject.label}（${entry.value}）`);
   renderEncounter();
+  closeMapInitiativePopover();
   scheduleAutosave();
+  return true;
 }
 
 function pruneInitiativeTokenRefs(tokenIds) {
@@ -1190,6 +1298,7 @@ function pruneInitiativeTokenRefs(tokenIds) {
 }
 
 function initiativeEntryLabel(entry) {
+  if (entry?.kind === 'environment') return '环境回合';
   if (entry && entry.tokenId) {
     const token = activeTokens().find((candidate) => candidate.id === entry.tokenId);
     if (token) return initiativeGroupLabel(token, token);
@@ -1208,6 +1317,7 @@ function publicEncounterState(visibleTokenIds = null) {
   const currentVisible = visible(currentEntry?.tokenId);
   return {
     playMode: e.playMode,
+    allowInitiativeSwap: false,
     round: e.round,
     secondsPerRound: e.secondsPerRound,
     currentEntryId: currentVisible ? e.currentEntryId : null,
@@ -1222,6 +1332,7 @@ function publicEncounterState(visibleTokenIds = null) {
     },
     entries: e.entries.filter((entry) => visible(entry.tokenId)).map((entry) => ({
       id: entry.id,
+      ...(entry.kind === 'environment' ? { kind: 'environment' } : {}),
       name: initiativeEntryLabel(entry),
       value: entry.value,
       color: entry.color,
@@ -1240,129 +1351,140 @@ function publicEncounterState(visibleTokenIds = null) {
   };
 }
 
-function renderEncounter() {
-  const bar = $('#init-bar');
-  if (!bar) return;
-  const e = encounterState();
-  const world = worldTimeParts(worldTimeNow(e));
-  const current = currentInitiativeEntry(e);
-  const currentIndex = e.entries.findIndex((entry) => entry.id === e.currentEntryId);
-  const nextEntry = e.entries.length && currentIndex >= 0 ? e.entries[(currentIndex + 1) % e.entries.length] : e.entries[0] || null;
-  const weather = weatherPresentation(e.weather, world);
-  const preparing = e.playMode === 'prepare';
-  const inTurn = e.playMode === 'turn';
-  bar.classList.toggle('collapsed', Boolean(e.collapsed));
-  $('#btn-init-collapse').setAttribute('aria-expanded', String(!e.collapsed));
-  $('#btn-init-collapse').textContent = `${e.collapsed ? '▸' : '▾'} 游戏流程`;
-  $('#init-round-readout').textContent = inTurn ? `第 ${e.round} 轮` : (preparing ? '战斗准备' : '自由模式');
-  $('#init-time-readout').textContent = `${formatWorldDate(world)} ${formatWorldClock(world)}`;
-  $('#init-current-readout').textContent = current && inTurn ? initiativeEntryLabel(current) : (preparing ? '等待战斗开始' : '所有单位可行动');
-  $('#init-weather-readout').textContent = weather.compact;
-  $('#init-focus-current').textContent = current && inTurn ? initiativeEntryLabel(current) : (preparing ? '调整先攻，准备开战' : '所有单位自由行动');
-  $('#init-focus-round').textContent = inTurn ? `第 ${e.round} 轮` : (preparing ? '战斗准备阶段' : '自由模式');
-  $('#init-focus-next').textContent = inTurn && nextEntry ? `下一位：${initiativeEntryLabel(nextEntry)}` : (preparing ? '先攻相同的玩家可以互换顺序' : '点击“准备战斗”整理先攻顺序');
-  $('#init-mode-free').classList.toggle('active', e.playMode === 'free');
-  $('#init-mode-turn').classList.toggle('active', preparing || inTurn);
-  $('#init-mode-free').setAttribute('aria-pressed', String(e.playMode === 'free'));
-  $('#init-mode-turn').setAttribute('aria-pressed', String(preparing || inTurn));
-  $('#init-mode-turn').textContent = inTurn ? '回合制' : (preparing ? '战斗准备' : '准备战斗');
-  document.querySelectorAll('[data-encounter-panel]').forEach((tab) => {
-    const active = tab.dataset.encounterPanel === e.panel;
-    tab.classList.toggle('active', active);
-    tab.setAttribute('aria-selected', String(active));
-  });
-  $('#init-panel-initiative').hidden = e.panel !== 'initiative';
-  $('#init-panel-time').hidden = e.panel !== 'time';
-  $('#btn-combat-start').hidden = !preparing;
-  $('#btn-combat-start').disabled = !e.entries.length;
-  $('#initiative-turn-actions').hidden = !inTurn;
-  $('#btn-init-next').disabled = !inTurn || !e.entries.length;
-  $('#btn-init-next').textContent = '结束回合';
-  $('#btn-init-next').title = inTurn && nextEntry ? `下一位：${initiativeEntryLabel(nextEntry)}` : '';
-  $('#btn-combat-end').disabled = !inTurn;
-  updateHostTurnPathControls(e);
-  $('#btn-init-timer').textContent = inTurn
-    ? '⏱ 按战斗轮推进' : (e.worldTime.runningSince ? '❚❚ 暂停时间' : '▶ 开始时间');
-  $('#btn-init-timer').disabled = inTurn;
-  $('#btn-time-short-rest').disabled = restAnimationActive;
-  $('#btn-time-long-rest').disabled = restAnimationActive;
-  const timeInputs = {
-    year: $('#time-year'), week: $('#time-week'), day: $('#time-day'), clock: $('#time-clock'),
-    climate: $('#weather-climate'), condition: $('#weather-condition'), temperature: $('#weather-temperature'), wind: $('#weather-wind'),
-  };
-  if (timeInputs.year && document.activeElement !== timeInputs.year) timeInputs.year.value = world.year;
-  if (timeInputs.week && document.activeElement !== timeInputs.week) timeInputs.week.value = world.week;
-  if (timeInputs.day && document.activeElement !== timeInputs.day) timeInputs.day.value = world.day;
-  if (timeInputs.clock && document.activeElement !== timeInputs.clock) timeInputs.clock.value = formatWorldClock(world);
-  if (timeInputs.climate && document.activeElement !== timeInputs.climate) timeInputs.climate.value = weather.climate;
-  if (timeInputs.condition && document.activeElement !== timeInputs.condition) timeInputs.condition.value = weather.condition;
-  if (timeInputs.temperature && document.activeElement !== timeInputs.temperature) timeInputs.temperature.value = weather.temperature;
-  if (timeInputs.wind && document.activeElement !== timeInputs.wind) timeInputs.wind.value = weather.wind;
-  $('#world-date-display').textContent = formatWorldDate(world);
-  $('#world-clock-display').textContent = formatWorldClock(world);
-  $('#world-season-display').textContent = `${weather.season.icon} ${weather.season.label}`;
-  $('#weather-icon-display').textContent = weather.conditionIcon;
-  $('#weather-name-display').textContent = weather.conditionLabel;
-  $('#weather-detail-display').textContent = weather.detail;
-  $('#time-running-state').textContent = inTurn
-    ? `战斗轮推进：每轮 +${e.secondsPerRound} 秒`
-    : (e.worldTime.runningSince ? '时间运行中' : '时间已暂停');
-  $('#time-event').textContent = e.lastEvent?.label || '—';
-  const list = $('#init-bar-list');
-  const previousScrollTop = list.scrollTop;
-  list.innerHTML = '';
-  if (!e.entries.length) {
-    list.innerHTML = '<span class="init-empty">添加单位后开始回合</span>';
-  } else {
-    e.entries.forEach((entry, index) => {
-      const linkedToken = initiativeEntryToken(entry);
-      const unlinked = !linkedToken;
-      const chip = document.createElement('div');
-      const currentClass = inTurn && entry.id === e.currentEntryId ? ' current' : '';
-      chip.className = `init-chip${currentClass}${unlinked ? ' unlinked' : ''}`;
-      chip.dataset.entryId = entry.id;
-      const status = unlinked
-        ? '<span class="init-chip-warning">未关联</span>'
-        : (currentClass ? '<span class="init-chip-current">行动中</span>' : '');
-      chip.innerHTML = `<span class="init-chip-order">${index + 1}</span><span class="init-dot" style="background:${entry.color || '#e0b34c'}"></span><span class="init-chip-name">${esc(initiativeEntryLabel(entry))}</span><span class="init-chip-val">${entry.value}</span>${status}`;
-      chip.title = unlinked
-        ? '旧先攻项没有关联地图棋子，请移除后重新通过选中棋子加入'
-        : (inTurn ? '设为当前行动单位' : (preparing ? '战斗准备中' : '进入战斗后可指定当前行动单位'));
-      chip.addEventListener('click', () => {
-        if (unlinked) { toast('这个先攻项没有关联棋子，请移除后重新加入'); return; }
-        if (e.playMode !== 'turn') { toast('切换到回合制后才能指定当前行动单位'); return; }
-        if (e.currentEntryId === entry.id) return;
-        e.currentEntryId = entry.id;
-        bumpEncounterTurn(e);
-        setEncounterEvent(e, `当前单位：${initiativeEntryLabel(entry)}`);
-        renderEncounter(); scheduleAutosave();
-      });
-      const del = document.createElement('button');
-      del.className = 'init-chip-del'; del.type = 'button'; del.textContent = '×'; del.title = '移除';
-      del.addEventListener('click', (event) => {
-        event.stopPropagation();
-        const index = e.entries.findIndex((item) => item.id === entry.id);
-        const wasCurrent = e.currentEntryId === entry.id;
-        e.entries.splice(index, 1);
-        if (wasCurrent) {
-          e.currentEntryId = e.entries[index]?.id || e.entries[index - 1]?.id || null;
-        }
-        const returnedToPreparation = returnToCombatPreparationIfEmpty(e);
-        if (e.playMode !== 'free') bumpEncounterTurn(e);
-        setEncounterEvent(e, `移除先攻单位：${initiativeEntryLabel(entry)}${returnedToPreparation ? '；战斗已退回准备阶段' : ''}`);
-        renderEncounter(); scheduleAutosave();
-      });
-      chip.appendChild(del);
-      list.appendChild(chip);
-    });
-  }
-  list.scrollTop = previousScrollTop;
-  scrollCurrentInitiativeIntoView(list, e);
-  renderTurnPath();
-  renderInitiativeSelection();
-  const selected = state.selectedId ? findToken(state.selectedId) : null;
-  if (selected) updateDetailContext(selected);
+function initiativePortraitForToken(t) {
+  if (!t) return null;
+  const variants = tokenPortraitVariants(t);
+  const index = currentTokenPortraitVariantIndex(t, variants);
+  const specific = SundollRules.normalizeInitiativePortrait(variants[index]?.initiativePortrait);
+  const preset = !t.ownedPieceId ? portraitLibraryPresetForToken(t) : null;
+  return specific || SundollRules.normalizeInitiativePortrait(t.initiativePortrait)
+    || SundollRules.normalizeInitiativePortrait(preset?.initiativePortrait) || t;
 }
+
+function initiativePortraitImageUrl(source) {
+  if (!source) return '';
+  if (source.iconImgPath) return portraitAssetUrl(source.iconImgPath);
+  return source.iconImgHd || source.iconImg || avatarCache.get(source.iconImgId) || '';
+}
+
+// Initiative ribbon rendering is implemented in host/encounter-ui.js.
+
+function focusHostInitiativeEntry(entry) {
+  if (entry?.kind === 'environment') { openHostInitiativeManager(); return; }
+  const map = state.maps.find(m => (m.tokens || []).some(t => t.id === entry.tokenId));
+  const token = map?.tokens.find(t => t.id === entry.tokenId);
+  if (!token) { toast('这个先攻项尚未关联地图棋子'); return; }
+  if (state.activeMapId !== map.id) switchMap(map.id);
+  if (state.activeMapId !== map.id) return;
+  const anchor = token.mountId ? map.tokens.find(t => t.id === token.mountId) || token : token;
+  const rect = board.getBoundingClientRect();
+  map.cam.x = rect.width / 2 - anchor.x * map.cam.zoom;
+  map.cam.y = Math.max(rect.height / 2, 155) - anchor.y * map.cam.zoom;
+  applyCamera();
+  selectToken(token.id);
+}
+
+function openHostInitiativeManager() {
+  const modal = $('#initiative-manager-modal');
+  if (!modal) return;
+  const opening = modal.hidden;
+  if (opening) {
+    initiativeManagerReturnFocus = document.activeElement;
+    lastInitiativeScrollEntryId = null;
+  }
+  modal.hidden = false;
+  const popover = $('#map-initiative-popover');
+  if (popover) popover.hidden = true;
+  renderEncounter();
+  if (opening) {
+    modal.querySelector('.initiative-manager-body').scrollTop = 0;
+    $('#init-panel-initiative').scrollTop = 0;
+  }
+  $('#btn-initiative-manager-close').focus({ preventScroll: true });
+}
+
+function closeHostInitiativeManager() {
+  const modal = $('#initiative-manager-modal');
+  if (!modal || modal.hidden) return;
+  modal.hidden = true;
+  $('#btn-init-collapse').setAttribute('aria-expanded', 'false');
+  const previous = initiativeManagerReturnFocus;
+  initiativeManagerReturnFocus = null;
+  renderMapInitiativePopover();
+  if (previous?.isConnected && !previous.closest('[hidden]')) previous.focus();
+  else $('#btn-init-collapse').focus({ preventScroll: true });
+}
+
+function commitHostInitiativeArrangement(e, label) {
+  sortInitiativeEntries(e);
+  setEncounterEvent(e, label);
+  renderEncounter();
+  scheduleAutosave();
+}
+
+function addEnvironmentInitiativeEntry() {
+  const e = encounterState();
+  if (e.playMode !== 'prepare') { toast('请在战斗准备阶段添加环境回合'); return false; }
+  if (e.entries.some(entry => entry.kind === 'environment')) return false;
+  e.entries.push({ id: `i${uid++}`, kind: 'environment', name: '环境回合', value: 0,
+    color: '#e0b34c', tokenId: null, order: e.entries.length });
+  commitHostInitiativeArrangement(e, '加入环境回合（先攻 0）');
+  return true;
+}
+
+function setHostInitiativeValue(entryId, rawValue) {
+  const e = encounterState(), entry = e.entries.find(item => item.id === entryId);
+  const value = Number(rawValue);
+  if (!entry) return false;
+  if (entry.kind === 'environment' && e.playMode !== 'prepare') { toast('环境先攻只能在战斗准备时修改'); return false; }
+  if (!String(rawValue).trim() || !Number.isFinite(value) || !Number.isInteger(value) || value < -999 || value > 999) {
+    toast('请输入 -999 到 999 之间的整数先攻值'); return false;
+  }
+  e.entries.forEach((item, index) => { item.order = index; });
+  entry.value = value;
+  hostInitiativeValueDrafts.delete(entryId);
+  commitHostInitiativeArrangement(e, `更新先攻：${initiativeEntryLabel(entry)}（${value}）`);
+  return true;
+}
+
+function swapHostInitiativeValues(firstId, secondId) {
+  const e = encounterState(), first = e.entries.find(entry => entry.id === firstId), second = e.entries.find(entry => entry.id === secondId);
+  if (!first || !second || first === second) { toast('请选择两位不同的行动者'); return false; }
+  e.entries.forEach((entry, index) => { entry.order = index; });
+  [first.value, second.value] = [second.value, first.value];
+  hostInitiativeValueDrafts.delete(first.id); hostInitiativeValueDrafts.delete(second.id);
+  commitHostInitiativeArrangement(e, `交换先攻：${initiativeEntryLabel(first)}（${first.value}）⇄ ${initiativeEntryLabel(second)}（${second.value}）`);
+  return true;
+}
+
+function moveHostTiedInitiativeEntry(entryId, direction) {
+  const e = encounterState(), index = e.entries.findIndex(entry => entry.id === entryId);
+  if (index < 0 || ![-1, 1].includes(direction)) return false;
+  const entry = e.entries[index], target = e.entries[index + direction];
+  if (!target || Number(entry.value) !== Number(target.value)) return false;
+  e.entries.forEach((item, order) => { item.order = order; });
+  [entry.order, target.order] = [target.order, entry.order];
+  commitHostInitiativeArrangement(e, `调整同先攻顺序：${initiativeEntryLabel(entry)}${direction < 0 ? '向前' : '向后'}一位`);
+  return true;
+}
+
+function renderHostInitiativeSwapControls(e) {
+  const first = $('#init-swap-first'), second = $('#init-swap-second');
+  if (!first || !second) return;
+  const firstValue = first.value, secondValue = second.value;
+  for (const select of [first, second]) {
+    select.replaceChildren();
+    e.entries.forEach(entry => select.add(new Option(`${initiativeEntryLabel(entry)} · ${entry.value}`, entry.id)));
+  }
+  first.value = e.entries.some(entry => entry.id === firstValue) ? firstValue : e.entries[0]?.id || '';
+  second.value = e.entries.some(entry => entry.id === secondValue && entry.id !== first.value)
+    ? secondValue : e.entries.find(entry => entry.id !== first.value)?.id || '';
+  first.disabled = second.disabled = e.entries.length < 2;
+  $('#btn-init-swap-values').disabled = e.entries.length < 2 || first.value === second.value;
+  $('#init-player-swap-hint').textContent = '同先攻的行动顺序由 DM 使用 ↑ / ↓ 决定。';
+}
+
+// Encounter rendering is implemented in host/encounter-ui.js.
 
 function decrementCurrentTokenConditions(e) {
   const current = currentInitiativeEntry(e);
@@ -1443,7 +1565,7 @@ function startCombat() {
   if (e.playMode !== 'prepare') return;
   if (!e.entries.length) { toast('请先把单位加入先攻列表'); return; }
   reconcileInitiativeEntries({ linkLegacyNames: true });
-  const unlinked = e.entries.filter((entry) => !initiativeEntryToken(entry));
+  const unlinked = e.entries.filter((entry) => entry.kind !== 'environment' && !initiativeEntryToken(entry));
   if (unlinked.length) {
     renderEncounter();
     toast(`有 ${unlinked.length} 个先攻项未关联棋子，请移除后重新加入`);
@@ -1497,7 +1619,7 @@ function setWorldClockRunning() {
     e.worldTime.runningSince = Date.now();
   }
   setEncounterEvent(e, automaticWeather
-    ? `每日 08:00：天气变为${automaticWeather.conditionLabel} ${automaticWeather.temperature}°C`
+    ? `整点天气：天气变为${automaticWeather.conditionLabel} ${automaticWeather.temperature}°C`
     : (e.worldTime.runningSince ? '世界时间开始运行' : '世界时间已暂停'));
   renderEncounter(); scheduleAutosave();
 }
@@ -1674,15 +1796,16 @@ function takeRest(kind, requestedScene = null) {
       .catch(() => toast('⚠ 玩家端休息动画未广播'));
   }
   advanceWorldTime(isLong ? 8 * 60 * 60 : 60 * 60, isLong
-    ? '完成长休：世界时间 +8 小时'
-    : '完成短休：世界时间 +1 小时');
+    ? '长休时段：世界时间 +8 小时'
+    : '短休时段：世界时间 +1 小时');
   return true;
 }
 
 function applyWeatherFromInputs() {
+  if (!CLIMATE_AVAILABLE) { toast('天气资料不可用，请安装或修复日常小事通用包后刷新'); return; }
   const e = encounterState();
   const world = worldTimeParts(worldTimeNow(e));
-  const climate = CLIMATE_META[$('#weather-climate').value] ? $('#weather-climate').value : 'temperate';
+  const climate = e.weather.climate;
   const displayedTemperature = Number($('#weather-temperature').value);
   const baseTemperature = Number.isFinite(displayedTemperature)
     ? displayedTemperature - hourlyTemperatureOffset(climate, world.hour)
@@ -1692,17 +1815,24 @@ function applyWeatherFromInputs() {
     condition: $('#weather-condition').value,
     temperature: baseTemperature,
     wind: $('#weather-wind').value,
-    generatedDay: weatherDayIndex(world.totalSeconds),
+    generatedHour: weatherHourIndex(world.totalSeconds),
+    auto: false,
   });
   const presentation = weatherPresentation(e.weather, world);
+  rememberWorldWeather(e);
   setEncounterEvent(e, `气候更新：${presentation.detail}`);
+  window.SundollWorldUI?.clearEdit('weather');
   renderEncounter(); scheduleAutosave();
 }
 
 function generateWeatherFromClimate() {
+  if (!CLIMATE_AVAILABLE) { toast('天气资料不可用，请安装或修复日常小事通用包后刷新'); return; }
   const e = encounterState();
-  const presentation = generateClimateWeather(e, $('#weather-climate').value, worldTimeNow(e));
+  e.weather.auto = true;
+  const presentation = generateClimateWeather(e, e.weather.climate, worldTimeNow(e));
+  rememberWorldWeather(e);
   setEncounterEvent(e, `按气候生成：${presentation.detail}`);
+  window.SundollWorldUI?.clearEdit('weather');
   renderEncounter(); scheduleAutosave();
 }
 
@@ -1725,6 +1855,7 @@ function setWorldTimeFromInputs() {
   const world = worldTimeParts(e.worldTime.totalSeconds);
   const automaticWeather = refreshScheduledWeather(e, e.worldTime.totalSeconds);
   setEncounterEvent(e, `时间调整为：${formatWorldDate(world)} ${formatWorldClock(world)}${automaticWeather ? `；天气变为${automaticWeather.conditionLabel} ${automaticWeather.temperature}°C` : ''}`);
+  window.SundollWorldUI?.clearEdit('date');
   renderEncounter(); scheduleAutosave();
 }
 
@@ -1976,6 +2107,8 @@ function switchMap(id) {
   scheduleAutosave();
 }
 
+let mapPresentationId = null;
+
 function presentMapToPlayers(mapId = state.activeMapId) {
   const map = mapById(mapId);
   if (!map) return;
@@ -1984,6 +2117,8 @@ function presentMapToPlayers(mapId = state.activeMapId) {
     return;
   }
   state.presentedMapId = map.id;
+  // 每次点击都是新的展示指令，玩家可能已自行浏览到其他地图。
+  mapPresentationId = crypto.randomUUID();
   map.playerAccessible = true;
   syncMapSelect();
   scheduleAutosave();
@@ -1991,7 +2126,7 @@ function presentMapToPlayers(mapId = state.activeMapId) {
     streamPush();
     scheduleStreamMapPreloads();
   }
-  toast(`已向玩家展示「${map.name}」`);
+  toast(streamOn ? `正在向玩家同步「${map.name}」` : `已选择「${map.name}」，请开启玩家模式后展示`);
 }
 
 function setMapPlayerAccess(mapId, accessible) {
@@ -2193,8 +2328,8 @@ function renderMapBrowser(focusActive = false) {
   const presentButton = $('#btn-map-browser-present');
   if (presentButton) {
     const same = Boolean(active && presented && active.id === presented.id);
-    presentButton.textContent = same ? '● 玩家正在看' : '◉ 展示给玩家';
-    presentButton.disabled = !active || same;
+    presentButton.textContent = same ? '◉ 再次展示给玩家' : '◉ 展示给玩家';
+    presentButton.disabled = !active;
   }
 
   const tabs = $('#map-chapter-tabs');
@@ -2326,8 +2461,13 @@ function renderMapBrowser(focusActive = false) {
       access.dataset.mapAccessNext = map.playerAccessible === true ? 'false' : 'true';
       access.textContent = map.playerAccessible === true ? '● 玩家可进入' : '○ 向玩家开放';
       access.title = map.playerAccessible === true ? '关闭玩家进入这张地图的权限' : '允许玩家自行进入这张地图';
-      const present = document.createElement('button'); present.type = 'button'; present.className = 'map-thumb-present'; present.dataset.mapPresent = map.id; present.textContent = map.id === state.presentedMapId ? '● 玩家正在看' : '◉ 展示给玩家'; present.disabled = map.id === state.presentedMapId;
-      card.append(open, management, actions, access, present);
+      const present = document.createElement('button'); present.type = 'button'; present.className = 'map-thumb-present'; present.dataset.mapPresent = map.id; present.textContent = map.id === state.presentedMapId ? '◉ 再次展示给玩家' : '◉ 展示给玩家';
+      const forms = document.createElement('button'); forms.type = 'button'; forms.className = 'map-thumb-forms';
+      forms.dataset.mapForms = map.id;
+      const currentForm = (map.mapForms || []).find(f => f.id === map.activeMapFormId);
+      forms.textContent = '地图状态';
+      forms.title = currentForm ? `当前：${currentForm.name} · ${(map.mapForms || []).length} 种形态` : '管理地图状态';
+      card.append(open, management, actions, access, forms, present);
       list.appendChild(card);
       drawMapThumbnailBase(canvas, map);
       canvas.dataset.mapThumbnailId = map.id;
@@ -2643,20 +2783,21 @@ function scaleToDataUrl(img, max, preferJpeg) {
   return c.toDataURL('image/png');
 }
 
-function processAvatarFile(file, cb) {
-  const reader = new FileReader();
-  reader.onload = () => {
-    const img = new Image();
-    img.onload = () => cb({
-      hd: scaleToDataUrl(img, AVATAR_HD_MAX, true),
-      display: scaleToDataUrl(img, AVATAR_DISPLAY_MAX, true),
-      thumb: scaleToDataUrl(img, AVATAR_LOW_MAX, true),
-    });
-    img.onerror = () => cb(null);
-    img.src = reader.result;
-  };
-  reader.onerror = () => cb(null);
-  reader.readAsDataURL(file);
+async function editHostPortraitView(source) {
+  const src=source.iconImgPath?portraitAssetUrl(source.iconImgPath):source.iconImgHd||source.iconImg|| (source.iconImgId?await avatarGetDisplay(source.iconImgId):'');
+  if(!src)throw new Error('请先上传或选择图片');
+  return SundollPortraitView.edit({src,view:source.portraitView,legacyScale:source.iconImgPath?(String(source.iconImgPath).includes('/零式-')?1.192:1.163):1});
+}
+
+function processAvatarFile(file, cb, adjustView = true) {
+  (async () => {
+    try {
+      const {src, image:img} = await SundollPortraitView.prepareFile(file);
+      const portraitView = adjustView ? await SundollPortraitView.edit({src}) : undefined;
+      if (adjustView && !portraitView) return;
+      cb({hd:scaleToDataUrl(img,AVATAR_HD_MAX,true),display:scaleToDataUrl(img,AVATAR_DISPLAY_MAX,true),thumb:scaleToDataUrl(img,AVATAR_LOW_MAX,true),portraitView});
+    } catch (error) { cb(null); }
+  })();
 }
 
 // 把头像应用到元素：先显示缩略图，再异步从 IndexedDB 换成高清图
@@ -2704,23 +2845,27 @@ function probePortraitLod(url) {
   return pending;
 }
 
-function applyPortraitBackground(el, path, tier) {
+function applyPortraitBackground(el, path, tier, source = {}) {
   const original = portraitAssetUrl(path);
   const candidate = portraitLodAssetUrl(path, tier);
+  const useOriginal = () => {
+    setAvatarBackground(el, original);
+    SundollPortraitView.apply(el, { ...source, iconImgPath: path }, { legacyScale: String(path).includes('/零式-') ? 1.192 : 1.163 });
+  };
   el.dataset.portraitTier = String(tier);
   if (!candidate || candidate === original) {
-    setAvatarBackground(el, original);
+    useOriginal();
     return;
   }
   const known = portraitLodProbes.get(candidate);
   if (known === false) {
-    setAvatarBackground(el, original);
+    useOriginal();
     return;
   }
   setAvatarBackground(el, candidate);
   if (known === true) return;
   probePortraitLod(candidate).then((ok) => {
-    if (!ok && el.isConnected && el.dataset.lodUrl === candidate) setAvatarBackground(el, original);
+    if (!ok && el.isConnected && el.dataset.lodUrl === candidate) useOriginal();
   });
 }
 
@@ -2737,13 +2882,12 @@ function applyPortraitImage(el, path, tier = AVATAR_DISPLAY_MAX) {
   el.src = candidate;
 }
 
-function applyAvatar(el, iconImg, iconImgId, iconImgHd, iconImgPath, portraitTier = AVATAR_LOW_MAX) {
+function applyAvatar(el, iconImg, iconImgId, iconImgHd, iconImgPath, portraitTier = AVATAR_LOW_MAX, source = {}) {
   if (iconImg) el.style.backgroundImage = `url("${iconImg}")`;
   if (hdEnabled && iconImgHd) el.style.backgroundImage = `url("${iconImgHd}")`;
   if (iconImgPath) {
-    el.style.backgroundSize = String(iconImgPath).includes('/零式-') ? '119.2% 119.2%' : '116.3% 116.3%';
-    el.style.backgroundPosition = 'center';
-    applyPortraitBackground(el, iconImgPath, portraitTier);
+    applyPortraitBackground(el, iconImgPath, portraitTier, source);
+    SundollPortraitView.apply(el, { ...source, iconImgPath }, { legacyScale: iconImgPath ? (String(iconImgPath).includes('/零式-') ? 1.192 : 1.163) : 1 });
     return;
   }
   if (iconImgId && hdEnabled) {
@@ -2754,9 +2898,11 @@ function applyAvatar(el, iconImg, iconImgId, iconImgHd, iconImgPath, portraitTie
       avatarGetDisplay(iconImgId).then((disp) => {
         if (!disp || !hdEnabled || !el.isConnected) return;
         if (el.isConnected) el.style.backgroundImage = `url("${disp}")`;
+        SundollPortraitView.apply(el, { ...source, iconImgPath }, { legacyScale: iconImgPath ? (String(iconImgPath).includes('/零式-') ? 1.192 : 1.163) : 1 });
       }).catch(() => {});
     }
   }
+  SundollPortraitView.apply(el, { ...source, iconImgPath }, { legacyScale: iconImgPath ? (String(iconImgPath).includes('/零式-') ? 1.192 : 1.163) : 1 });
 }
 
 // 图片降到指定上限：用 createImageBitmap 离主线程解码，不卡界面
@@ -2865,13 +3011,14 @@ async function avatarGetLow(id) {
   return null;
 }
 
-function tokenPortraitTier(el) {
+function tokenPortraitTier(el, t) {
   if (!hdEnabled) return AVATAR_LOW_MAX;
   const m = activeMap();
   const zoom = m ? m.cam.zoom : 1;
   const dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
   const mapPixels = Math.max(el.offsetWidth || 0, el.offsetHeight || 0);
-  const requiredPixels = mapPixels * zoom * dpr * 1.16;
+  const portraitScale = globalThis.SundollPortraitView?.normalize(t?.portraitView)?.scale || (String(t?.iconImgPath || '').includes('/零式-') ? 1.192 : 1.163);
+  const requiredPixels = mapPixels * zoom * dpr * portraitScale;
   const currentTier = Number(el.dataset.portraitTier) || AVATAR_LOW_MAX;
   if (currentTier === AVATAR_DISPLAY_MAX) {
     return requiredPixels < PORTRAIT_LOD_SWITCH_DOWN ? AVATAR_LOW_MAX : AVATAR_DISPLAY_MAX;
@@ -2883,6 +3030,7 @@ function tokenPortraitTier(el) {
 function applyTokenAvatar(el, t) {
   if (t.iconImg) el.style.backgroundImage = `url("${t.iconImg}")`;
   if (hdEnabled && t.iconImgHd) el.style.backgroundImage = `url("${t.iconImgHd}")`;
+  SundollPortraitView.apply(el, t, { legacyScale: t.iconImgPath ? (String(t.iconImgPath).includes('/零式-') ? 1.192 : 1.163) : 1 });
   const assetKey = t.iconImgId || (t.iconImgPath ? 'path:' + t.iconImgPath : (t.iconImgHd ? 'embedded:' + t.id : ''));
   if (!assetKey) return;
   el.dataset.avatarId = assetKey;
@@ -2894,11 +3042,10 @@ function applyTokenAvatar(el, t) {
 
 function refreshAvatarLodElement(el, t) {
   if (t.iconImgPath) {
-    const tier = tokenPortraitTier(el);
+    const tier = tokenPortraitTier(el, t);
     el.dataset.lod = tier === AVATAR_DISPLAY_MAX ? 'high' : 'low';
-    el.style.backgroundSize = String(t.iconImgPath).includes('/零式-') ? '119.2% 119.2%' : '116.3% 116.3%';
-    el.style.backgroundPosition = 'center';
-    applyPortraitBackground(el, t.iconImgPath, tier);
+    applyPortraitBackground(el, t.iconImgPath, tier, t);
+    SundollPortraitView.apply(el, t, { legacyScale: String(t.iconImgPath).includes('/零式-') ? 1.192 : 1.163 });
     return;
   }
   if (!hdEnabled) {
@@ -3046,7 +3193,7 @@ async function campaignGet(id) {
 
 async function campaignList() {
   if (!projectDirHandle || !(await hasSaveFolderPermission())) return [];
-  return readCampaignRecords();
+  return readCampaignRecords(false, { covers: false });
 }
 
 async function openCampaignModal() {
@@ -3090,36 +3237,6 @@ function setCoverBusy(busy) {
   shell.setAttribute('aria-busy', String(!!busy));
 }
 
-function applyCoverTheme(themeKey) {
-  const cover = $('#cover');
-  const key = Object.prototype.hasOwnProperty.call(COVER_HOME_THEMES, themeKey) ? themeKey : 'a';
-  const theme = COVER_HOME_THEMES[key];
-  if (!cover || !theme) return;
-  cover.dataset.homeTheme = key;
-  cover.style.setProperty('--cover-background-image', `url("${new URL(theme.image, document.baseURI).href}")`);
-  cover.setAttribute('data-home-theme-label', theme.label);
-  document.querySelectorAll('[data-cover-theme]').forEach((button) => {
-    const active = button.dataset.coverTheme === key;
-    button.setAttribute('aria-pressed', String(active));
-  });
-}
-
-function randomizeCoverTheme() {
-  const keys = Object.keys(COVER_HOME_THEMES);
-  applyCoverTheme(keys[Math.floor(Math.random() * keys.length)]);
-}
-
-function initCoverThemePicker() {
-  const picker = $('#cover-theme-picker');
-  if (!picker) return;
-  picker.addEventListener('click', (event) => {
-    const button = event.target.closest('[data-cover-theme]');
-    if (!button || !picker.contains(button)) return;
-    applyCoverTheme(button.dataset.coverTheme);
-  });
-  randomizeCoverTheme();
-}
-
 function renderCoverRecent(records, storageState = 'ready') {
   const box = $('#cover-recent');
   if (!box) return;
@@ -3137,18 +3254,6 @@ function renderCoverRecent(records, storageState = 'ready') {
   list.forEach((record) => {
     const item = document.createElement('article');
     item.className = 'cover-recent-item' + (record.coverUrl ? ' has-cover' : '');
-    if (record.coverUrl) {
-      const artwork = document.createElement('img');
-      artwork.className = 'cover-recent-art';
-      artwork.addEventListener('load', () => {
-        if (artwork.naturalWidth > 0 && artwork.naturalHeight > 0) {
-          item.style.aspectRatio = `${artwork.naturalWidth} / ${artwork.naturalHeight}`;
-        }
-      });
-      artwork.src = record.coverUrl;
-      artwork.alt = '';
-      item.appendChild(artwork);
-    }
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'cover-recent-open';
@@ -3168,7 +3273,6 @@ function renderCoverRecent(records, storageState = 'ready') {
         await openCampaign(record.id);
       } finally {
         setCoverBusy(false);
-        if (!$('#cover').hidden) await refreshHostHome({ forceRecords: true });
       }
     });
     const actions = document.createElement('div');
@@ -3179,16 +3283,42 @@ function renderCoverRecent(records, storageState = 'ready') {
     upload.textContent = record.coverUrl ? '更换封面' : '上传封面';
     upload.addEventListener('click', () => chooseCampaignCover(record));
     actions.appendChild(upload);
-    if (record.coverUrl) {
+    const applyCover = () => {
+      if (!record.coverUrl) return;
+      item.classList.add('has-cover');
+      const artwork = document.createElement('img');
+      artwork.className = 'cover-recent-art';
+      artwork.decoding = 'async';
+      artwork.loading = 'lazy';
+      artwork.addEventListener('load', () => {
+        if (artwork.naturalWidth > 0 && artwork.naturalHeight > 0) {
+          item.style.aspectRatio = `${artwork.naturalWidth} / ${artwork.naturalHeight}`;
+        }
+      });
+      artwork.src = record.coverUrl;
+      artwork.alt = '';
+      item.insertBefore(artwork, button);
+      upload.textContent = '更换封面';
       const remove = document.createElement('button');
       remove.type = 'button';
       remove.className = 'cover-image-action danger';
       remove.textContent = '移除';
       remove.addEventListener('click', () => removeCampaignCover(record));
       actions.appendChild(remove);
-    }
+    };
     item.append(button, actions);
     box.appendChild(item);
+    if (record.coverUrl) applyCover();
+    else if (!Object.hasOwn(record, 'coverUrl') && record._folderName) {
+      // Paint working campaign controls before downloading decorative images.
+      const version = campaignCoverReadVersion(record._folderName);
+      readCampaignCover(record._folderName).then((cover) => {
+        if (version !== campaignCoverReadVersion(record._folderName) || !box.contains(item)) return;
+        record.coverFile = cover?.fileName || '';
+        record.coverUrl = cover?.url || '';
+        applyCover();
+      }).catch((error) => console.warn('读取战役封面失败', error));
+    }
   });
 }
 
@@ -3304,6 +3434,28 @@ async function removeCampaignCover(record) {
   }
 }
 
+// A server-backed home only needs the campaign catalog. Load the saved board
+// and shared library when the user explicitly enters a campaign.
+let hostCampaignDeferred = location.protocol !== 'file:';
+let homeContinueRecord = null;
+let homeLastCampaignId = '';
+let hostEntryPreparation = null;
+let campaignOpenInProgress = false;
+async function prepareDeferredHostCampaign(loadRun = null) {
+  if (!hostCampaignDeferred) return;
+  if (!hostEntryPreparation) {
+    hostEntryPreparation = (async () => {
+      const readLibrary = async () => { if (!await syncLibraryWithFolder({propagateReadFailure:true})) throw new Error('棋子库读取未完成，请重试'); };
+      if (loadRun) await loadRun.step('library', readLibrary); else await readLibrary();
+      // Keep the former browser snapshot available to loadFolderSave's recovery
+      // backup without rendering its map or publishing it to players.
+      const recovery = () => { loadSaved(); libRecentIds = loadLibraryRecentIds(); };
+      if (loadRun) await loadRun.step('recoveryCache', recovery); else recovery();
+    })().catch(error => { hostEntryPreparation = null; throw error; });
+  }
+  await hostEntryPreparation;
+}
+
 let coverRefreshSerial = 0;
 async function refreshHostHome(options = {}) {
   const serial = ++coverRefreshSerial;
@@ -3311,18 +3463,23 @@ async function refreshHostHome(options = {}) {
   const status = $('#cover-storage-status');
   const folderButton = $('#cover-folder');
   if (!status || !folderButton) return;
+  if (campaignOpenInProgress || campaignLoadInProgress) return;
+  const loadRun = globalThis.SundollHostLoadProgress?.begin('home', { retry: () => refreshHostHome({ forceRecords: true }), retryLabel: '重试目录检查' });
+  const stage = (key, work) => loadRun ? loadRun.step(key, work) : Promise.resolve().then(work);
   status.dataset.state = 'checking';
   status.textContent = '检查存档中';
   let permission = false;
   try {
-    permission = await hasSaveFolderPermission();
+    await stage('workspace', async () => { if (location.protocol !== 'file:' && !localSaveApiAvailable) await loadProjectDirHandle(); });
+    permission = await stage('permission', () => hasSaveFolderPermission());
     if (serial !== coverRefreshSerial) return;
     if (!projectDirHandle) {
       status.dataset.state = 'attention';
       status.textContent = '未连接存档';
       folderButton.textContent = '连接存档文件夹';
       renderCoverRecent([], 'attention');
-      setCoverFeedback('正式进度保存在项目根目录的“存档”文件夹；浏览器缓存只负责意外恢复。');
+      setCoverFeedback('正式进度保存在当前连接的存档中；浏览器缓存只负责意外恢复。');
+      loadRun?.fail(Object.assign(new Error(), { name: 'NotFoundError' }), { retry: () => folderButton.click(), retryLabel: '连接存档文件夹' });
       return;
     }
     if (!permission) {
@@ -3331,24 +3488,34 @@ async function refreshHostHome(options = {}) {
       folderButton.textContent = '重新授权存档';
       renderCoverRecent([], 'attention');
       setCoverFeedback('浏览器记得这个文件夹，但需要你重新允许访问。', 'attention');
+      loadRun?.fail(Object.assign(new Error(), { name: 'NotAllowedError' }), { retry: () => folderButton.click(), retryLabel: '重新授权存档' });
       return;
     }
-    const records = await readCampaignRecords(options.forceRecords === true);
+    const records = await stage('catalog', () => readCampaignRecords(options.forceRecords === true, { covers: false }));
     if (serial !== coverRefreshSerial) return;
+    if (hostCampaignDeferred) {
+      let lastId = homeLastCampaignId;
+      try { lastId ||= localStorage.getItem(modularStorage ? STORAGE_KEY + ':last-campaign' : 'dnd-board-last-campaign-id') || ''; } catch (_) {}
+      homeContinueRecord = lastId ? records.find(record => record.id === lastId) || null : records[0] || null;
+      updateCoverContinue();
+    }
     const usingDefaultFolder = usingLocalSaveBridge();
     status.dataset.state = 'ready';
     status.textContent = usingDefaultFolder ? '模块工作区已就绪' : '存档已连接';
     folderButton.textContent = '刷新列表';
     renderCoverRecent(records, 'ready');
     setCoverFeedback(usingDefaultFolder
-      ? (records.length ? `已读取 ${records.length} 个战役，玩家档案与通用内容独立保存。` : '空白工作区已就绪，可新建战役或导入模块。')
+      ? (records.length ? `已读取 ${records.length} 个战役，角色与通用内容独立保存。` : '空白工作区已就绪，可新建战役或导入模块。')
       : (records.length ? `已找到 ${records.length} 个正式战役。` : '存档文件夹已准备好，可以新建第一场战役。'));
+    loadRun?.finish();
   } catch (error) {
     if (serial !== coverRefreshSerial) return;
     status.dataset.state = 'error';
     status.textContent = '存档检查失败';
     renderCoverRecent([], 'error');
-    setCoverFeedback('暂时无法读取存档文件夹，请重新连接后再试。', 'error');
+    folderButton.textContent = '重试读取';
+    setCoverFeedback(error.message || '暂时无法读取存档，请重试。', 'error');
+    loadRun?.fail(error);
   }
 }
 
@@ -3392,7 +3559,7 @@ async function renderCampaignList() {
     remove.title = c.id === state.campaignId ? '请先切换到其他战役，再删除当前存档' : (!usingLocalSaveBridge() ? '请使用启动器连接本机存档后删除' : '移出列表，保留原文件以便恢复');
     remove.addEventListener('click', async () => {
       if (c.id === state.campaignId) return;
-      if (!confirm(`删除战役「${c.name}」？\n将从列表移除，原文件保留，可恢复。玩家档案与棋子库不受影响。`)) return;
+      if (!confirm(`删除战役「${c.name}」？\n将从列表移除，原文件保留，可恢复。账号角色与棋子库不受影响。`)) return;
       remove.disabled = true;
       open.disabled = true;
       try {
@@ -3424,16 +3591,80 @@ function filterCampaignList() {
 }
 
 async function openCampaign(id) {
-  const c = await campaignGet(id);
-  if (!c) return;
-  const loaded = await loadFolderSave({
-    name: c.name,
-    path: c._path,
-    folderName: c._folderName,
-  });
-  if (!loaded) return;
+  if (campaignOpenInProgress || campaignLoadInProgress) return false;
+  campaignOpenInProgress = true;
+  const loadRun = globalThis.SundollHostLoadProgress?.begin('campaign', { retry: () => openCampaign(id), retryLabel: '重新读取战役' });
+  try {
+    const getRecord=async()=>{const record=await campaignGet(id);if(!record)throw Object.assign(new Error('未找到战役，请刷新列表后重试'),{name:'NotFoundError'});return record;};
+    const c = loadRun ? await loadRun.step('catalog',getRecord) : await getRecord();
+    await prepareDeferredHostCampaign(loadRun);
+    const loaded = await loadFolderSave({name: c.name, path: c._path, folderName: c._folderName}, !hostCampaignDeferred, loadRun);
+    if (!loaded) {
+      setCoverFeedback('战役读取未完成，请重试；当前页面保留恢复点。', 'error');
+      if (loadRun?.status === 'running') loadRun.fail(new Error());
+      return false;
+    }
+    await finishHostCampaignEntry(loadRun);
+    return true;
+  } catch (error) {
+    setCoverFeedback(error.message || '读取战役失败，请重试。', 'error');
+    toast(error.message || '读取战役失败，请重试。');
+    loadRun?.fail(error);
+    return false;
+  } finally { campaignOpenInProgress = false; }
+}
+
+async function finishHostCampaignEntry(loadRun = null) {
+  const wasDeferred = hostCampaignDeferred;
+  hostCampaignDeferred = false;
+  updateCoverContinue();
   closeCampaignModal();
   hideCover();
+  if (wasDeferred) {
+    hostMusic.loadProjectMusicLibrary({ silent: true });
+    try {
+      const restore = async () => {
+        const result = await restoreStreamFromStorage();
+        if (result === false) throw Object.assign(new Error(), {name:'NetworkError'});
+        if (typeof streamOn !== 'undefined' && streamOn && streamConnectionState !== 'online') await waitForHostStreamOnline();
+      };
+      if (loadRun) await loadRun.step('connection', restore); else await restore();
+      if (typeof streamOn !== 'undefined' && !streamOn) loadRun?.skip('connection');
+    } catch (error) {
+      loadRun?.fail(error, { retry: retryHostConnectionDiagnostics, retryLabel: '重试连接检查' });
+    }
+    prewarmAvatarCache();
+  }
+  if (loadRun?.status !== 'failure') loadRun?.finish();
+}
+
+async function retryHostLoadedInterface(expectedCampaignId) {
+  if (campaignOpenInProgress || campaignLoadInProgress || state.campaignId !== expectedCampaignId) return false;
+  const run = globalThis.SundollHostLoadProgress?.begin('interface', {retry:()=>retryHostLoadedInterface(expectedCampaignId),retryLabel:'重试恢复界面'});
+  try {
+    const restore=()=>{applyAllState();loadLinks();renderLinks();};
+    if(run)await run.step('interface',restore);else restore();
+    await finishHostCampaignEntry(run);return true;
+  } catch(error){run?.fail(error);return false;}
+}
+
+function waitForHostStreamOnline() {
+  return SundollClientRuntime.deadline(signal=>new Promise((resolve,reject)=>{
+    let timer;
+    const stop=()=>{clearTimeout(timer);signal.removeEventListener('abort',abort);};
+    const abort=()=>{stop();reject(Object.assign(new Error(),{name:'AbortError'}));};
+    const check=()=>{if(!streamOn||streamConnectionState==='online'){stop();resolve();}else timer=setTimeout(check,100);};
+    signal.addEventListener('abort',abort,{once:true});check();
+  }),{timeoutMs:8000,message:'联机连接尚未确认'});
+}
+
+async function retryHostConnectionDiagnostics() {
+  const run=globalThis.SundollHostLoadProgress?.begin('connection',{retry:retryHostConnectionDiagnostics,retryLabel:'重试连接检查'});
+  try {
+    await run.step('connectionRead',async()=>{const {response,data}=await SundollClientRuntime.requestJson(`${serverApiBase()}/api/info`,{cache:'no-store'},{timeoutMs:2500});if(!response.ok)throw Object.assign(new Error(),{name:'NetworkError'});if(typeof data?.sessionId!=='string')throw new SyntaxError();});
+    if(streamOn)await run.step('connection',waitForHostStreamOnline);else run.skip('connection');
+    run.finish();return true;
+  }catch(error){run.fail(error);return false;}
 }
 
 function hideCover() {
@@ -3444,7 +3675,6 @@ function hideCover() {
 function showCover() {
   const el = $('#cover');
   if (!el) return;
-  randomizeCoverTheme();
   el.hidden = false;
   $('#cover-new-form').hidden = true;
   setCoverBusy(false);
@@ -3463,17 +3693,15 @@ function updateCoverContinue() {
   const meta = $('#cover-current-meta');
   const projectName = $('#cover-project-name');
   if (!btn || !current || !name || !meta) return;
-  let raw = null;
-  try { raw = localStorage.getItem('dnd-board-state-v1'); } catch (e) { /* 忽略 */ }
-  const hasCurrent = Boolean(raw || state.campaignId || state.maps.length);
-  if (projectName) projectName.textContent = hasCurrent
-    ? (state.campaignId ? (state.campaignName || '未命名战役') : '临时进度')
-    : '战役总览';
+  const record = hostCampaignDeferred ? homeContinueRecord : null;
+  const hasCurrent = hostCampaignDeferred ? Boolean(record) : Boolean(state.campaignId || state.maps.length);
+  const campaignName = record ? record.name : state.campaignId ? (state.campaignName || '未命名战役') : '上次临时进度';
+  if (projectName) projectName.textContent = hasCurrent ? campaignName : '战役总览';
   current.hidden = !hasCurrent;
   btn.hidden = !hasCurrent;
   if (!hasCurrent) return;
-  name.textContent = state.campaignId ? (state.campaignName || '未命名战役') : '上次临时进度';
-  meta.textContent = formatCampaignHomeMeta(state);
+  name.textContent = campaignName;
+  meta.textContent = formatCampaignHomeMeta(record ? record.state : state);
   const label = btn.querySelector('span');
   if (label) label.textContent = '继续进入';
 }
@@ -3483,6 +3711,7 @@ function newCampaignState(name, id) {
   return {
     journal: CampaignJournal.normalize(null, id),
     prepHandbook: [],
+  combatQuickCards: [],
     maps: [],
     activeMapId: null,
     presentedMapId: null,
@@ -3639,9 +3868,7 @@ function showMapReaction(action) {
 
 function syncMapReactionUi() {
   const palette = $('#map-reaction-palette');
-  const trigger = $('#btn-map-reaction');
   const placing = Boolean(pendingMapReaction);
-  if (trigger) trigger.classList.toggle('active', placing || (palette && !palette.hidden));
   const shortcut=$('#host-quick-reaction');
   shortcut?.classList.toggle('active',placing||!!(palette&&!palette.hidden));
   shortcut?.setAttribute('aria-pressed',String(placing||!!(palette&&!palette.hidden)));
@@ -3707,6 +3934,14 @@ function placeHostReactionAt(clientX, clientY) {
 
 /* ==================== 地图载入 ==================== */
 
+function mapImportToken(raw) {
+  const token = {...raw};
+  // A map is layout/content; personal identity travels only in a player package.
+  for (const field of ['ownedPieceId','ownerPlayerId','ownedPieceRevision','characterRevision','characterId','playerId','profileId','playerCreated','createdByPlayer','mountId','riderId','travelBasketStored']) delete token[field];
+  token.owner = '';
+  return token;
+}
+
 function importMapFile(f, navigation = null) {
   const reader = new FileReader();
   reader.onload = () => {
@@ -3724,7 +3959,7 @@ function importMapFile(f, navigation = null) {
         s.tokens.forEach((raw) => {
           if (!raw || typeof raw !== 'object') return;
           m.tokens.push({
-            ...raw,
+            ...mapImportToken(raw),
             id: 't' + (uid++),
             x: Number(raw.x) || 0,
             y: Number(raw.y) || 0,
@@ -3734,6 +3969,7 @@ function importMapFile(f, navigation = null) {
         });
         renderTokens();
       }
+      scheduleAutosave();
       toast(`已添加地图「${s.mapName || '未命名'}」（每格 = 5 尺）`);
     } catch (err) {
       toast('导入失败：这不是地图文件');
@@ -4015,11 +4251,31 @@ function fitView() {
   applyCamera();
 }
 
+let coverStroke=null,coverBrushSize=1;
+const coverUndo=new WeakMap();
+function renderMapCover(){
+  const m=activeMap();
+  SundollClientRuntime.renderCover(world,m,{rules:SundollRules,document,host:true});
+  document.querySelectorAll('#map-cover-tools button').forEach(b=>b.disabled=!m);
+  $('#cover-undo').disabled=!m||!coverUndo.get(m)?.length;
+  document.querySelectorAll('[data-cover-tool]').forEach(b=>b.setAttribute('aria-pressed',String(boardTool==='cover-'+b.dataset.coverTool)));
+}
+function rememberMapCover(m){const list=coverUndo.get(m)||[];list.push(SundollRules.normalizeMapCover(m.gridCover));if(list.length>20)list.shift();coverUndo.set(m,list);}
+function finishCoverStroke(){if(!coverStroke)return;coverStroke=null;renderMapCover();scheduleAutosave();}
+function paintMapCover(e){const m=activeMap();if(!m||coverStroke?.map!==m)return;const r=board.getBoundingClientRect(),x=(e.clientX-r.left-m.cam.x)/m.cam.zoom,y=(e.clientY-r.top-m.cam.y)/m.cam.zoom;const cell=SundollRules.mapCoverCell(m,x,y),previous=coverStroke.last||cell,steps=Math.max(Math.abs(cell[0]-previous[0]),Math.abs(cell[1]-previous[1]),1);const c=m.gridCover,g=m.gridSize||50,ox=m.gridOffsetX||0,oy=m.gridOffsetY||0;for(let i=0;i<=Math.min(steps,10000);i++){const col=Math.round(previous[0]+(cell[0]-previous[0])*i/steps),row=Math.round(previous[1]+(cell[1]-previous[1])*i/steps);for(const key of SundollRules.mapCoverBrushCells(m,col,row,coverStroke.size,coverStroke.shape)){if(coverStroke.cover!==c.all)c.cells[key]=true;else delete c.cells[key];}}coverStroke.last=cell;renderMapCover();}
+function initMapCover(){document.querySelectorAll('[data-cover-size]').forEach(b=>b.onclick=()=>{finishCoverStroke();coverBrushSize=Number(b.dataset.coverSize);document.querySelectorAll('[data-cover-size]').forEach(option=>option.setAttribute('aria-pressed',String(Number(option.dataset.coverSize)===coverBrushSize)));});document.querySelectorAll('[data-cover-tool]').forEach(b=>b.onclick=()=>{finishCoverStroke();boardTool='cover-'+b.dataset.coverTool;syncBoardTools();renderMapCover();});$('#cover-done').onclick=()=>{finishCoverStroke();boardTool=null;syncBoardTools();renderMapCover();};for(const [id,all] of [['cover-all',true],['cover-clear',false]])$('#'+id).onclick=()=>{const m=activeMap();if(!m)return;finishCoverStroke();rememberMapCover(m);m.gridCover={all,cells:{}};renderMapCover();scheduleAutosave();};$('#cover-undo').onclick=()=>{const m=activeMap();if(!m)return;finishCoverStroke();const old=coverUndo.get(m)?.pop();if(old){m.gridCover=old;renderMapCover();scheduleAutosave();}};
+ board.addEventListener('pointerdown',e=>{if(e.button!==0||e.target.closest('.initiative-ribbon')||!String(boardTool).startsWith('cover-')||e.target.closest('button'))return;const m=activeMap();if(!m)return;e.preventDefault();e.stopImmediatePropagation();rememberMapCover(m);m.gridCover=SundollRules.normalizeMapCover(m.gridCover);coverStroke={map:m,cover:boardTool==='cover-cover',size:coverBrushSize,shape:'square',last:null};board.setPointerCapture(e.pointerId);paintMapCover(e);},true);
+ board.addEventListener('pointermove',e=>{if(!coverStroke)return;e.preventDefault();e.stopImmediatePropagation();paintMapCover(e);},true);
+ for(const name of ['pointerup','pointercancel','lostpointercapture'])board.addEventListener(name,e=>{if(!coverStroke)return;e.stopImmediatePropagation();finishCoverStroke();},true);
+}
+
 function applyCamera() {
   const m = activeMap();
   if (!m) return;
   world.style.transform = `translate(${m.cam.x}px, ${m.cam.y}px) scale(${m.cam.zoom})`;
   renderHostMeasure();
+  renderMapCover();
+  positionMapInitiativePopover();
   if (m.cam.zoom !== lastAvatarZoom) {
     lastAvatarZoom = m.cam.zoom;
     scheduleAvatarLODRefresh();
@@ -4575,17 +4831,36 @@ function normalizePortraitVariants(raw) {
       && (variant.iconImgPath || variant.iconImg || variant.iconImgHd || variant.iconImgId)
   )).slice(0, 24).map((variant) => {
     const path = canonicalPortraitPath(variant.iconImgPath);
+    const portraitView = globalThis.SundollPortraitView?.normalize(variant.portraitView);
     return {
       name: String(variant.name).trim().slice(0, 24),
       iconImg: path ? null : (variant.iconImg || null),
       iconImgHd: path ? null : (variant.iconImgHd || null),
       iconImgPath: path,
       iconImgId: path ? null : (variant.iconImgId || null),
+      ...(portraitView ? { portraitView } : {}),
+      ...(SundollRules.normalizeInitiativePortrait(variant.initiativePortrait) ? { initiativePortrait: SundollRules.normalizeInitiativePortrait(variant.initiativePortrait) } : {}),
     };
   });
 }
 
+function archiveLegacyGmNote(t) {
+  if (!t || typeof t !== 'object') return;
+  const old = typeof t.gmNote === 'string' ? t.gmNote : '';
+  if (old.trim()) {
+    if (typeof t.legacyGmNote !== 'string' || !t.legacyGmNote.trim()) t.legacyGmNote = old;
+    else if (t.legacyGmNote !== old) {
+      const history = Array.isArray(t.legacyGmNoteHistory) ? t.legacyGmNoteHistory.slice() : [];
+      if (!history.includes(old)) history.push(old);
+      t.legacyGmNoteHistory = history;
+    }
+  }
+  delete t.gmNote;
+}
+
 function normalizeSheet(t) {
+  archiveLegacyGmNote(t);
+  globalThis.SundollInitiativePortraitDefaults?.assign(t);
   const hpMax = Math.max(1, Math.min(99999, parseInt(t.hpMax, 10) || 10));
   const hp = Math.max(0, Math.min(99999, Number.isFinite(parseInt(t.hp, 10)) ? parseInt(t.hp, 10) : hpMax));
   const hasPortraitVariants = Array.isArray(t.portraitVariants);
@@ -4593,6 +4868,18 @@ function normalizeSheet(t) {
   const portraitVariant = Number.isInteger(t.portraitVariant)
     && t.portraitVariant >= 0 && t.portraitVariant < portraitVariants.length
     ? t.portraitVariant : null;
+  const resourceState = {};
+  for (const field of ['spellSlots', 'resourceSlots']) {
+    if (!Object.hasOwn(t, field)) continue;
+    const value = t[field];
+    if (!value || typeof value !== 'object') throw new Error('角色资源槽存档无效');
+    const text = JSON.stringify(value, (key, entry) => {
+      if (typeof entry === 'number' && !Number.isFinite(entry)) throw new Error('角色资源槽存档无效');
+      return entry;
+    });
+    if (text.length > 20000) throw new Error('角色资源槽存档超过上限');
+    resourceState[field] = JSON.parse(text);
+  }
   const keep = {
     id: String(t.id || 't' + (uid++)),
     name: String(t.name || '无名单位').slice(0, 24),
@@ -4602,9 +4889,17 @@ function normalizeSheet(t) {
     iconImgHd: t.iconImgHd || null,
     iconImgPath: t.iconImgPath || null,
     iconImgId: t.iconImgId || null,
+    initiativePortraitDefaultsApplied: t.initiativePortraitDefaultsApplied === true,
+    ...(globalThis.SundollPortraitView?.normalize(t.portraitView) ? { portraitView: SundollPortraitView.normalize(t.portraitView) } : {}),
+    ...(SundollRules.normalizeInitiativePortrait(t.initiativePortrait) ? { initiativePortrait: SundollRules.normalizeInitiativePortrait(t.initiativePortrait) } : {}),
     ...(t.presetId ? { presetId: String(t.presetId) } : {}),
     ...(t.ownedPieceId ? { ownedPieceId: String(t.ownedPieceId), ownedPieceRevision: t.ownedPieceRevision || 1 } : {}),
     ...(t.ownerPlayerId ? { ownerPlayerId: String(t.ownerPlayerId) } : {}),
+    ...(typeof t.legacyGmNote === 'string' ? { legacyGmNote: t.legacyGmNote } : {}),
+    ...(Array.isArray(t.legacyGmNoteHistory) ? { legacyGmNoteHistory: t.legacyGmNoteHistory.slice() } : {}),
+    ...(Number.isSafeInteger(t.characterRevision) && t.characterRevision >= 0 ? { characterRevision: t.characterRevision } : {}),
+    ...(typeof t.level === 'number' && Number.isFinite(t.level) ? { level: clamp(Math.trunc(t.level), 1, 99) } : {}),
+    ...resourceState,
     ...(hasPortraitVariants ? { portraitVariants } : {}),
     ...(t.portraitVariantsCustomized ? {portraitVariantsCustomized:true} : {}),
     ...(t.sourcePresetId ? {sourcePresetId:String(t.sourcePresetId)} : {}),
@@ -4683,10 +4978,6 @@ function createTokenEl(t) {
   circle.style.setProperty('--glow', meta.glow);
   if (t.iconImg || t.iconImgHd || t.iconImgPath || t.iconImgId) {
     circle.style.background = 'rgba(20,23,32,.85)';
-    circle.style.backgroundSize = t.iconImgPath
-      ? (String(t.iconImgPath).includes('/零式-') ? '119.2% 119.2%' : '116.3% 116.3%')
-      : 'cover';
-    circle.style.backgroundPosition = 'center';
     circle.style.backgroundRepeat = 'no-repeat';
     circle.dataset.tokenId = t.id;
     applyTokenAvatar(circle, t);
@@ -4743,6 +5034,7 @@ function renderTokens() {
   window.MapItems?.refresh().catch(()=>{});
   window.TravelBasket?.changed();
   SundollSize.repair(activeMap());
+  renderHostInitiativeRibbon();
   world.querySelectorAll('.token').forEach((el) => el.remove());
   const frag = document.createDocumentFragment();
   const m = activeMap();
@@ -4913,6 +5205,7 @@ function currentTurnIncludesToken(id) {
 function selectToken(id) {
   const changed = state.selectedId !== id;
   state.selectedId = id;
+  mapInitiativeDismissedKey = null;
   const unitCard = document.querySelector('#unit-card');
   if (unitCard) unitCard.classList.remove('collapsed');
   if (changed) {
@@ -4943,6 +5236,7 @@ function moveToken(id, x, y, { persist = true } = {}) {
   }
   syncLabelsFor(t);
   requestSpellRangeRender();
+  positionMapInitiativePopover();
   if (persist) scheduleAutosave();
 }
 
@@ -5943,9 +6237,11 @@ function portraitAssetIdentity(source) {
 function currentTokenPortraitVariantIndex(t, variants = tokenPortraitVariants(t)) {
   const currentIdentity = portraitAssetIdentity(t);
   if (!currentIdentity) return -1;
+  const matches = variant => portraitAssetIdentity(variant) === currentIdentity
+    && SundollPortraitView.sameView(variant?.portraitView, t.portraitView);
   const hinted = Number.isInteger(t.portraitVariant) ? t.portraitVariant : -1;
-  if (hinted >= 0 && hinted < variants.length && portraitAssetIdentity(variants[hinted]) === currentIdentity) return hinted;
-  return variants.findIndex((variant) => portraitAssetIdentity(variant) === currentIdentity);
+  if (hinted >= 0 && hinted < variants.length && matches(variants[hinted])) return hinted;
+  return variants.findIndex(matches);
 }
 
 function snapshotTokenPortrait(t, name = '') {
@@ -5957,11 +6253,16 @@ function snapshotTokenPortrait(t, name = '') {
     iconImgHd: path ? null : (t.iconImgHd || null),
     iconImgPath: path,
     iconImgId: path ? null : (t.iconImgId || null),
+    ...(globalThis.SundollPortraitView?.normalize(t.portraitView) ? { portraitView: SundollPortraitView.normalize(t.portraitView) } : {}),
+    ...(SundollRules.normalizeInitiativePortrait(tokenPortraitVariants(t)[currentTokenPortraitVariantIndex(t)]?.initiativePortrait) ? { initiativePortrait: SundollRules.normalizeInitiativePortrait(tokenPortraitVariants(t)[currentTokenPortraitVariantIndex(t)]?.initiativePortrait) } : {}),
   };
 }
 
 function applyTokenPortrait(t, v) {
   for (const key of ['iconImgPath', 'iconImg', 'iconImgHd', 'iconImgId']) t[key] = v[key] || null;
+  const portraitView = globalThis.SundollPortraitView?.normalize(v.portraitView);
+  if (portraitView) t.portraitView = portraitView;
+  else delete t.portraitView;
 }
 
 function renderTokenPortraitSelect(t) {
@@ -6041,6 +6342,126 @@ function makePortraitVariantTool(label, title, action, index, disabled = false) 
   return button;
 }
 
+let initiativePortraitSaving = false;
+
+function renderInitiativePortraitEditor(t) {
+  const scope = $('#initiative-portrait-scope');
+  if (!scope) return;
+  const variants = tokenPortraitVariants(t), index = currentTokenPortraitVariantIndex(t, variants);
+  scope.querySelector('[value="variant"]').disabled = index < 0;
+  if (index < 0) scope.value = 'default';
+  const selected = scope.value === 'variant' ? variants[index]?.initiativePortrait : t.initiativePortrait;
+  const source = SundollRules.normalizeInitiativePortrait(selected);
+  const preview = $('#initiative-portrait-preview');
+  const url = initiativePortraitImageUrl(source || initiativePortraitForToken(t));
+  preview.hidden = !url;
+  if (url && preview.getAttribute('src') !== url) preview.src = url;
+  $('#initiative-portrait-status').textContent = source
+    ? (scope.value === 'variant' ? `${variants[index].name} · 已设置专用先攻图` : '角色默认 · 已设置专用先攻图')
+    : (scope.value === 'variant' ? '当前形态沿用角色默认先攻图或立绘' : '尚未设置，暂用当前立绘');
+  $('#btn-initiative-portrait-upload').disabled = initiativePortraitSaving;
+  $('#btn-initiative-portrait-clear').disabled = initiativePortraitSaving || !source;
+  scope.disabled = initiativePortraitSaving;
+}
+
+async function commitInitiativePortrait(t, source, target) {
+  if (!state.maps.some(map => (map.tokens || []).includes(t))) throw new Error('棋子已离开当前场景，请重新打开形态管理');
+  const variants = tokenPortraitVariants(t).map(v => ({ ...v }));
+  let index = -1;
+  if (target.scope === 'variant') {
+    index = variants.findIndex(v => portraitAssetIdentity(v) === target.identity
+      && SundollPortraitView.sameView(v.portraitView, target.portraitView));
+    if (index < 0) throw new Error('这个形态已发生变化，请重新选择');
+    variants[index].initiativePortrait = source;
+  }
+  const defaultPortrait = target.scope === 'default' ? source : t.initiativePortrait || null;
+  if (t.ownedPieceId) {
+    for (const form of variants) {
+      if (!form.iconImgPath && !form.iconImg && !form.iconImgHd && form.iconImgId) {
+        form.iconImg = await avatarGet(form.iconImgId) || await avatarGetDisplay(form.iconImgId);
+        if (!form.iconImg) throw new Error('形态图片尚未读取完成，请重试');
+      }
+    }
+    const fresh = await PlayerLibrary.api({ op: 'get', playerId: t.ownerPlayerId });
+    const piece = fresh.library.pieces.find(p => p.ownedPieceId === t.ownedPieceId);
+    if (!piece) throw new Error('对应收藏不存在');
+    const result = await PlayerLibrary.api({ op: 'edit', playerId: t.ownerPlayerId,
+      ownedPieceId: t.ownedPieceId, revision: fresh.library.revision, pieceRevision: piece.revision,
+      patch: { initiativePortrait: defaultPortrait, portraitVariants: variants } });
+    const saved = result.library.pieces.find(p => p.ownedPieceId === t.ownedPieceId);
+    const savedForms = normalizePortraitVariants(saved.portraitVariants);
+    const visibleIdentity = portraitAssetIdentity(t);
+    let savedIndex = savedForms.findIndex(v => visibleIdentity && portraitAssetIdentity(v) === visibleIdentity
+      && SundollPortraitView.sameView(v.portraitView, t.portraitView));
+    if (savedIndex < 0) {
+      const incomingIndex = variants.findIndex(v => visibleIdentity && portraitAssetIdentity(v) === visibleIdentity
+        && SundollPortraitView.sameView(v.portraitView, t.portraitView));
+      // The store preserves submitted order and may prepend its existing main image.
+      const offset = savedForms.length - variants.length;
+      const candidate = incomingIndex + offset;
+      if (incomingIndex >= 0 && (offset === 0 || offset === 1)
+          && savedForms[candidate]?.name === variants[incomingIndex].name) savedIndex = candidate;
+    }
+    t.initiativePortrait = saved.initiativePortrait || null;
+    t.portraitVariants = savedForms;
+    if (savedIndex >= 0) { applyTokenPortrait(t, savedForms[savedIndex]); t.portraitVariant = savedIndex; }
+  } else {
+    t.initiativePortrait = defaultPortrait;
+    if (target.scope === 'variant') { t.portraitVariants = normalizePortraitVariants(variants); t.portraitVariantsCustomized = true; }
+  }
+  renderHostInitiativeRibbon();
+  renderTokens();
+  if (state.selectedId === t.id) updateDetail();
+  renderPortraitVariantManager();
+  scheduleAutosave();
+}
+
+function initiativePortraitEditorTarget(t) {
+  const scope = $('#initiative-portrait-scope').value;
+  const variants = tokenPortraitVariants(t), index = currentTokenPortraitVariantIndex(t, variants);
+  return { scope, identity: scope === 'variant' ? portraitAssetIdentity(variants[index]) : '',
+    portraitView: scope === 'variant' ? SundollPortraitView.normalize(variants[index]?.portraitView) : undefined };
+}
+
+function chooseInitiativePortrait() {
+  const t = portraitManagerTokenId ? findToken(portraitManagerTokenId) : null;
+  if (!t || initiativePortraitSaving) return;
+  const target = initiativePortraitEditorTarget(t);
+  const input = document.createElement('input');
+  input.type = 'file'; input.accept = 'image/png,image/webp,image/jpeg'; input.hidden = true;
+  input.addEventListener('change', async () => {
+    const file = input.files?.[0]; input.remove();
+    if (!file) return;
+    if (!['image/png','image/webp','image/jpeg'].includes(file.type) || file.size > 4 * 1024 * 1024) {
+      toast('请选择 4 MB 以内的 PNG、WebP 或 JPEG 图片'); return;
+    }
+    initiativePortraitSaving = true;
+    renderInitiativePortraitEditor(t);
+    let url = '';
+    try {
+      url = URL.createObjectURL(file);
+      const image = new Image(); image.src = url; await image.decode();
+      const source = SundollRules.normalizeInitiativePortrait({ iconImg: scaleToDataUrl(image, 1024, false) });
+      if (!source) throw new Error('这张图片无法作为先攻图，请换一张试试');
+      await commitInitiativePortrait(t, source, target);
+      toast('先攻图已保存，透明区域会保留');
+    } catch (error) { toast(error.message || '先攻图未保存，请重试'); }
+    finally { if (url) URL.revokeObjectURL(url); initiativePortraitSaving = false; if (portraitManagerTokenId === t.id) renderInitiativePortraitEditor(t); }
+  }, { once: true });
+  input.addEventListener('cancel', () => input.remove(), { once: true });
+  document.body.append(input); input.click();
+}
+
+async function clearInitiativePortrait() {
+  const t = portraitManagerTokenId ? findToken(portraitManagerTokenId) : null;
+  if (!t || initiativePortraitSaving) return;
+  const target = initiativePortraitEditorTarget(t);
+  initiativePortraitSaving = true; renderInitiativePortraitEditor(t);
+  try { await commitInitiativePortrait(t, null, target); toast('已恢复沿用默认图或当前立绘'); }
+  catch (error) { toast(error.message || '先攻图未清除，请重试'); }
+  finally { initiativePortraitSaving = false; if (portraitManagerTokenId === t.id) renderInitiativePortraitEditor(t); }
+}
+
 function renderPortraitVariantManager(focusIndex = null) {
   const modal = $('#portrait-manager-modal');
   if (!modal || modal.hidden) return;
@@ -6049,6 +6470,7 @@ function renderPortraitVariantManager(focusIndex = null) {
     closePortraitVariantManager();
     return;
   }
+  renderInitiativePortraitEditor(t);
   const strip = $('#portrait-variant-strip');
   const variants = tokenPortraitVariants(t);
   const activeIndex = currentTokenPortraitVariantIndex(t, variants);
@@ -6134,7 +6556,8 @@ function saveCurrentPortraitAsVariant() {
   if (!snapshot) return;
   const variants = editableTokenPortraitVariants(t);
   const identity = portraitAssetIdentity(snapshot);
-  let index = variants.findIndex((variant) => portraitAssetIdentity(variant) === identity);
+  let index = variants.findIndex((variant) => portraitAssetIdentity(variant) === identity
+    && SundollPortraitView.sameView(variant.portraitView, snapshot.portraitView));
   if (index >= 0) {
     variants[index] = snapshot;
     toast('该立绘已存在，已更新形态名称');
@@ -6226,6 +6649,7 @@ async function syncTokenPortraitVariantsToLibrary() {
   }
   t.presetId = preset.id;
   preset.portraitVariants = tokenPortraitVariants(t).map((variant) => ({ ...variant }));
+  preset.initiativePortrait = SundollRules.normalizeInitiativePortrait(t.initiativePortrait);
   applyTokenPortrait(preset, t);
   saveLibrary();
   renderLibrary();
@@ -6303,7 +6727,8 @@ function d20CriticalOutcome(parsed, chosen, rollMode, pick, dicePayload) {
 }
 
 function currentDiceSkin() {
-  return window.SundollDiceSkins?.get?.() || 'obsidian';
+  if(window.SundollDiceSkins?.get)return window.SundollDiceSkins.get();
+  try{return localStorage.getItem('sundoll-dice-skin-v1')||'obsidian';}catch(error){return 'obsidian';}
 }
 
 function doRoll(expr, mode = 0) {
@@ -6374,7 +6799,8 @@ function addLogLine(label, detail, total) {
 
 // 3D 骰子动画：玩家掷骰时所有端显示；DM 自己的骰子只在本机显示（保密）
 function playDiceFx(sides, label, total, opts) {
-  if (window.playDieAnimation) window.playDieAnimation(sides, label, total, opts);
+  if(window.playDieAnimation){window.playDieAnimation(sides,label,total,opts);return;}
+  return ensureHostDice().then(()=>window.playDieAnimation(sides,label,total,opts)).catch(()=>toast(label+' → '+total+'（动画暂时无法加载）'));
 }
 
 // Persistence is implemented in host/storage.js.
@@ -6394,6 +6820,8 @@ function applyAllState() {
 }
 
 function applyActiveMap() {
+  finishCoverStroke();
+  renderMapCover();
   const m = activeMap();
   syncActiveMapGridSetting();
   if (!m) {
@@ -6511,6 +6939,12 @@ function bindEvents() {
     const renameButton = e.target.closest('[data-map-rename]');
     if (renameButton) {
       renameMapById(renameButton.dataset.mapRename);
+      return;
+    }
+    const formsButton = e.target.closest('[data-map-forms]');
+    if (formsButton) {
+      if (typeof openMapForms === 'function') openMapForms(formsButton.dataset.mapForms);
+      else toast('地图形态组件尚未加载，请重启服务后刷新页面');
       return;
     }
     const presentButton = e.target.closest('[data-map-present]');
@@ -6648,7 +7082,14 @@ function bindEvents() {
   });
 
   // 封面页
-  $('#cover-continue').addEventListener('click', () => {
+  $('#cover-continue').addEventListener('click', async () => {
+    if (hostCampaignDeferred) {
+      if (!homeContinueRecord) return;
+      setCoverBusy(true);
+      setCoverFeedback(`正在读取「${homeContinueRecord.name}」…`);
+      try { await openCampaign(homeContinueRecord.id); } finally { setCoverBusy(false); }
+      return;
+    }
     hideCover();
     toast(state.campaignId ? `已继续战役「${state.campaignName || ''}」` : '已继续上次临时进度');
   });
@@ -6657,7 +7098,7 @@ function bindEvents() {
     form.hidden = false;
     const input = $('#cover-new-name');
     if (!input.value.trim()) input.value = `战役 ${new Date().toLocaleDateString('zh-CN')}`;
-    setCoverFeedback('输入战役名称后，会在“存档”文件夹中建立正式存档。');
+    setCoverFeedback('输入战役名称后，会在当前工作区建立正式存档。');
     input.focus();
     input.select();
   });
@@ -6677,13 +7118,14 @@ function bindEvents() {
     setCoverFeedback('正在建立正式存档…');
     try {
       if (!(await ensureSaveFolderAccess(true))) {
-        setCoverFeedback('没有连接“存档”文件夹，战役尚未创建。', 'attention');
+        setCoverFeedback('尚未连接存档，战役没有创建。', 'attention');
         return;
       }
+      await prepareDeferredHostCampaign();
       const id = 'c' + (uid++);
       const snap = newCampaignState(name, id);
-      await campaignPut(id, name, snap, { backup: false });
-      await rememberCampaignSelection(id);
+      const created = await campaignPut(id, name, snap, { backup: false });
+      try {await rememberCampaignSelection(id);} catch(error) {created.indexWarning=error.message||'上次打开记录待更新';}
       state.maps = [];
       state.parkedOwnedPieces = {};
       state.travelBasketTokens = [];
@@ -6708,11 +7150,19 @@ function bindEvents() {
         localStorage.setItem('dnd-board-local-save-at', String(Date.now()));
       } catch (e) { /* 正式文件已经创建，浏览器恢复点失败不阻止进入 */ }
       $('#cover-new-form').hidden = true;
+      const wasDeferred = hostCampaignDeferred;
+      hostCampaignDeferred = false;
+      updateCoverContinue();
       hideCover();
-      toast(`已新建战役「${name}」，从空白地图开始`);
+      if (wasDeferred) {
+        hostMusic.loadProjectMusicLibrary({ silent: true });
+        await restoreStreamFromStorage();
+      }
+      updateSaveStatus(created.indexWarning?'正式存档已创建 · 列表待更新':'正式存档已创建',created.indexWarning?'pending':'ok');
+      toast(`已新建战役「${name}」${created.indexWarning?'，存档列表待更新':''}`);
     } catch (error) {
       console.warn('主页新建战役失败', error);
-      setCoverFeedback('新建失败，请检查“存档”文件夹权限后再试。', 'error');
+      setCoverFeedback('新建失败，请检查存档连接和权限后再试。', 'error');
     } finally {
       setCoverBusy(false);
     }
@@ -6741,7 +7191,7 @@ function bindEvents() {
     }
   });
   $('#cover-folder').addEventListener('click', async () => {
-    if (usingLocalSaveBridge()) { await refreshHostHome({ forceRecords: true }); return; }
+    if (location.protocol !== 'file:' || usingLocalSaveBridge()) { await refreshHostHome({ forceRecords: true }); return; }
     setCoverBusy(true);
     setCoverFeedback('正在连接“存档”文件夹…');
     try {
@@ -6848,6 +7298,7 @@ function bindEvents() {
   }, { passive: false });
 
   // 拖拽：棋子 / 平移
+  initMapCover();
   board.addEventListener('pointerdown', (e) => {
     // 左键拖拽；右键选择棋子。
     if (e.button !== 0) return;
@@ -7119,7 +7570,7 @@ function bindEvents() {
       if (!res) { toast('图标读取失败，请换一张图片'); return; }
       const id = 'a' + (uid++);
       storeAvatar(id, res.hd).then(() => {
-        tokenAvatar = { iconImgId: id, iconImg: res.thumb, iconImgHd: res.display };
+        tokenAvatar = { iconImgId: id, iconImg: res.thumb, iconImgHd: res.display, portraitView: res.portraitView };
         $('#token-icon-preview').src = res.thumb;
         $('#token-icon-preview-row').hidden = false;
         toast('图标已就绪（高清），放置单位时生效');
@@ -7143,7 +7594,7 @@ function bindEvents() {
       if (!res) { toast('图标读取失败，请换一张图片'); return; }
       const id = 'a' + (uid++);
       storeAvatar(id, res.hd).then(() => {
-        applyTokenPortrait(t, { iconImgId: id, iconImg: res.thumb, iconImgHd: res.display });
+        applyTokenPortrait(t, { iconImgId: id, iconImg: res.thumb, iconImgHd: res.display, portraitView: res.portraitView });
         delete t.portraitVariant;
         renderTokens();
         updateDetail();
@@ -7173,7 +7624,34 @@ function bindEvents() {
   $('#btn-portrait-manager-open').addEventListener('click', openPortraitVariantManager);
   $('#btn-portrait-manager-close').addEventListener('click', closePortraitVariantManager);
   $('#btn-portrait-manager-done').addEventListener('click', closePortraitVariantManager);
+  $('#btn-portrait-view').addEventListener('click', async () => {
+    const t=portraitManagerTokenId?findToken(portraitManagerTokenId):null;
+    if(!t||!tokenHasPortrait(t))return;
+    try {
+      const view=await editHostPortraitView(t);
+      if(!view)return;
+      const variants=editableTokenPortraitVariants(t);
+      const index=currentTokenPortraitVariantIndex(t,variants);
+      t.portraitView=view;
+      if(index>=0)t.portraitVariants[index].portraitView={...view};
+      renderTokens();updateDetail();renderPortraitVariantManager(index);scheduleAutosave();
+      toast('显示范围已更新');
+    }catch(error){toast(error.message||'无法读取立绘');}
+  });
+  $('#btn-lib-portrait-view').addEventListener('click', async () => {
+    if(!libAvatar){toast('请先上传或选择图片');return;}
+    try{const view=await editHostPortraitView(libAvatar);if(view){libAvatar.portraitView=view;toast('显示范围已调整，保存棋子生效');}}
+    catch(error){toast(error.message||'无法读取立绘');}
+  });
+  $('#btn-token-portrait-view').addEventListener('click', async () => {
+    if(!tokenAvatar){toast('请先上传图片');return;}
+    try{const view=await editHostPortraitView(tokenAvatar);if(view)tokenAvatar.portraitView=view;}
+    catch(error){toast(error.message||'无法读取立绘');}
+  });
   $('#btn-portrait-save-current').addEventListener('click', saveCurrentPortraitAsVariant);
+  $('#btn-initiative-portrait-upload').addEventListener('click', chooseInitiativePortrait);
+  $('#btn-initiative-portrait-clear').addEventListener('click', clearInitiativePortrait);
+  $('#initiative-portrait-scope').addEventListener('change', () => { const t = findToken(portraitManagerTokenId); if (t) renderInitiativePortraitEditor(t); });
   $('#btn-portrait-sync-library').addEventListener('click', syncTokenPortraitVariantsToLibrary);
   $('#portrait-manager-modal').addEventListener('click', (event) => {
     if (event.target === $('#portrait-manager-modal')) closePortraitVariantManager();
@@ -7429,7 +7907,7 @@ function bindEvents() {
       if (!res) { toast('图标读取失败'); return; }
       const id = 'a' + (uid++);
       storeAvatar(id, res.hd).then(() => {
-        libAvatar = { iconImgId: id, iconImg: res.thumb, iconImgHd: res.display };
+        libAvatar = { iconImgId: id, iconImg: res.thumb, iconImgHd: res.display, portraitView: res.portraitView };
         syncLibIconPreview();
       });
     });
@@ -7473,6 +7951,8 @@ function bindEvents() {
       iconImgPath: portraitPath,
       iconImgId: portraitPath ? null : (t.iconImgId || null),
       portraitVariants: tokenPortraitVariants(t).map((variant) => ({ ...variant })),
+      initiativePortrait: SundollRules.normalizeInitiativePortrait(t.initiativePortrait),
+      ...(globalThis.SundollPortraitView?.normalize(t.portraitView) ? { portraitView: SundollPortraitView.normalize(t.portraitView) } : {}),
       ...SundollSize.normalize(t),
       hpMax: t.hpMax || 10,
       ac: typeof t.ac === 'number' ? t.ac : 10,
@@ -7542,9 +8022,27 @@ function bindEvents() {
   $('#btn-doodle-undo').addEventListener('click', undoDoodle);
   $('#btn-doodle-clear').addEventListener('click', clearDoodles);
 
-  // 先攻与时间条
-  $('#btn-init-collapse').addEventListener('click', () => {
-    const e = encounterState(); e.collapsed = !e.collapsed; renderEncounter(); scheduleAutosave(false);
+  // 先攻安排使用独立临时窗口，底部仅保留战斗概览与结束回合。
+  bindMapInitiativePopoverEvents();
+  $('#btn-init-collapse').addEventListener('click', openHostInitiativeManager);
+  $('#btn-initiative-manager-close').addEventListener('click', closeHostInitiativeManager);
+  $('#initiative-manager-modal').addEventListener('click', event => {
+    if (event.target === event.currentTarget) closeHostInitiativeManager();
+  });
+  $('#initiative-manager-modal').addEventListener('keydown', event => {
+    event.stopPropagation();
+    if (event.key === 'Escape') { event.preventDefault(); closeHostInitiativeManager(); return; }
+    if (event.key !== 'Tab') return;
+    const controls = Array.from(event.currentTarget.querySelectorAll('button, input, select, [tabindex]'))
+      .filter(control => !control.disabled && control.tabIndex >= 0 && !control.closest('[hidden]'));
+    const first = controls[0], last = controls[controls.length - 1];
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+  });
+  $('#btn-init-environment').addEventListener('click', addEnvironmentInitiativeEntry);
+  $('#btn-init-swap-values').addEventListener('click', () => swapHostInitiativeValues($('#init-swap-first').value, $('#init-swap-second').value));
+  for (const selector of ['#init-swap-first', '#init-swap-second']) $(selector).addEventListener('change', () => {
+    $('#btn-init-swap-values').disabled = !$('#init-swap-first').value || !$('#init-swap-second').value || $('#init-swap-first').value === $('#init-swap-second').value;
   });
   document.querySelectorAll('[data-encounter-panel]').forEach((tab) => {
     tab.addEventListener('click', () => {
@@ -7555,14 +8053,18 @@ function bindEvents() {
   });
   document.querySelectorAll('[data-play-mode]').forEach((button) => {
     button.addEventListener('click', () => {
-      if (button.dataset.playMode === 'prepare') enterCombatPreparation();
+      if (button.dataset.playMode === 'prepare') {
+        if (encounterState().playMode === 'free') enterCombatPreparation();
+      }
       else leaveCombatForFreeMode();
     });
   });
-  $('#btn-combat-start').addEventListener('click', startCombat);
-  $('#btn-init-add').addEventListener('click', upsertSelectedInitiativeEntry);
-  $('#init-value').addEventListener('keydown', (event) => { if (event.key === 'Enter') $('#btn-init-add').click(); });
+  $('#btn-combat-start').addEventListener('click', () => {
+    if (encounterState().playMode === 'free') enterCombatPreparation();
+    else if (encounterState().playMode === 'prepare') startCombat();
+  });
   $('#btn-init-next').addEventListener('click', advanceEncounter);
+  $('#btn-init-next-dock').addEventListener('click', advanceEncounter);
   $('#btn-combat-end').addEventListener('click', endCombatFromButton);
   $('#btn-turn-path-toggle').addEventListener('click', () => setHostTurnPathRecording(!hostTurnPathRecording));
   $('#btn-turn-path-undo').addEventListener('click', () => applyHostTurnPathAction('turnPathUndo'));
@@ -7600,13 +8102,14 @@ function bindEvents() {
     $(`#${id}`).addEventListener('keydown', (event) => { if (event.key === 'Enter') setWorldTimeFromInputs(); });
   });
   $('#btn-time-reset').addEventListener('click', () => {
-    if (!confirm('确定将战役时间重置到第 1 年 · 第 1 周 · 第 1 天 08:00 吗？计时将暂停，天气会重新计算；已有日志日期不会改写。')) return;
+    if (!confirm('确定将战役时间重置到第 1 年 · 第 1 周 · 第 1 天 08:00 吗？计时将暂停，天气保留并重设时间锚点；已有日志日期不会改写。')) return;
     const e = encounterState();
     materializeWorldTime(e);
     e.worldTime.totalSeconds = 8 * 60 * 60;
     e.worldTime.runningSince = null;
     refreshScheduledWeather(e, e.worldTime.totalSeconds);
     setEncounterEvent(e, '世界时间已重置');
+    window.SundollWorldUI?.clearEdit('date');
     renderEncounter(); scheduleAutosave();
   });
 
@@ -7620,6 +8123,7 @@ function bindEvents() {
     head.addEventListener('click', (e) => {
       if (e.target.closest('button')) return;
       card.classList.toggle('collapsed');
+      if(card.id==='map-cover-tools'&&card.classList.contains('collapsed')&&String(boardTool).startsWith('cover-'))$('#cover-done').click();
     });
   });
 
@@ -7639,7 +8143,11 @@ function bindEvents() {
 
   // 存档功能窗口
   const saveToolsDialog = $('#save-tools-dialog');
+  $('#btn-host-overview')?.addEventListener('click', showCover);
+  $('#host-conflict-download')?.addEventListener('click', downloadHostConflictDraft);
+  $('#host-conflict-reload')?.addEventListener('click', reloadHostFormalAfterConflict);
   $('#btn-save-tools-open').addEventListener('click', () => {
+    renderHostSaveScope();
     if (!saveToolsDialog.open) saveToolsDialog.showModal();
   });
   $('#btn-save-tools-close').addEventListener('click', () => saveToolsDialog.close());
@@ -7649,7 +8157,8 @@ function bindEvents() {
     saveToolsDialog.close();
     switch (button.dataset.saveAction) {
       case 'save': saveNowWithFeedback(); break;
-      case 'home': showCover(); break;
+      case 'manage': SundollModules.open('campaigns'); break;
+      case 'backups': SundollModules.open('backups'); break;
     }
   });
 }
@@ -7685,6 +8194,7 @@ function placeToken() {
     iconImgHd: tokenAvatar ? tokenAvatar.iconImgHd : null,
     iconImgPath: tokenAvatar ? tokenAvatar.iconImgPath || null : null,
     iconImgId: tokenAvatar ? tokenAvatar.iconImgId : null,
+    ...(globalThis.SundollPortraitView?.normalize(tokenAvatar?.portraitView) ? { portraitView: SundollPortraitView.normalize(tokenAvatar.portraitView) } : {}),
     size, sizeCategory,
     hpMax,
     hp: hpMax,
@@ -7829,7 +8339,9 @@ function publicStreamToken(token) {
   const publicToken = {
     id: token.id, name: token.name, type: token.type, icon: token.icon,
     iconImg: token.iconImg, iconImgHd: token.iconImgHd, iconImgPath: token.iconImgPath,
+    ...(globalThis.SundollPortraitView?.normalize(token.portraitView) ? { portraitView: SundollPortraitView.normalize(token.portraitView) } : {}),
     portraitVariants: tokenPortraitVariants(token), portraitVariant: token.portraitVariant,
+    initiativePortrait: SundollRules.normalizeInitiativePortrait(token.initiativePortrait) || (!token.ownedPieceId ? SundollRules.normalizeInitiativePortrait(portraitLibraryPresetForToken(token)?.initiativePortrait) : null),
     portraitBeforeDowned: token.portraitBeforeDowned || null,
     ...SundollSize.normalize(token), x: token.x, y: token.y, owner: token.owner,
     ownedPieceId: token.ownedPieceId, ownerPlayerId: token.ownerPlayerId, characterRevision: token.characterRevision,
@@ -7859,7 +8371,7 @@ function publicStreamMap(map, isPresented, visibleTokenIds) {
     playerAccessible: accessible,
   };
   if (!accessible) return { ...metadata, mapData: null, tokens: [], doodles: [] };
-  const tokens = (map.tokens || []).map(publicStreamToken).filter(Boolean);
+  const tokens = (map.tokens || []).filter(t=>!SundollRules.mapPointCovered(map,t.x,t.y)).map(publicStreamToken).filter(Boolean);
   const visibleTokenSet = new Set(tokens.map((token) => token.id));
   tokens.forEach((token) => {
     if (!token.mountId || !visibleTokenSet.has(token.mountId)) delete token.mountId;
@@ -7872,6 +8384,7 @@ function publicStreamMap(map, isPresented, visibleTokenIds) {
     ...metadata, mapData, assetPending: Boolean(map.mapData && !mapData),
     mapW: map.mapW, mapH: map.mapH, gridSize: map.gridSize,
     gridLineWidth: map.gridLineWidth ?? 2, gridOffsetX: map.gridOffsetX || 0, gridOffsetY: map.gridOffsetY || 0,
+    gridCover: SundollRules.normalizeMapCover(map.gridCover),
     gridVisible: mapGridVisible(map),
     doodles: ensureDoodleIds(map).map((stroke) => ({ ...stroke })), tokens,
   };
@@ -7892,6 +8405,7 @@ function buildStreamPayload() {
     travelBasketSkin: state.travelBasketSkin || 'travel-wagon',
     parkedOwnedPieces: Object.fromEntries(Object.entries(state.parkedOwnedPieces||{}).map(([id,t])=>[id,{...publicStreamToken({...t,hiddenFromPlayers:false}),travelBasketStored:t.travelBasketStored===true}])),
     activeMapId: m?.id || null,
+    mapPresentationId,
     mapChapters: state.mapChapters.map((chapter) => ({
       id: chapter.id,
       name: visibleChapterIds.has(chapter.id) ? chapter.name : null,
@@ -7908,6 +8422,7 @@ function buildStreamPayload() {
     campaignName: state.campaignName,
     sharedResources: (userLinks || []).map((link) => ({ ...link })),
     sharedNotes: String(state.sharedNotes || '').slice(0, 4000),
+    _diningMenu: typeof SundollDining !== 'undefined' ? SundollDining.snapshot(state.campaignId) : null,
     journal: CampaignJournal.normalize(state.journal, state.campaignId),
     encounter: publicEncounterState(visibleTokenIds),
     _mapPreloads: state.maps.filter((map) => map.playerAccessible === true || map.id === m?.id)
@@ -7919,6 +8434,8 @@ function buildStreamPayload() {
   if (musicSnapshot) p._bgm = musicSnapshot;
   p.protocolVersion = SundollProtocol.version;
   p._streamSeq = streamAppliedSeq;
+  const formalSourceHash = typeof campaignLoadedHashes !== 'undefined' ? campaignLoadedHashes.get(state.campaignId) : null;
+  if (typeof formalSourceHash === 'string' && /^[0-9a-f]{64}$/.test(formalSourceHash)) p._formalSourceHash = formalSourceHash;
   return p;
 }
 
@@ -7942,19 +8459,19 @@ const danmaku = (() => {
 })();
 
 function applyRemoteAction(a) {
-  if (a?.campaignId != null && a.campaignId !== state.campaignId) return;
-  if (a?._sessionId && streamServerSessionId && a._sessionId !== streamServerSessionId) return;
-  if (!a) return;
-  if (a.op === 'danmaku') { danmaku.receive(a); return; }
+  if (a?.campaignId != null && a.campaignId !== state.campaignId) return false;
+  if (a?._sessionId && streamServerSessionId && a._sessionId !== streamServerSessionId) return false;
+  if (!a) return false;
+  if (a.op === 'danmaku') { danmaku.receive(a); return true; }
   if (a.op === 'journalEdit') {
-    if (a.campaignId !== state.campaignId) return;
+    if (a.campaignId !== state.campaignId) return false;
     const incomingJournal = CampaignJournal.normalize(a.journal, state.campaignId);
     if ((state.journal?.revision || 0) < incomingJournal.revision) state.journal = incomingJournal;
-    CampaignJournal.refresh(); scheduleAutosave(false); return;
+    CampaignJournal.refresh(); scheduleAutosave(false); return true;
   }
   if (a.op === 'endTurn') {
     const e = encounterState();
-    if (Number(e.turnSerial) !== Number(a.turnSerial)) return;
+    if (Number(e.turnSerial) !== Number(a.turnSerial)) return false;
     const endedEntry = currentInitiativeEntry(e);
     decrementCurrentTokenConditions(e);
     e.currentEntryId = a.nextEntryId || e.currentEntryId;
@@ -7966,8 +8483,12 @@ function applyRemoteAction(a) {
     e.worldTime.runningSince = null;
     let automaticWeather = null;
     if (a.weather && typeof a.weather === 'object') {
+      const previousWeather = normalizeWeather(e.weather);
       e.weather = normalizeWeather(a.weather);
-      automaticWeather = weatherPresentation(e.weather, worldTimeParts(e.worldTime.totalSeconds));
+      if (CLIMATE_AVAILABLE && ['climate', 'condition', 'temperature', 'wind']
+        .some((key) => e.weather[key] !== previousWeather[key])) {
+        automaticWeather = weatherPresentation(e.weather, worldTimeParts(e.worldTime.totalSeconds));
+      }
     } else {
       automaticWeather = refreshScheduledWeather(e, e.worldTime.totalSeconds);
     }
@@ -7976,21 +8497,21 @@ function applyRemoteAction(a) {
     renderTokens();
     renderTurnPath();
     scheduleAutosave(Boolean(automaticWeather));
-    return;
+    return true;
   }
   if (a.op === 'initiativeSwap') {
     const e = encounterState();
-    if (!applyInitiativeRemoteAction(e, a)) return;
+    if (!applyInitiativeRemoteAction(e, a)) return false;
     setEncounterEvent(e, `${displayPlayerName(a.displayName || a.name || a.actor)} 调整了同先攻角色的顺序`);
     renderEncounter();
     renderTokens();
     scheduleAutosave(false);
-    return;
+    return true;
   }
   if (a.op === 'roll') {
     if (a.rid && hostLocalRolls.has(a.rid)) {
       hostLocalRolls.delete(a.rid);
-      return;
+      return true;
     }
     // 玩家掷骰：进主控台骰子记录，并弹提示
     const who = displayPlayerName(a.displayName || a.name || a.actor);
@@ -8000,30 +8521,30 @@ function applyRemoteAction(a) {
     });
     addLogLine(`${who} · ${a.expr || ''}`, a.detail || '', a.total);
     toast(`🎲 ${who} 掷出 ${a.total}（${a.expr || ''}）`);
-    return;
+    return true;
   }
   if (a.op === 'announce') {
     toast(`📣 ${a.text || 'GM 发布了一条公告'}`);
-    return;
+    return true;
   }
   if (a.op === 'mapReaction') {
     if (a.reactionId && localReactionIds.has(a.reactionId)) {
       localReactionIds.delete(a.reactionId);
-      return;
+      return true;
     }
     showMapReaction(a);
-    return;
+    return true;
   }
   if(a.characterUpdates)for(const update of a.characterUpdates)applyRemoteAction(update);
   if(a.op==='characterState'){
     const all=[...state.maps.flatMap(m=>m.tokens||[]),...Object.values(state.parkedOwnedPieces||{})];
     let changed=false;for(const t of all)if(t.ownedPieceId===a.characterId&&t.ownerPlayerId===a.ownerPlayerId&&(t.characterRevision||0)<a.patch.characterRevision){const patch={...a.patch};if(a.publicProjection&&patch.conditions)patch.conditions=[...(t.conditions||[]).filter(c=>c.visibility==='gm'),...patch.conditions.filter(c=>c.visibility!=='gm')];Object.assign(t,patch);const form=Number.isInteger(patch.portraitVariant)?tokenPortraitVariants(t)[patch.portraitVariant]:null;if(form)applyTokenPortrait(t,form);SundollDownedPortrait.sync(t);changed=true;}
-    if(changed){renderTokens();updateDetail();scheduleAutosave(false);}return;
+    if(changed){renderTokens();updateDetail();scheduleAutosave(false);}return true;
   }
   const m = (state.maps || []).find((x) => x.id === (a.mapId || state.activeMapId));
   if(a.op==='bindOwnedPiece'&&a.ownership){
     const token=state.maps.flatMap(map=>map.tokens||[]).find(t=>t.id===a.tokenId);
-    if(token){Object.assign(token,a.ownership);renderTokens();updateDetail();scheduleAutosave(false);}return;
+    if(token){Object.assign(token,a.ownership);renderTokens();updateDetail();scheduleAutosave(false);}return Boolean(token);
   }
   if (a.op === 'recallOwnedPiece' && a.ownedPieceId) {
     let foundOwned=false;
@@ -8050,7 +8571,7 @@ function applyRemoteAction(a) {
     if(a.encounter)e.turnSerial=Math.max(Number(e.turnSerial)||1,Number(a.encounter.turnSerial)||1);
     if(e.playMode==='turn'&&!e.entries.length){e.playMode='prepare';e.round=1;}
     renderTokens();updateDetail();renderEncounter();renderTurnPath();scheduleAutosave(false);
-    return;
+    return true;
   }
   if (m && a.op === 'releaseOwnedPiece' && a.token?.id && a.ownedPieceId) {
     const ownedPieceId = String(a.ownedPieceId);
@@ -8079,7 +8600,7 @@ function applyRemoteAction(a) {
     renderTurnPath();
     scheduleAutosave(false);
     toast(`♟ ${displayPlayerName(a.displayName || a.name || a.actor, tokenOwnerName(token))} 释放了「${token.name}」`);
-    return;
+    return true;
   }
   if (m && a.op === 'spawnToken' && a.token?.id) {
     if (!Array.isArray(m.tokens)) m.tokens = [];
@@ -8096,7 +8617,7 @@ function applyRemoteAction(a) {
     if (m.id === state.activeMapId) renderTokens();
     scheduleAutosave(false);
     toast(`♟ ${displayPlayerName(a.displayName || a.actor, tokenOwnerName(token))} 放置了「${token.name}」`);
-    return;
+    return true;
   }
   if (m && a.op === 'deletePlayerToken' && a.tokenId) {
     const token = m.tokens.find((candidate) => candidate.id === a.tokenId);
@@ -8118,12 +8639,12 @@ function applyRemoteAction(a) {
     renderTurnPath();
     scheduleAutosave(false);
     toast(`♟ ${a.displayName || '玩家'} 删除了「${tokenName}」`);
-    return;
+    return true;
   }
   if (m && a.op === 'mountToken' && a.tokenId && a.mountId) {
     const rider = m.tokens.find((candidate) => candidate.id === a.tokenId);
     const mount = m.tokens.find((candidate) => candidate.id === a.mountId);
-    if (!rider || !mount) return;
+    if (!rider || !mount) return false;
     if (!rider.mountId || rider.mountId === mount.id) rider.mountId = mount.id;
     rider.x = Number.isFinite(Number(a.x)) ? Number(a.x) : mount.x;
     rider.y = Number.isFinite(Number(a.y)) ? Number(a.y) : mount.y;
@@ -8161,17 +8682,17 @@ function applyRemoteAction(a) {
     updateDetail();
     scheduleAutosave(false);
     toast(`🐎 ${a.displayName || '玩家'} 让「${a.riderName || rider.name || '骑手'}」骑上了「${a.mountName || mount.name || '坐骑'}」`);
-    return;
+    return true;
   }
   if (m && a.op === 'dismountToken' && a.tokenId) {
     const rider = m.tokens.find((candidate) => candidate.id === a.tokenId);
-    if (!rider) return;
+    if (!rider) return false;
     if (!rider.mountId || rider.mountId === a.mountId) rider.mountId = null;
     if (Number.isFinite(a.x) && Number.isFinite(a.y)) { rider.x = a.x; rider.y = a.y; }
     const e = encounterState();
     const entryIds = new Set(Array.isArray(a.initiativeEntryIds) ? a.initiativeEntryIds.map(String) : []);
     e.entries.forEach((entry) => {
-      if (!entry || !entryIds.has(String(entry.id))) return;
+      if (!entry || !entryIds.has(String(entry.id))) return false;
       entry.tokenId = rider.id;
       entry.name = rider.name || entry.name;
       entry.color = a.riderColor || (TYPE_META[rider.type] || TYPE_META.npc).ring;
@@ -8188,7 +8709,7 @@ function applyRemoteAction(a) {
     updateDetail();
     scheduleAutosave(false);
     toast(`🐎 ${a.displayName || '玩家'} 让「${a.riderName || rider.name || '骑手'}」解除了骑乘`);
-    return;
+    return true;
   }
   if (m && a.op === 'doodleAdd' && a.stroke && a.stroke.id) {
     if (!Array.isArray(m.doodles)) m.doodles = [];
@@ -8197,33 +8718,33 @@ function applyRemoteAction(a) {
     }
     if (m.id === state.activeMapId) renderDoodles();
     scheduleAutosave(false);
-    return;
+    return true;
   }
   if (m && a.op === 'doodleDelete' && a.doodleId) {
     m.doodles = (m.doodles || []).filter((stroke) => stroke && stroke.id !== a.doodleId);
     if (selectedDoodleId === a.doodleId) selectedDoodleId = null;
     if (m.id === state.activeMapId) renderDoodles();
     scheduleAutosave(false);
-    return;
+    return true;
   }
   if (m && a.op === 'doodleClear') {
     m.doodles = [];
     selectedDoodleId = null;
     if (m.id === state.activeMapId) renderDoodles();
     scheduleAutosave(false);
-    return;
+    return true;
   }
-  if (!m || !a || !a.tokenId) return;
+  if (!m || !a || !a.tokenId) return false;
   const t = m.tokens.find((x) => x.id === a.tokenId);
-  if (!t) return;
+  if (!t) return false;
   const encounter = encounterState();
   const encounterActionMode = encounter.playMode === 'turn' ? 'turn' : 'free';
   const isTurnPathAction = a.op === 'turnPathUndo' || a.op === 'turnPathReset';
-  if ((a.op === 'moveToken' || a.op === 'patchToken' || isTurnPathAction) && a.playMode && a.playMode !== encounterActionMode) return;
+  if ((a.op === 'moveToken' || a.op === 'patchToken' || isTurnPathAction) && a.playMode && a.playMode !== encounterActionMode) return false;
   if ((a.op === 'moveToken' || a.op === 'patchToken' || isTurnPathAction) && a.turnSerial != null
-    && (encounter.playMode !== 'turn' || Number(a.turnSerial) !== encounter.turnSerial)) return;
+    && (encounter.playMode !== 'turn' || Number(a.turnSerial) !== encounter.turnSerial)) return false;
   if (a.op === 'moveToken' || isTurnPathAction) {
-    if (isTurnPathAction && (a.pathMode !== 'replace' || !Array.isArray(a.path) || !a.path.length)) return;
+    if (isTurnPathAction && (a.pathMode !== 'replace' || !Array.isArray(a.path) || !a.path.length)) return false;
     const grid = m.gridSize || 50;
     const margin = (t.size || 1) * grid / 2;
     t.x = clamp(a.x, margin, m.mapW - margin);
@@ -8261,6 +8782,10 @@ function applyRemoteAction(a) {
       if (v) { applyTokenPortrait(t, v); t.portraitVariant = p.portraitVariant; }
     } else if (Object.prototype.hasOwnProperty.call(p, 'portraitVariant')) delete t.portraitVariant;
     const allowed = ['hp', 'hpMax', 'tempHp', 'tempHpMax', 'ac', 'spellRange'];
+    if ('portraitView' in p) {
+      const view = globalThis.SundollPortraitView?.normalize(p.portraitView);
+      if (view) t.portraitView = view; else delete t.portraitView;
+    }
     allowed.forEach((k) => { if (k in p) t[k] = p[k]; });
     if ('portraitBeforeDowned' in p) t.portraitBeforeDowned = p.portraitBeforeDowned || null;
     SundollDownedPortrait.sync(t);
@@ -8282,18 +8807,21 @@ function applyRemoteAction(a) {
       renderEncounter();
       toast(`🎭 ${actor} 更新了「${t.name}」的立绘形态`);
     }
-  }
+  } else return false;
   scheduleAutosave(false);
+  return true;
 }
 
 async function mergePlayerStateFromServer() {
   try {
     const previouslyAppliedSeq = streamAppliedSeq;
-    const res = await fetch(`${serverApiBase()}/api/state`);
-    if (!res.ok) return;
-    const s = await res.json();
+    const {response:res,data:s} = await SundollClientRuntime.requestJson(`${serverApiBase()}/api/state`,{cache:'no-store'},{timeoutMs:8000});
+    if (!res.ok) return false;
     if (!s || !Array.isArray(s.maps) || s.campaignId !== state.campaignId) return;
-    if (s._sessionId && s._sessionId !== streamServerSessionId) { streamServerSessionId = s._sessionId; streamAppliedSeq = 0; }
+    if (hostStateConflict) return false;
+    if (hostStateSessionId && (s._sessionId !== hostStateSessionId || s._stateRevision !== hostStateRevision)) {
+      pauseHostStateSync('服务器进度已变化，请保留草稿并重新读取正式存档。'); return false;
+    }
     const remoteStreamSeq = Number(s._streamSeq) || 0;
     const latestSeqAtResponse = streamAppliedSeq;
     // GET 等待期间若 SSE 已送来更新动作，不能再用较旧快照覆盖刚完成的回退/重置坐标。
@@ -8378,6 +8906,10 @@ async function mergePlayerStateFromServer() {
         ['hp', 'hpMax', 'tempHp', 'tempHpMax', 'ac', 'spellRange', 'characterRevision'].forEach((k) => {
           if (k in rs) t[k] = rs[k];
         });
+        if ('portraitView' in rs) {
+          const view = globalThis.SundollPortraitView?.normalize(rs.portraitView);
+          if (view) t.portraitView = view; else delete t.portraitView;
+        }
         if (Array.isArray(rs.portraitVariants)) t.portraitVariants = normalizePortraitVariants(rs.portraitVariants);
         if (Number.isInteger(rs.portraitVariant)) {
           const v = tokenPortraitVariants(t)[rs.portraitVariant];
@@ -8408,7 +8940,8 @@ async function mergePlayerStateFromServer() {
       }
     }
     if (changed) renderTurnPath();
-  } catch (e) { /* 服务器暂不可用，SSE 重连后会自动再拉 */ }
+    return true;
+  } catch (e) { return false; /* SSE 重连后会再次读取。 */ }
 }
 
 async function refreshStreamInfoFromServer() {
@@ -8418,7 +8951,8 @@ async function refreshStreamInfoFromServer() {
     if (!res.ok) return;
     const info = await res.json();
     if (info.sessionId && info.sessionId !== streamServerSessionId) {
-      streamServerSessionId = info.sessionId; streamAppliedSeq = 0; streamDirty = true;
+      if (hostStateSessionId && info.sessionId !== hostStateSessionId) pauseHostStateSync('战役服务已重启，请保留草稿并重新读取正式存档。');
+      else { streamServerSessionId = info.sessionId; streamAppliedSeq = 0; }
     }
     const ip = (info.ips || []).find((value) => value !== '127.0.0.1') || 'localhost';
     streamInfo = {
@@ -8445,22 +8979,14 @@ function startStreamClient() {
   streamES.onmessage = (e) => {
     try {
       const ev = JSON.parse(e.data);
-      if (ev.type === 'webrtcSignal') {
+      if (ev.type === 'backpackChanged') {
+        PlayerBackpack.changed();
+      } else if (ev.type === 'webrtcSignal') {
         hostMusic.applyHostWebRtcSignal(ev);
       } else if (ev.type === 'state') {
-        const session = ev.state?._sessionId;
-        if (session && session !== streamServerSessionId) { streamServerSessionId = session; streamAppliedSeq = 0; streamDirty = true; }
+        receiveHostStateEvent(ev);
       } else if (ev.type === 'action') {
-        if (ev.action?.campaignId != null && ev.action.campaignId !== state.campaignId) return;
-        if (ev.action && (ev.action.op === 'roll' || ev.action.op === 'mapReaction' || ev.action.op === 'danmaku')) {
-          applyRemoteAction(ev.action);
-          return;
-        }
-        const seq = ev.seq || 0;
-        if (seq > streamAppliedSeq) {
-          streamAppliedSeq = seq;
-          applyRemoteAction(ev.action);
-        }
+        receiveHostStateAction(ev);
       } else if (ev.type === 'presence') {
         streamPlayers = Array.isArray(ev.players) ? ev.players : [];
         const onlinePlayers = streamPlayers.filter((player) => player.online);
@@ -8482,9 +9008,210 @@ function startStreamClient() {
   };
 }
 
+function applyHostStateEvent(ev) {
+  if(hostStateConflict)return false;
+  const remote=ev?.state,revision=remote?._stateRevision,session=remote?._sessionId;
+  if(hostStateSessionId&&session&&session!==hostStateSessionId){pauseHostStateSync('战役服务已重启，请重新读取正式存档。');return false;}
+  if(Number.isInteger(hostStateRevision)&&Number.isInteger(revision)&&revision>hostStateRevision){pauseHostStateSync('另一操作已更新运行进度，请重新读取正式存档。');return false;}
+  if(remote?.campaignId===state.campaignId&&typeof remote.packageContextRevision==='string'&&remote.packageContextRevision!==state.packageContextRevision){
+    state.packageContextRevision=remote.packageContextRevision;window.PlayerBackpack?.contextChanged();window.ItemLibrary?.contextChanged?.();window.MapItems?.contextChanged?.();
+  }
+  return true;
+}
+
+function receiveHostStateEvent(ev) {
+  if(hostStateConflict)return false;
+  if(hostStatePostPending&&Number.isInteger(ev.state?._stateRevision)&&ev.state._stateRevision>hostStateRevision){hostStatePendingActions.push(ev);return true;}
+  return applyHostStateEvent(ev);
+}
+
+function beginHostStateCommit() {
+  hostStatePostPending=true;
+}
+
+function endHostStateCommit() {
+  hostStatePostPending=false;
+  if(!hostStateConflict)drainHostStateActions();
+}
+
+function applyHostStateAction(ev) {
+  if (hostStateConflict || !ev?.action) return false;
+  const action=ev.action,revision=ev.revision;
+  const passive=['roll','mapReaction','danmaku','announce','bgm'].includes(action.op);
+  if (hostStateSessionId && action._sessionId && action._sessionId!==hostStateSessionId) {pauseHostStateSync('战役服务已重启，请重新读取正式存档。');return false;}
+  if (!passive && (!Number.isInteger(revision)||!action._sessionId||!Number.isInteger(hostStateRevision))) {pauseHostStateSync('玩家改动的版本未确认，请重新读取正式存档。');return false;}
+  if (Number.isInteger(revision)&&Number.isInteger(hostStateRevision)&&revision>hostStateRevision+1) {pauseHostStateSync('运行进度已变化，请重新读取正式存档。');return false;}
+  if (passive&&Number.isInteger(revision)&&Number.isInteger(hostStateRevision)&&revision>hostStateRevision) {pauseHostStateSync('运行进度的变化未确认，请重新读取正式存档。');return false;}
+  if (action.campaignId!=null&&action.campaignId!==state.campaignId) {
+    if(Number.isInteger(revision)&&revision>hostStateRevision)pauseHostStateSync('运行战役已变化，请重新读取正式存档。');
+    return false;
+  }
+  // A duplicate mutation must not replay old coordinates or resource values.
+  if (!passive && revision<=hostStateRevision) return true;
+  const seq=ev.seq||0;
+  if (!passive&&seq<=streamAppliedSeq) {pauseHostStateSync('玩家改动顺序未确认，请重新读取正式存档。');return false;}
+  let applied=false;
+  try {applied=applyRemoteAction(action)===true;}catch(_) { /* Keep the frozen baseline on incomplete application. */ }
+  if(!applied){if(!passive)pauseHostStateSync('玩家改动未完整合并，请重新读取正式存档。');return false;}
+  if(!passive)streamAppliedSeq=seq;
+  if(!passive&&Number.isInteger(revision)&&Number.isInteger(hostStateRevision))hostStateRevision=Math.max(hostStateRevision,revision);
+  return true;
+}
+
+function receiveHostStateAction(ev) {
+  if(hostStateConflict)return false;
+  // The server can emit the next action before this page receives its own POST acknowledgement.
+  if(hostStatePostPending&&Number.isInteger(ev.revision)&&ev.revision>hostStateRevision){hostStatePendingActions.push(ev);return true;}
+  return applyHostStateAction(ev);
+}
+
+function drainHostStateActions() {
+  const pending=hostStatePendingActions;hostStatePendingActions=[];
+  for(const ev of pending)if(!(ev.type==='state'?applyHostStateEvent(ev):applyHostStateAction(ev))&&hostStateConflict)break;
+}
+
+function hostStateGuardFields() {
+  if (hostStateConflict) throw new Error('同步已暂停，请保留草稿并重新读取正式存档');
+  if (!Number.isInteger(hostStateRevision) || !hostStateSessionId) throw new Error('尚未确认战役版本，请先连接服务');
+  return {expectedStateRevision: hostStateRevision, serverSessionId: hostStateSessionId};
+}
+
+function keepHostConflictDraft() {
+  try {
+    const text = JSON.stringify({format:'sundoll-host-draft',savedAt:Date.now(),campaignId:state.campaignId,state:folderSaveSnapshot()});
+    localStorage.setItem(STORAGE_KEY + ':conflict-draft', text);
+    return true;
+  } catch (error) { return false; }
+}
+
+function pauseHostStateSync(message, details = {}) {
+  if (!hostStateConflict) {
+    hostStateConflict = {message, campaignId:state.campaignId, ...details};
+    keepHostConflictDraft();
+    if (state.campaignId && typeof writeRecoverySnapshot === 'function') {
+      writeRecoverySnapshot('同步冲突草稿', folderSaveSnapshot()).catch(() => {});
+    }
+  }
+  streamDirty = false;
+  hostStatePendingActions = [];
+  if (autosaveTimer) clearTimeout(autosaveTimer);
+  autosaveTimer = null;
+  const panel = $('#host-save-conflict');
+  if (panel) panel.hidden = false;
+  const label = $('#host-save-conflict-message');
+  if (label) label.textContent = hostStateConflict.message + ' 本页仍保留草稿；下载后可重新读取正式存档。';
+  updateSaveStatus('同步暂停 · 本页草稿待处理', 'error');
+  updateStreamUi();
+}
+
+async function ensureHostStateBaseline() {
+  if (hostStateConflict) return false;
+  if (Number.isInteger(hostStateRevision) && hostStateSessionId) return true;
+  if (hostStateReadPromise) return hostStateReadPromise;
+  hostStateReadPromise = (async () => {
+    const {response,data:info} = await SundollClientRuntime.requestJson(`${serverApiBase()}/api/info`, {cache:'no-store'}, {timeoutMs:8000,message:'战役版本读取超时，请重试'});
+    if (!response.ok || !Number.isInteger(info.stateRevision) || typeof info.sessionId !== 'string' || !info.sessionId) throw new Error('未能确认战役版本，请重新连接');
+    if (info.stateAuthority?.published === true) {
+      pauseHostStateSync('工作区已有运行进度，请核对后重新读取正式存档。', {errorCode:'state-baseline-required'});
+      return false;
+    }
+    hostStateRevision = info.stateRevision;
+    hostStateSessionId = info.sessionId;
+    streamServerSessionId = info.sessionId;
+    return true;
+  })().finally(() => {hostStateReadPromise = null;});
+  return hostStateReadPromise;
+}
+
+function enqueueHostStateWrite(write) {
+  const job = hostStateWriteQueue.catch(() => {}).then(async () => {
+    if (!await ensureHostStateBaseline()) throw new Error('同步已暂停，请重新读取正式存档');
+    return write();
+  });
+  hostStateWriteQueue = job.catch(() => {});
+  return job;
+}
+
+function acknowledgeHostStateWrite(result, sent) {
+  if (!Number.isInteger(result?.stateRevision) || result.stateRevision < sent.expectedStateRevision || result.sessionId !== sent.serverSessionId) {
+    pauseHostStateSync('提交结果未确认，请保留草稿后核对正式存档。', {errorCode:'state-result-unknown'});
+    return false;
+  }
+  if (hostStateSessionId !== sent.serverSessionId || hostStateConflict) return false;
+  // A newer, fully applied action can arrive before this write acknowledgement.
+  hostStateRevision = Math.max(hostStateRevision, result.stateRevision);
+  return true;
+}
+
+function downloadHostConflictDraft() {
+  keepHostConflictDraft();
+  const data = campaignPackage(state.campaignId, state.campaignName || '未命名战役', folderSaveSnapshot());
+  const url = URL.createObjectURL(new Blob([JSON.stringify(data,null,2)], {type:'application/json'}));
+  const link = document.createElement('a');
+  link.href = url; link.download = (state.campaignName || '战役') + '-未合并草稿.json';
+  link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function confirmHostFormalReload() {
+  const dialog = $('#host-formal-reload-dialog');
+  if (dialog.open) return Promise.resolve(false);
+  dialog.returnValue = '';
+  return new Promise(resolve => {
+    dialog.addEventListener('close', () => resolve(dialog.returnValue === 'continue'), {once:true});
+    dialog.showModal();
+  });
+}
+
+async function reloadHostFormalAfterConflict() {
+  const button = $('#host-conflict-reload');
+  if (!state.campaignId) {showCover();toast('请先选择要重新读取的正式战役');return false;}
+  if (!await confirmHostFormalReload()) return false;
+  if (button) button.disabled = true;
+  try {
+    keepHostConflictDraft();
+    await hostStateWriteQueue;
+    await folderSaveQueue;
+    await writeRecoverySnapshot('重新读取前本页草稿', folderSaveSnapshot());
+    const record = await campaignGet(state.campaignId);
+    if (!record?._path) throw new Error('正式战役未找到，请返回战役总览选择');
+    const formal = await localSaveApiRequest('read-campaign', {path:record._path});
+    const parsed = parseCampaignFile(formal.text,record._folderName);
+    if (!parsed?.state || parsed.id !== state.campaignId) throw new Error('正式战役身份不一致，请保留草稿');
+    const {response:infoResponse,data:info} = await SundollClientRuntime.requestJson(`${serverApiBase()}/api/info`, {cache:'no-store'}, {timeoutMs:8000});
+    if (!infoResponse.ok || !Number.isInteger(info.stateRevision) || !info.sessionId) throw new Error('无法确认服务器版本，请重试');
+    const {response,data:result} = await SundollClientRuntime.requestJson(`${serverApiBase()}/api/host-state/takeover`, {
+      method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({campaignId:parsed.id,path:record._path,expectedHash:formal.sourceHash,expectedStateRevision:info.stateRevision,serverSessionId:info.sessionId})
+    }, {timeoutMs:30000,message:'恢复请求尚未确认，请保留草稿后重新核对'});
+    if (!response.ok || !result.ok || result.sourceHash !== formal.sourceHash || !Number.isInteger(result.stateRevision) || result.sessionId !== info.sessionId) throw new Error(result.error || '重新读取未确认，草稿仍在本页');
+    const loaded = await loadFolderSave({...record,path:record._path,_verifiedRead:formal},false);
+    if (!loaded) throw new Error('正式存档尚未成功读取，提交继续暂停');
+    hostStateRevision = result.stateRevision;hostStateSessionId = result.sessionId;streamServerSessionId = result.sessionId;
+    streamAppliedSeq = 0;hostStateConflict = null;hostStatePendingActions = [];
+    const panel = $('#host-save-conflict');if(panel)panel.hidden = true;
+    updateSaveStatus('正式存档已重新读取', 'ok');updateStreamUi();
+    if (streamOn) {streamDirty = true;void streamPush();}
+    toast('已以正式存档继续，本页草稿与实时改动已保留恢复点');
+    return true;
+  } catch (error) {
+    pauseHostStateSync(error.message || '重新读取未完成，请保留草稿');
+    toast(error.message || '重新读取未完成，请保留草稿');
+    return false;
+  } finally {if(button)button.disabled = false;}
+}
+
+function renderHostSaveScope() {
+  const scope = $('#cover-workspace-scope');
+  const name = window.SundollRoom ? '当前房间' : '原工作区';
+  if (scope) scope.textContent = name;
+  const saveScope = $('#save-tools-scope');
+  if (saveScope) saveScope.textContent = '写入' + name + '的正式存档';
+  const backups = $('#save-tools-backups');
+  if (backups) backups.hidden = !!window.SundollRoom || hostStreamAccountConfig?.roomsEnabled !== false;
+}
+
 async function streamPush() {
-  if (campaignLoadInProgress) return;
-  if (!streamOn) return;
+  if (campaignLoadInProgress || hostStateConflict) return false;
+  if (!streamOn) return false;
   if (streamPushing) {
     streamDirty = true;
     return;
@@ -8492,19 +9219,29 @@ async function streamPush() {
   streamPushing = true;
   streamDirty = false;
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 15000);
+  let timeout = null;
+  let writeStarted = false;
   try {
+    return await enqueueHostStateWrite(async () => {
     const sourceMap = presentedMap();
     const sourceMapData = sourceMap?.mapData || null;
-    const payload = buildStreamPayload();
+    const payload = {...buildStreamPayload(), ...hostStateGuardFields()};
+    timeout = setTimeout(() => controller.abort(), 15000);
+    writeStarted = true;beginHostStateCommit();
     const res = await fetch(`${serverApiBase()}/api/state`, {
       method: 'POST',
       signal: controller.signal,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    if (!res.ok) throw new Error('bad');
     const result = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      if (res.status === 409) pauseHostStateSync(result.error || '运行进度已更新，请重新读取正式存档。', result);
+      throw Object.assign(new Error(result.error || '同步未完成'), {status:res.status, errorCode:result.errorCode});
+    }
+    if (!acknowledgeHostStateWrite(result,payload)) return false;
+    endHostStateCommit();
+    if (hostStateConflict) return false;
     if (controller.signal.aborted) throw new Error('同步请求超时');
     for(const update of result.characterUpdates||[]){
       const current=state.maps.flatMap(m=>m.tokens||[]).find(t=>t.ownedPieceId===update.characterId);
@@ -8522,8 +9259,14 @@ async function streamPush() {
     }
     streamLastPushAt = Date.now();
     streamConnectionState = 'online';
+    if (typeof SundollDining !== 'undefined') SundollDining.acknowledge(payload._diningMenu);
     updateStreamUi();
+    return true;
+    });
   } catch (e) {
+    if (hostStateConflict) return false;
+    if (writeStarted && (!e.status || e.status >= 500)) {pauseHostStateSync('运行同步结果未确认，请保留草稿并重新读取正式存档。', {errorCode:'state-result-unknown'});return false;}
+    if (typeof SundollDining !== 'undefined') SundollDining.syncFailed();
     // 失败后约 1.5 秒重试一次，不关闭联机
     streamLastPushAt = Date.now() - 1200;
     streamDirty = true;
@@ -8536,6 +9279,7 @@ async function streamPush() {
     }
   } finally {
     clearTimeout(timeout);
+    endHostStateCommit();
     streamPushing = false;
   }
 }
@@ -8606,7 +9350,7 @@ function streamTick() {
   if (!streamOn) return;
   const now = Date.now();
   // SSE 自身每 10 秒已有极小 ping；不再空闲时重复推送完整状态。
-  if (!streamDirty || streamPushing) return;
+  if (hostStateConflict || !streamDirty || streamPushing) return;
   if (now - streamLastPushAt < 300) return;
   streamPush();
 }
@@ -8641,13 +9385,61 @@ async function kickHostPlayer(player) {
   }
 }
 
+function hostStreamRequiresRoom() {
+  return !window.SundollRoom && hostStreamAccountConfig?.enabled === true && hostStreamAccountConfig?.roomsEnabled === true;
+}
+
+async function loadHostStreamAccountConfig() {
+  if (window.SundollRoom || location.protocol === 'file:') return true;
+  if (hostStreamAccountConfig) return true;
+  if (hostStreamAccountRead) return hostStreamAccountRead;
+  hostStreamAccountRead = (async () => {
+    try {
+      const { response, data } = await SundollClientRuntime.requestJson('/api/account/config', { cache: 'no-store' }, { timeoutMs: 2500 });
+      if (response.ok && data.ok === true && typeof data.enabled === 'boolean' && typeof data.roomsEnabled === 'boolean') {
+        hostStreamAccountConfig = { enabled: data.enabled, roomsEnabled: data.roomsEnabled };
+        return true;
+      }
+    } catch (error) { /* Fall back only to an explicit legacy authentication mode. */ }
+    // LAN origins may not expose account configuration; explicit legacy auth still permits old rooms.
+    try {
+      const { response, data } = await SundollClientRuntime.requestJson(`${serverApiBase()}/api/info`, { cache: 'no-store' }, { timeoutMs: 2500 });
+      const method = data.authentication?.method;
+      if (response.ok && method === 'name') {
+        hostStreamAccountConfig = { enabled: false, roomsEnabled: false };
+        return true;
+      }
+    } catch (error) { /* Unknown account mode must not publish a misleading player entry. */ }
+    return false;
+  })().finally(() => { hostStreamAccountRead = null; });
+  return hostStreamAccountRead;
+}
+
 function renderHostRoom() {
   const list = $('#host-player-list');
   const roomCode = $('#host-room-code');
   const summary = $('#host-room-summary');
   const toggle = $('#btn-host-room-toggle');
   const copy = $('#btn-host-room-copy');
+  const migration = $('#host-room-migration');
   if (!list || !roomCode || !summary) return;
+
+  const requiresRoom = hostStreamRequiresRoom();
+  if (migration) migration.hidden = !requiresRoom;
+  if (toggle) { toggle.disabled = requiresRoom; toggle.title = requiresRoom ? '先迁入战役空间，再邀请邮箱成员' : ''; }
+  if (requiresRoom) {
+    if (toggle) { toggle.textContent = '先迁入战役空间'; toggle.classList.remove('danger'); }
+    if (copy) { copy.disabled = true; copy.title = '迁入战役空间后可复制玩家入口'; }
+    roomCode.textContent = '待迁入空间';
+    summary.textContent = '邮箱成员需从战役空间加入';
+    list.innerHTML = '';
+    const hint = document.createElement('span');
+    hint.className = 'hint';
+    hint.textContent = '请在“我的战役”创建空间，再导入战役进度与各玩家包，并绑定成员邮箱。原存档会保留。';
+    list.appendChild(hint);
+    return;
+  }
+  if (copy) copy.title = '';
 
   if (toggle) {
     toggle.textContent = streamOn ? '关闭联机' : '开启联机';
@@ -8667,7 +9459,7 @@ function renderHostRoom() {
     return;
   }
 
-  roomCode.textContent = streamInfo?.roomCode ? `房间 ${streamInfo.roomCode}` : '连接中';
+  roomCode.textContent = streamConnectionState === 'online' ? '联机已开启' : '连接中';
   if (streamConnectionState !== 'online') {
     summary.textContent = '正在连接联机服务器…';
     const hint = document.createElement('span');
@@ -8717,6 +9509,7 @@ function renderHostRoom() {
 }
 
 function updateStreamUi() {
+  renderHostSaveScope();
   const knownOnlinePlayers = streamPlayers.filter((player) => player.online);
   const playerCount = streamPlayers.length ? knownOnlinePlayers.length : (streamInfo?.playerCount || 0);
   const readyCount = streamPlayers.length
@@ -8724,9 +9517,10 @@ function updateStreamUi() {
     : (streamInfo?.readyCount || 0);
   const connection = $('#host-connection');
   if (connection) {
-    const connectionState = !streamOn ? 'off' : streamConnectionState === 'online' ? 'online' : 'connecting';
+    const connectionState = hostStateConflict ? 'conflict' : !streamOn ? 'off' : streamConnectionState === 'online' ? 'online' : 'connecting';
     connection.dataset.state = connectionState;
-    if (connectionState === 'off') connection.textContent = '未联机';
+    if (connectionState === 'conflict') connection.textContent = '同步暂停';
+    else if (connectionState === 'off') connection.textContent = '未联机';
     else if (connectionState === 'connecting') connection.textContent = '重连中…';
     else connection.textContent = `已联机 · ${playerCount} 人`;
   }
@@ -8761,6 +9555,8 @@ async function refreshStreamPlayers() {
 }
 
 async function copyStreamUrl() {
+  if (!await loadHostStreamAccountConfig()) { toast('联机设置读取未确认，请重试'); return; }
+  if (hostStreamRequiresRoom()) { updateStreamUi(); toast('请先在“我的战役”迁入战役空间，再邀请邮箱成员'); return; }
   if (!streamOn || !streamInfo) {
     toast('请先开启玩家模式');
     return;
@@ -8790,6 +9586,8 @@ async function toggleStream() {
     toast('📡 玩家模式已关闭');
     return;
   }
+  if (!await loadHostStreamAccountConfig()) { toast('联机设置读取未确认，请重试'); return; }
+  if (hostStreamRequiresRoom()) { updateStreamUi(); toast('请先在“我的战役”迁入战役空间，再开启联机'); return; }
   streamOn = true;
   streamConnectionState = 'connecting';
   updateStreamUi();
@@ -8819,8 +9617,7 @@ async function toggleStream() {
     };
     updateStreamUi();
     refreshStreamPlayers();
-    const room = info.roomCode ? `?room=${encodeURIComponent(info.roomCode)}` : '';
-    toast(`📡 玩家模式已开启：改动最快约0.3秒推送，玩家打开 http://${ip}:${info.port || 8090}/主控台/玩家.html${room}`);
+    toast(`📡 玩家模式已开启，玩家入口：${playerViewerUrl()}`);
   } catch (e) {
     streamOn = false;
     streamConnectionState = 'off';
@@ -8832,26 +9629,26 @@ async function toggleStream() {
 }
 
 async function restoreStreamFromStorage() {
+  if (!await loadHostStreamAccountConfig()) return false;
+  if (hostStreamRequiresRoom()) { updateStreamUi(); return null; }
   let shouldRestore = false;
   try { shouldRestore = localStorage.getItem('sangduoer-stream-on') === '1'; } catch (e) { /* 忽略 */ }
-  if (!shouldRestore || streamOn) return;
+  if (!shouldRestore || streamOn) return null;
   streamOn = true;
   streamConnectionState = 'connecting';
   updateStreamUi();
   clearInterval(streamTimer);
   startStreamClient();
-  await mergePlayerStateFromServer();
+  const mergeConfirmed = await mergePlayerStateFromServer();
   streamTimer = setInterval(streamTick, 250);
   clearInterval(streamPlayersTimer);
   streamPlayersTimer = setInterval(refreshStreamPlayers, 5000);
   streamPush();
   scheduleStreamMapPreloads();
   try {
-    const ctl = new AbortController();
-    const t = setTimeout(() => ctl.abort(), 2500);
-    const res = await fetch(`${serverApiBase()}/api/info`, { signal: ctl.signal });
-    clearTimeout(t);
-    const info = await res.json();
+    const {response:res,data:info} = await SundollClientRuntime.requestJson(`${serverApiBase()}/api/info`, {cache:'no-store'}, {timeoutMs:2500});
+    if (!res.ok) throw Object.assign(new Error(),{name:'NetworkError'});
+    if (typeof info?.sessionId !== 'string') throw new SyntaxError();
     const ip = (info.ips || []).find((x) => x !== '127.0.0.1') || 'localhost';
     streamInfo = {
       ip,
@@ -8862,11 +9659,12 @@ async function restoreStreamFromStorage() {
     };
     updateStreamUi();
     refreshStreamPlayers();
-    const room = info.roomCode ? `?room=${encodeURIComponent(info.roomCode)}` : '';
-    toast(`📡 已自动恢复玩家模式：玩家打开 http://${ip}:${info.port || 8090}/主控台/玩家.html${room}`);
+    toast(`📡 已自动恢复玩家模式，玩家入口：${playerViewerUrl()}`);
+    return mergeConfirmed !== false;
   } catch (e) {
     updateStreamUi();
     toast('📡 已自动恢复玩家模式：正在等待联机服务器启动，启动后会自动推送');
+    return false;
   }
 }
 
@@ -8940,8 +9738,11 @@ function normalizeLibPreset(p) {
   // 棋子库与地图单位保持同一套极简字段。
   const portraitPath = canonicalPortraitPath(p.iconImgPath);
   const isPathBacked = !!portraitPath;
+  const portraitView = globalThis.SundollPortraitView?.normalize(p.portraitView);
+  const { portraitView: discardedView, ...presetFields } = p;
   return {
-    ...p,
+    ...presetFields,
+    ...(portraitView ? { portraitView } : {}),
     id: p.id || 'l' + (uid++),
     name: p.name || '未命名',
     ...(Number.isInteger(Number(p.level)) && Number(p.level) >= 1 && Number(p.level) <= 20 ? { level: Number(p.level) } : {}),
@@ -8952,6 +9753,7 @@ function normalizeLibPreset(p) {
     iconImg: isPathBacked ? null : (p.iconImg || null),
     iconImgHd: isPathBacked ? null : (p.iconImgHd || null),
     portraitVariants: normalizePortraitVariants(p.portraitVariants),
+    initiativePortrait: SundollRules.normalizeInitiativePortrait(p.initiativePortrait),
     iconImgPath: portraitPath,
     iconImgId: isPathBacked ? null : (p.iconImgId || null),
     ...SundollSize.normalize(p),
@@ -9010,16 +9812,14 @@ function libraryPackage(list, savedAt = Date.now()) {
 async function readLibraryFile() {
   const text = await readBoundText(SAVE_LIBRARY_FILE);
   if (!text) return null;
-  try {
-    const data = JSON.parse(text);
-    if (!data || data.format !== 'sangduoer-library' || !Array.isArray(data.presets)) return null;
-    return {
-      savedAt: Number(data.savedAt) || 0,
-      presets: data.presets.map(normalizeLibPreset),
-    };
-  } catch (e) {
-    return null;
+  const data = JSON.parse(text);
+  if (!data || data.format !== 'sangduoer-library' || !Array.isArray(data.presets)) {
+    throw new Error('正式棋子库格式异常，已停止同步以保护数据');
   }
+  return {
+    savedAt: Number(data.savedAt) || 0,
+    presets: data.presets.map(normalizeLibPreset),
+  };
 }
 
 async function writeLibraryFile(list, savedAt) {
@@ -9045,12 +9845,21 @@ function setLibraryCache(list, savedAt) {
   return data;
 }
 
-async function syncLibraryWithFolder() {
+async function syncLibraryWithFolder(options = {}) {
   if (!projectDirHandle || !(await hasSaveFolderPermission())) {
     updateLibPersistStatus('unset');
     return false;
   }
-  const disk = await readLibraryFile();
+  let disk;
+  try {
+    disk = await readLibraryFile();
+    if (!disk && modularStorage) throw new Error('正式棋子库暂时不可读，禁止用空缓存初始化');
+  } catch (error) {
+    console.warn('棋子库同步已停止，正式数据未覆盖', error);
+    updateLibPersistStatus('error');
+    if (options.propagateReadFailure) throw error;
+    return false;
+  }
   let local = modularStorage ? [] : loadLibrary();
   let localSavedAt = Number(localStorage.getItem(LIBRARY_SAVED_AT_KEY)) || 0;
   if (disk) {
@@ -9092,12 +9901,12 @@ function scheduleLibraryFileWrite() {
 }
 
 function updateLibPersistStatus(st) {
-  const el = $('#lib-persist-status') || $('#persist-status');
+  const el = $('#lib-persist-status');
   if (!el) return;
-  if (st === 'ok') { el.textContent = '已保存到“存档”'; el.classList.add('on'); }
-  else if (st === 'denied') { el.textContent = '“存档”文件夹待授权'; el.classList.remove('on'); }
+  if (st === 'ok') { el.textContent = '棋子库已保存'; el.classList.add('on'); }
+  else if (st === 'denied') { el.textContent = '存档连接待授权'; el.classList.remove('on'); }
   else if (st === 'error') { el.textContent = '棋子库写入失败'; el.classList.remove('on'); }
-  else { el.textContent = '随“存档”文件夹保存'; el.classList.remove('on'); }
+  else { el.textContent = '随当前存档连接保存'; el.classList.remove('on'); }
 }
 
 async function initLibPersistStatus() {
@@ -9168,6 +9977,23 @@ function setUnitSource(source, focus = true) {
   if (focus && unitSource === 'library') requestAnimationFrame(() => $('#lib-search').focus());
 }
 
+let libraryThumbObserver = null;
+const pendingLibraryThumbs = new WeakMap();
+function observeLibraryThumb(element, load) {
+  if (typeof IntersectionObserver === 'undefined') { load(); return; }
+  if (!libraryThumbObserver) libraryThumbObserver = new IntersectionObserver(entries => {
+    for (const entry of entries) {
+      if (!entry.isIntersecting) continue;
+      const render = pendingLibraryThumbs.get(entry.target);
+      pendingLibraryThumbs.delete(entry.target);
+      libraryThumbObserver.unobserve(entry.target);
+      if (entry.target.isConnected && render) render();
+    }
+  }, {root: $('#token-library-dialog'), rootMargin:'80px'});
+  pendingLibraryThumbs.set(element, load);
+  libraryThumbObserver.observe(element);
+}
+
 function createLibraryThumb(p) {
   const meta = TYPE_META[p.type] || TYPE_META.npc;
   const thumb = document.createElement('span');
@@ -9176,7 +10002,7 @@ function createLibraryThumb(p) {
   if (p.iconImg || p.iconImgHd || p.iconImgPath || p.iconImgId) {
     thumb.style.backgroundSize = 'cover';
     thumb.style.backgroundPosition = 'center';
-    applyAvatar(thumb, p.iconImg, p.iconImgId, p.iconImgHd, p.iconImgPath);
+    observeLibraryThumb(thumb, () => applyAvatar(thumb, p.iconImg, p.iconImgId, p.iconImgHd, p.iconImgPath, AVATAR_LOW_MAX, p));
   } else {
     thumb.textContent = p.icon || meta.defaultIcon;
   }
@@ -9209,6 +10035,7 @@ function renderRecentLibraryPresets() {
 }
 
 function renderLibrary() {
+  libraryThumbObserver?.disconnect();
   const box = $('#lib-list');
   box.innerHTML = '';
   // 分类下拉框（两级树：一级=生物类型，二级=族群）
@@ -9341,6 +10168,8 @@ function placePresetOnMap(id) {
     name: p.name,
     presetId: p.id,
     portraitVariants: p.portraitVariants || [],
+    initiativePortrait: SundollRules.normalizeInitiativePortrait(p.initiativePortrait),
+    ...(globalThis.SundollPortraitView?.normalize(p.portraitView) ? { portraitView: SundollPortraitView.normalize(p.portraitView) } : {}),
     type: p.type,
     icon: p.icon,
     iconImg: p.iconImg,
@@ -9445,7 +10274,7 @@ function openLibEditor(id) {
     $('#lib-icon').value = p.icon || '';
     const editPath = canonicalPortraitPath(p.iconImgPath);
     libAvatar = p.iconImg || p.iconImgHd || editPath || p.iconImgId
-      ? { iconImgId: p.iconImgId || null, iconImg: p.iconImg || null, iconImgHd: editPath ? null : (p.iconImgHd || null), iconImgPath: editPath }
+      ? { iconImgId: p.iconImgId || null, iconImg: p.iconImg || null, iconImgHd: editPath ? null : (p.iconImgHd || null), iconImgPath: editPath, ...(globalThis.SundollPortraitView?.normalize(p.portraitView) ? { portraitView: SundollPortraitView.normalize(p.portraitView) } : {}) }
       : null;
     const parts = catParts(p.category || '其他');
     if (parts[0] && [...$('#lib-cat1').options].some((o) => o.value === parts[0])) $('#lib-cat1').value = parts[0];
@@ -9488,6 +10317,7 @@ function syncLibIconPreview() {
 function saveLibEditor() {
   const name = $('#lib-name').value.trim() || '未命名';
   const existingPreset = libEditorId === 'new' ? null : state.library.find((item) => item.id === libEditorId);
+  const currentForm = existingPreset ? currentTokenPortraitVariantIndex(existingPreset, existingPreset.portraitVariants || []) : -1;
   const preset = {
     id: libEditorId === 'new' ? 'l' + (uid++) : libEditorId,
     name,
@@ -9498,10 +10328,17 @@ function saveLibEditor() {
     iconImgHd: libAvatar ? libAvatar.iconImgHd : null,
     iconImgPath: libAvatar ? libAvatar.iconImgPath || null : null,
     iconImgId: libAvatar ? libAvatar.iconImgId : null,
+    ...(globalThis.SundollPortraitView?.normalize(libAvatar?.portraitView) ? { portraitView: SundollPortraitView.normalize(libAvatar.portraitView) } : {}),
     ...SundollSize.normalize({sizeCategory: $('#lib-size').value}),
     hpMax: Math.max(1, parseInt($('#lib-hp').value, 10) || 10),
     ac: Math.max(0, parseInt($('#lib-ac').value, 10) || 10),
-    portraitVariants: existingPreset?.portraitVariants || [],
+    portraitVariants: (existingPreset?.portraitVariants || []).map((form,index) => {
+      const sameImage = portraitAssetIdentity(form) && portraitAssetIdentity(form) === portraitAssetIdentity(libAvatar);
+      if(index !== currentForm || !sameImage)return {...form};
+      const {portraitView:oldView,...rest}=form;
+      return {...rest,...(libAvatar?.portraitView?{portraitView:{...libAvatar.portraitView}}:{})};
+    }),
+    initiativePortrait: SundollRules.normalizeInitiativePortrait(existingPreset?.initiativePortrait),
     spellRange: normalizeSpellRange(existingPreset?.spellRange),
   };
   if (libEditorId === 'new') {
@@ -9731,7 +10568,8 @@ function renderHostMeasure() {
   const map=activeMap(),overlay=$('#host-measure-overlay'),label=$('#host-measure-label');
   if(!overlay||!label)return;
   const shown=boardTool==='measure'&&hostMeasureDraft?.mapId===map?.id&&!!map;
-  overlay.hidden=!shown;label.hidden=!shown;
+  // SVGElement does not reflect .hidden into the HTML hidden attribute.
+  overlay.toggleAttribute('hidden',!shown);label.hidden=!shown;
   if(!shown)return;
   const {from,to}=hostMeasureDraft,screen=p=>({x:p.x*map.cam.zoom+map.cam.x,y:p.y*map.cam.zoom+map.cam.y});
   const a=screen(from),b=screen(to),line=overlay.querySelector('line');
@@ -9755,7 +10593,7 @@ function syncBoardTools() {
 }
 
 // Campaign documents UI is implemented in host/documents.js.
-const hostPrep = SundollPrepHandbook.create({getState: () => state, save: () => scheduleAutosave(false), saveImmediately: () => saveNow(), viewMap: switchMap, toast});
+const hostPrep = SundollPrepHandbook.create({getState: () => state, save: () => scheduleAutosave(false), saveImmediately: () => saveNowWithFeedback(), viewMap: switchMap, toast});
 const hostDocuments = SundollHostDocuments.create({ $, toast, getState: () => state, serverApiBase });
 
 function flushPendingAutosave() {
@@ -9772,10 +10610,6 @@ function stopDockDrawing() {
   boardTool = null;
   selectedDoodleId = null;
   syncBoardTools();
-}
-
-function closeWorkspace() {
-  stopDockDrawing();
 }
 
 function activateWorkspace(workspace) {
@@ -9835,17 +10669,21 @@ function parkOwnedPiece(token, toBasket = false) {
 
 function mergeOwnedPortraitForms(token, piece) {
   const forms = normalizePortraitVariants(token.portraitVariants);
-  const seen = new Set(forms.map(portraitAssetIdentity));
   for (const form of normalizePortraitVariants(piece.portraitVariants)) {
-    if (!seen.has(portraitAssetIdentity(form))) {
+    const identity = portraitAssetIdentity(form);
+    const existing = forms.find(v => portraitAssetIdentity(v) === identity
+      && SundollPortraitView.sameView(v.portraitView, form.portraitView));
+    if (existing) existing.initiativePortrait = SundollRules.normalizeInitiativePortrait(form.initiativePortrait);
+    if (!existing) {
       if (forms.length >= 24) break;
-      forms.push({...form}); seen.add(portraitAssetIdentity(form));
+      forms.push({...form});
     }
   }
   token.portraitVariants = forms;
+  token.initiativePortrait = SundollRules.normalizeInitiativePortrait(piece.initiativePortrait);
   token.sourcePresetId = piece.sourcePresetId || token.sourcePresetId || '';
   token.ownedPieceRevision = piece.revision;
-  const active = forms.findIndex(v => portraitAssetIdentity(v) === portraitAssetIdentity(token));
+  const active = currentTokenPortraitVariantIndex(token, forms);
   if (active >= 0) token.portraitVariant = active;
   else delete token.portraitVariant;
 }

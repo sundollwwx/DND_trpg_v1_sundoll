@@ -3,9 +3,10 @@ chcp 65001 >nul
 setlocal EnableExtensions DisableDelayedExpansion
 pushd "%~dp0" >nul 2>nul
 if errorlevel 1 goto bad_project_dir
-set "SUNDOLL_ENGINE=程序包\主程序\launch_sundoll.py"
+set "SUNDOLL_ENGINE=launch_entry.py"
+if not exist "%SUNDOLL_ENGINE%" set "SUNDOLL_ENGINE=程序包\主程序\launch_entry.py"
 if not exist "%SUNDOLL_ENGINE%" (
-  for /d %%D in ("程序包\*") do if exist "%%~D\模块.json" if exist "%%~D\launch_sundoll.py" set "SUNDOLL_ENGINE=%%~D\launch_sundoll.py"
+  for /d %%D in ("程序包\*") do if exist "%%~D\模块.json" if exist "%%~D\launch_entry.py" set "SUNDOLL_ENGINE=%%~D\launch_entry.py"
 )
 if not exist "%SUNDOLL_ENGINE%" goto missing_package
 
@@ -28,17 +29,17 @@ set "EXIT_CODE=1"
 goto finish
 
 :use_py
-py -3 "%SUNDOLL_ENGINE%" %*
+py -3 -u "%SUNDOLL_ENGINE%" %*
 set "EXIT_CODE=%ERRORLEVEL%"
 goto finish
 
 :use_python
-python "%SUNDOLL_ENGINE%" %*
+python -u "%SUNDOLL_ENGINE%" %*
 set "EXIT_CODE=%ERRORLEVEL%"
 goto finish
 
 :use_python3
-python3 "%SUNDOLL_ENGINE%" %*
+python3 -u "%SUNDOLL_ENGINE%" %*
 set "EXIT_CODE=%ERRORLEVEL%"
 
 :finish
@@ -58,6 +59,6 @@ pause
 endlocal & exit /b 1
 
 :missing_package
-echo [启动失败] 找不到“程序包”，请将启动器与程序包放在同一文件夹。
+echo [启动失败] 找不到主程序，请完整解压，并保留启动器与程序包的相对位置。
 set "EXIT_CODE=1"
 goto finish

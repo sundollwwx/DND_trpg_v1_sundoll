@@ -86,13 +86,14 @@ def _walk_document_files(root, start):
             yield path
 
 
-def document_library_catalog(root=None, campaign_id='', campaign_name=''):
+def document_library_catalog(root=None, campaign_id='', campaign_name='', module_identity=''):
     """只索引当前战役的 PDF/DOCX，并用不含物理路径的内容 ID 对外引用。"""
     root = os.path.abspath(root or DEFAULT_DOCUMENT_ROOT)
     campaign_id = re.sub(r'[^\w\-]', '', str(campaign_id or ''))[:80]
     campaign_name = _safe_music_campaign_name(campaign_name)[:120]
     documents = []
     index = {}
+    aliases = {}
     campaigns_root = os.path.join(root, '战役')
     folder_names = []
     if os.path.isdir(campaigns_root) and _document_path_is_safe(root, campaigns_root):
@@ -128,13 +129,15 @@ def document_library_catalog(root=None, campaign_id='', campaign_name=''):
                 relative = os.path.relpath(path, root).replace(os.sep, '/')
             except OSError:
                 continue
-            document_id = hashlib.sha256(relative.encode('utf-8')).hexdigest()[:32]
+            from .catalog_paths import catalog_identity
+            document_id, legacy_id = catalog_identity(relative, module_identity)
             extension = os.path.splitext(path)[1].lower()
             version = '?v=%x-%x' % (stat.st_mtime_ns, size)
             preview_endpoint = ('/api/document-stream/' if extension == '.pdf'
                                 else '/api/document-preview/')
             documents.append({
                 'id': document_id,
+                'legacyId': legacy_id,
                 'title': os.path.splitext(os.path.basename(path))[0],
                 'fileName': os.path.basename(path),
                 'type': extension[1:],
@@ -144,6 +147,7 @@ def document_library_catalog(root=None, campaign_id='', campaign_name=''):
                 'downloadUrl': '/api/document-download/' + document_id + version,
             })
             index[document_id] = path
+            aliases.setdefault(legacy_id, []).append(document_id)
     documents.sort(key=lambda item: (item['title'].lower(), item['type']))
     return {
         'ok': True,
@@ -151,6 +155,7 @@ def document_library_catalog(root=None, campaign_id='', campaign_name=''):
         'campaignName': campaign_name,
         'documents': documents,
         '_index': index,
+        '_aliases': aliases,
     }
 
 
@@ -338,5 +343,4 @@ def parse_docx_preview(path):
             if rows:
                 append_block({'type': 'table', 'rows': rows})
     return blocks
-
 

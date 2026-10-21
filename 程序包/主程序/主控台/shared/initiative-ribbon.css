@@ -1,0 +1,205 @@
+.initiative-ribbon {
+  --initiative-ribbon-width: 64px;
+  --initiative-ribbon-height: 96px;
+  position: absolute;
+  top: 4px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 42;
+  width: max-content;
+  max-width: min(740px, calc(100% - 32px));
+  box-sizing: border-box;
+  color: #fff;
+  background: transparent;
+  border: 0;
+  pointer-events: none;
+  font-family: inherit;
+}
+.initiative-ribbon[hidden], .initiative-ribbon [hidden] { display: none !important; }
+.initiative-ribbon-navigation { display: flex; align-items: flex-start; justify-content: center; max-width: 100%; min-width: 0; }
+.initiative-ribbon-nav-rail { flex: 0 0 28px; width: 28px; padding-top: 40px; pointer-events: none; }
+.initiative-ribbon .initiative-ribbon-nav,
+.initiative-ribbon .initiative-ribbon-nav:hover,
+.initiative-ribbon .initiative-ribbon-nav:active {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  width: 28px;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent !important;
+  box-shadow: none;
+  color: #eee5d8;
+  font: inherit;
+  cursor: pointer;
+  pointer-events: auto;
+  text-shadow: 0 1px 3px #000, 0 0 5px #000;
+}
+.initiative-ribbon .initiative-ribbon-nav:disabled { opacity: .3; cursor: default; }
+.initiative-ribbon .initiative-ribbon-nav:not(:disabled):hover { color: #fff; }
+.initiative-ribbon .initiative-ribbon-nav:focus-visible { outline: 1px solid #eee5d8; outline-offset: 2px; border-radius: 3px; }
+.initiative-ribbon-nav-arrow { font-size: 30px; font-weight: 400; line-height: 27px; }
+.initiative-ribbon-nav-count { font-size: 10px; font-weight: 700; line-height: 13px; font-variant-numeric: tabular-nums; }
+.initiative-ribbon-viewport {
+  flex: 0 1 auto;
+  min-width: 0;
+  box-sizing: border-box;
+  max-width: 100%;
+  padding: 10px 4px 5px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: #ffffff70 transparent;
+  overscroll-behavior-x: contain;
+  touch-action: pan-x;
+  pointer-events: auto;
+}
+.initiative-ribbon-viewport::-webkit-scrollbar { height: 4px; }
+.initiative-ribbon-viewport::-webkit-scrollbar-thumb { background: #ffffff70; border-radius: 4px; }
+.initiative-ribbon-viewport::-webkit-scrollbar-track { background: transparent; }
+.initiative-ribbon-list {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+  width: max-content;
+  gap: 0;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+  background: transparent;
+}
+.initiative-ribbon-item { flex: 0 0 auto; width: var(--initiative-ribbon-width); margin: 0; padding: 0; }
+.initiative-ribbon .initiative-ribbon-card,
+.initiative-ribbon .initiative-ribbon-card:hover,
+.initiative-ribbon .initiative-ribbon-card:active {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 5px;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  height: auto;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent !important;
+  box-shadow: none;
+  color: #fff;
+  font: inherit;
+  cursor: pointer;
+  touch-action: pan-x;
+  user-select: none;
+}
+.initiative-ribbon .initiative-ribbon-card:focus-visible { outline: 2px solid #fff; outline-offset: 4px; border-radius: 4px; }
+.initiative-ribbon-portrait {
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: var(--initiative-ribbon-width);
+  height: var(--initiative-ribbon-height);
+  box-sizing: border-box;
+  overflow: hidden;
+  border: 1px solid var(--initiative-ribbon-faction, #e5be54);
+  border-radius: 0;
+  background: linear-gradient(180deg, #f4edde 0%, #e7dcc8 100%);
+  box-shadow: none;
+  transition: filter 140ms ease;
+}
+.initiative-ribbon-portrait::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-top: 1px solid #ffffff35;
+  border-left: 1px solid #ffffff15;
+}
+.initiative-ribbon[data-initiative-mode="turn"] .initiative-ribbon-card:not(.initiative-ribbon-active) .initiative-ribbon-portrait { filter: brightness(.6) saturate(.75); }
+.initiative-ribbon-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: center bottom;
+  background: transparent;
+  pointer-events: none;
+  -webkit-user-drag: none;
+}
+.initiative-ribbon-icon { font-size: 30px; line-height: 1; text-shadow: 0 1px 4px #000, 0 0 8px #000; }
+.initiative-ribbon-value {
+  position: absolute;
+  top: 4px;
+  right: 5px;
+  z-index: 1;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 16px;
+  text-shadow: 0 1px 2px #000, 0 0 3px #000, 0 0 6px #000;
+}
+.initiative-ribbon-name {
+  display: -webkit-box;
+  width: 100%;
+  height: 30px;
+  min-height: 30px;
+  overflow: hidden;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 15px;
+  text-align: center;
+  overflow-wrap: anywhere;
+  text-shadow: 0 1px 3px #000, 0 0 5px #000;
+}
+.initiative-ribbon-current {
+  position: absolute;
+  top: calc(var(--initiative-ribbon-height) - 18px);
+  left: 0;
+  width: 100%;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 14px;
+  text-shadow: 0 1px 2px #000, 0 0 4px #000, 0 0 7px #000;
+}
+.initiative-ribbon-active::before {
+  content: '';
+  position: absolute;
+  top: -8px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 0;
+  height: 0;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-top: 6px solid #fff;
+  filter: drop-shadow(0 1px 2px #000);
+}
+.initiative-ribbon-card:hover .initiative-ribbon-portrait::after { border-top-color: #ffffff60; }
+.initiative-ribbon-active .initiative-ribbon-portrait::after { box-shadow: inset 0 0 0 1px #ffffff35; border-top-color: #ffffff75; }
+@media (max-width: 650px) {
+  .initiative-ribbon {
+    --initiative-ribbon-width: 52px;
+    --initiative-ribbon-height: 78px;
+    top: 4px;
+    max-width: min(740px, calc(100% - 16px));
+  }
+  .initiative-ribbon-nav-rail { flex-basis: 24px; width: 24px; padding-top: 29px; }
+  .initiative-ribbon .initiative-ribbon-nav { width: 24px; }
+  .initiative-ribbon-name { font-size: 11px; line-height: 14px; height: 28px; min-height: 28px; }
+  .initiative-ribbon-icon { font-size: 26px; }
+}

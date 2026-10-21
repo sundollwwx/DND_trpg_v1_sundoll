@@ -118,9 +118,7 @@ def run(launcher, port, no_open=False):
                             owned_base = candidate
                             current = launcher.server_info(actual_port) or {}
                             print('公网已验证，主控台邀请链接已更新。', flush=True)
-                            room = current.get('roomCode', '')
-                            url = candidate + quote(launcher.PLAYER_ROUTE, safe='/')
-                            if room: url += '?' + urlencode({'room': room})
+                            url = candidate + '/'
                             print('玩家完整地址：' + url, flush=True)
                         failures = 0
                         unhealthy = 0

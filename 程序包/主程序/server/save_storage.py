@@ -1,6 +1,7 @@
 """Campaign filesystem operations, CAS writes, summaries and process locking."""
 from pathlib import Path
 import os, json, time, threading, base64, hashlib, secrets, shutil, sqlite3
+import re
 from server.paths import local_save_root
 from server.workspace import Workspace, read_catalog, write_catalog
 from server.module_store import ModuleStore, encode
@@ -63,16 +64,89 @@ def local_save_target(rel_path, operation, root=None):
 
 SAVE_WRITE_LOCK = threading.RLock()
 CAMPAIGN_SUMMARIES = {}
+FORMAL_VERSIONS = {}
 
 class SaveConflict(ValueError):
     pass
+
+
+def campaign_text_hash(text):
+    """Formal-file versions use the same universal-newline view as readers."""
+    if isinstance(text, bytes): text = text.decode('utf-8')
+    return hashlib.sha256(text.replace('\r\n', '\n').replace('\r', '\n').encode('utf-8')).hexdigest()
+
+
+def campaign_save_signature(expected_hash, text):
+    return hashlib.sha256((str(expected_hash) + ':' + text).encode('utf-8')).hexdigest()
+
+
+def formal_campaign_source(root, identity):
+    """Find one formal identity without creating catalog/module projections."""
+    workspace = Workspace(root)
+    matches = []
+    if not workspace.campaigns.exists(): return None
+    for folder in workspace.campaigns.iterdir():
+        workspace.checked(folder)
+        if not folder.is_dir(): continue
+        path = workspace.checked(folder / '当前存档.json')
+        if not path.is_file(): continue
+        stat = path.stat()
+        signature = (stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
+        cached = FORMAL_VERSIONS.get(str(path))
+        if not cached or cached[0] != signature:
+            raw = path.read_bytes()
+            parsed = json.loads(raw)
+            if not isinstance(parsed, dict): raise SaveConflict('正式战役存档格式无效，请先保留并检查原文件')
+            cached = (signature, campaign_identity(parsed) or folder.name, campaign_text_hash(raw))
+            FORMAL_VERSIONS[str(path)] = cached
+        if cached[1] == identity:
+            if workspace.checked(folder / '已删除.json').exists(): raise SaveConflict('战役已归档，请先恢复原战役')
+            matches.append(cached[2])
+    if len(matches) > 1: raise SaveConflict('战役身份重复，请先保留并核对各目录')
+    return matches[0] if matches else None
+
+
+def campaign_save_receipt(data, root):
+    """Look up an exact submission without replaying or making a new write."""
+    path = local_save_target(data.get('path'), 'read', root)
+    signature = data.get('signature')
+    if os.path.basename(path) != '当前存档.json' or not isinstance(signature, str) or not re.fullmatch('[0-9a-f]{64}', signature):
+        raise ValueError('invalid campaign receipt query')
+    with SAVE_WRITE_LOCK:
+        actual = campaign_text_hash(Path(path).read_bytes()) if os.path.isfile(path) else None
+        store = ModuleStore(root)
+        receipt = None
+        if store.database.exists():
+            db = sqlite3.connect(store.database.resolve().as_uri() + '?mode=ro', uri=True)
+            db.row_factory = sqlite3.Row
+            try:
+                row = db.execute('SELECT result FROM receipts WHERE scope=? AND id=? AND signature=?',
+                                 ('campaign-save:' + data['path'], signature, signature)).fetchone()
+                if row: receipt = json.loads(row[0])
+                if receipt is None:
+                    previous = store.document(db, 'campaign-commit', data['path'])
+                    if previous and previous['data'].get('signature') == signature:
+                        receipt = previous['data']['result']
+            finally: db.close()
+        return dict(ok=True, committed=receipt is not None,
+                    matchesCurrent=receipt is not None and actual == receipt['hash'],
+                    currentHash=actual, **({'hash': receipt['hash'], 'result': receipt} if receipt else {}))
+
+
+def campaign_identity(data):
+    state = data.get('state', data)
+    outer = data.get('campaignId')
+    inner = state.get('campaignId') if isinstance(state, dict) else None
+    if outer and inner and outer != inner:
+        raise ValueError('战役顶层与状态身份不一致')
+    return outer or inner
 
 
 def campaign_summary(data, folder, rel):
     state = data.get('state', data)
     if not isinstance(state.get('maps'), list):
         raise ValueError('invalid campaign')
-    return {'id': data.get('campaignId') or state.get('campaignId') or folder,
+    return {'id': campaign_identity(data) or folder,
             'name': data.get('campaignName') or state.get('campaignName') or folder,
             'savedAt': data.get('savedAt', 0), '_folderName': folder, '_path': rel,
             'state': {'activeMapId': state.get('activeMapId'),
@@ -176,7 +250,10 @@ def publish_campaign_projection(path, text):
 def recover_campaign_projection(root, rel=None):
     """Replay a committed projection after interruption; character + campaign commit together."""
     store = ModuleStore(root)
-    if not store.database.exists(): return
+    if not store.database.exists():
+        if (store.root / 'runtime-v3.json').exists():
+            raise OSError('模块数据库缺失，未创建空库或读取旧档；请从完整模块记录或备份恢复')
+        return
     with SAVE_WRITE_LOCK, store.transaction() as db:
         rows = db.execute("SELECT id,payload,revision FROM documents WHERE kind='campaign-pending'" +
                           (' AND id=?' if rel else ''), (rel,) if rel else ()).fetchall()
@@ -184,12 +261,12 @@ def recover_campaign_projection(root, rel=None):
             commit = json.loads(row['payload'])
             if not commit.get('pending'): continue
             path = local_save_target(row['id'], 'write', root)
-            publish_campaign_projection(path, encode(commit['campaign']))
+            publish_campaign_projection(path, commit.get('text') or encode(commit['campaign']))
             commit['pending'] = False
             db.execute("DELETE FROM documents WHERE kind='campaign-pending' AND id=?", (row['id'],))
 
 
-def write_campaign_checked(data, root):
+def write_campaign_checked(data, root, runtime_receipt=None):
     path = local_save_target(data.get('path'), 'write', root)
     if os.path.basename(path) != '当前存档.json':
         raise ValueError('checked writes require current campaign file')
@@ -199,6 +276,7 @@ def write_campaign_checked(data, root):
     parsed = json.loads(text)
     if not isinstance(parsed.get('state', {}).get('maps'), list):
         raise ValueError('invalid campaign')
+    incoming_id = campaign_identity(parsed)
     from . import player_profiles
     with SAVE_WRITE_LOCK, player_profiles.LOCK:
         recover_campaign_projection(root, data['path'])
@@ -208,25 +286,38 @@ def write_campaign_checked(data, root):
         if os.path.isfile(path):
             with open(path, 'rb') as handle:
                 old = handle.read()
-        actual = hashlib.sha256(old.decode('utf-8').replace('\r\n', '\n').encode('utf-8')).hexdigest() if old is not None else None
+        actual = campaign_text_hash(old) if old is not None else None
         store = ModuleStore(root)
-        signature = hashlib.sha256((str(data['expectedHash']) + ':' + text).encode()).hexdigest()
+        signature = campaign_save_signature(data['expectedHash'], text)
         db = store.connect()
-        try: previous_commit = store.document(db, 'campaign-commit', data['path'])
+        try:
+            previous_commit = store.document(db, 'campaign-commit', data['path'])
+            row = db.execute('SELECT result FROM receipts WHERE scope=? AND id=? AND signature=?',
+                             ('campaign-save:' + data['path'], signature, signature)).fetchone()
+            previous_result = json.loads(row['result']) if row else None
         finally: db.close()
+        if previous_result and actual == previous_result['hash']:
+            return dict(previous_result, ok=True, duplicate=True)
         if previous_commit and previous_commit['data']['signature'] == signature and actual == previous_commit['data']['hash']:
-            return dict(previous_commit['data']['result'], ok=True)
+            return dict(previous_commit['data']['result'], ok=True, duplicate=True)
         if actual != data['expectedHash']:
             recovery = os.path.join(os.path.dirname(path), '自动备份', '保存冲突-' + str(time.time_ns()) + '.json')
             os.makedirs(os.path.dirname(recovery), exist_ok=True)
             with open(recovery, 'x', encoding='utf-8') as handle:
                 handle.write(text)
             raise SaveConflict('正式存档已被另一窗口更新，已保留本次进度到自动备份/保存冲突文件；请重新读取后再保存')
+        if old is not None:
+            existing_id = campaign_identity(json.loads(old.decode('utf-8')))
+            if existing_id and incoming_id and existing_id != incoming_id:
+                recovery = os.path.join(os.path.dirname(path), '自动备份', '身份保存冲突-' + str(time.time_ns()) + '.json')
+                publish_campaign_projection(recovery, text)
+                raise SaveConflict('正式存档的战役身份不同，本次内容已保留到自动备份/身份保存冲突；请重新读取原战役或另建存档')
         compact = ModuleStore(root).externalize(parsed, 'campaign:' + str(parsed.get('campaignId') or parsed['state'].get('campaignId') or os.path.dirname(path)))
         from .resource_database import ResourceDatabase
         database = ResourceDatabase(root)
         characters = []
-        if database.active():
+        modular = database.active()
+        if modular:
             from . import paths
             from .resources import ResourceStore
             profiles = player_profiles.Store(root, paths.APP_ROOT, paths.CACHE_ROOT / '联机资源')
@@ -248,32 +339,37 @@ def write_campaign_checked(data, root):
             characters = [dict(characterId=c['id'], ownerPlayerId=c['ownerPlayerId'], patch=projection(c))
                           for c in ledger['characters']['@global'].values() if c['id'] in ids]
             text = encode(compact)
-            result = {'hash':hashlib.sha256(text.encode('utf-8')).hexdigest(),
+            result = {'hash':campaign_text_hash(text),
                       'mapAssets':{m['id']:m.get('mapData') for m in compact['state']['maps'] if m.get('id')},
                       'characterUpdates':characters}
-            with store.transaction() as db:
-                database.save_into(db, ledger)
-                old_commit = store.document(db, 'campaign-commit', data['path'])
-                store.write_document(db, 'campaign-commit', data['path'], '',
-                    dict(signature=signature, hash=result['hash'], result=result, campaign=compact, pending=True),
-                    old_commit['revision'] if old_commit else 0)
-                store.write_document(db, 'campaign-pending', data['path'], '', dict(campaign=compact, pending=True), 0)
-            # SQLite is authoritative. File publication is recoverable and repeatable.
-            recover_campaign_projection(root, data['path'])
         else:
             if compact != parsed: text = encode(compact)
-            publish_campaign_projection(path, text)
+            result = dict(hash=campaign_text_hash(text),
+                          mapAssets={m['id']: m.get('mapData') for m in compact['state']['maps'] if m.get('id')},
+                          characterUpdates=characters)
+        if runtime_receipt is not None: result.update(runtime_receipt)
+        # The formal commit and its exact runtime acknowledgement are one
+        # durable transaction, including workspaces without modular characters.
+        with store.transaction() as db:
+            if modular: database.save_into(db, ledger)
+            old_commit = store.document(db, 'campaign-commit', data['path'])
+            store.write_document(db, 'campaign-commit', data['path'], '',
+                dict(signature=signature, hash=result['hash'], result=result, campaign=compact, pending=True),
+                old_commit['revision'] if old_commit else 0)
+            store.write_document(db, 'campaign-pending', data['path'], '', dict(campaign=compact, pending=True, text=text), 0)
+            db.execute('INSERT OR REPLACE INTO receipts VALUES (?,?,?,?)',
+                       ('campaign-save:' + data['path'], signature, signature, encode(result)))
+        # File publication is recoverable and repeatable after interruption.
+        recover_campaign_projection(root, data['path'])
         # A summary is rebuildable. Failure to cache it cannot undo a committed save.
         try:
             cache_campaign_summary(path, root, compact)
         except (OSError, ValueError, sqlite3.Error):
             CAMPAIGN_SUMMARIES.pop(path, None)
-        return {'ok': True, 'hash': hashlib.sha256(text.encode('utf-8')).hexdigest(),
-                'mapAssets': {m['id']: m.get('mapData') for m in compact['state']['maps'] if m.get('id')},
-                'characterUpdates': characters}
+        return dict(result, ok=True)
 
 
-def perform_local_save_operation(data, root=None):
+def perform_local_save_operation(data, root=None, runtime_receipt=None):
     if not isinstance(data, dict):
         raise ValueError('request must be an object')
     operation = str(data.get('op') or '')
@@ -289,9 +385,20 @@ def perform_local_save_operation(data, root=None):
 
     if operation == 'campaign-catalog':
         with SAVE_WRITE_LOCK:
-            return {'ok': True, 'records': campaign_catalog(save_root)}
+            try:
+                with open(local_save_target('存档索引.json', 'read', save_root), encoding='utf-8') as handle:
+                    last_id = json.load(handle).get('lastCampaignId', '')
+            except (OSError, ValueError, AttributeError):
+                last_id = ''
+            return {'ok': True, 'records': campaign_catalog(save_root), 'lastCampaignId': last_id}
     if operation == 'write-campaign':
-        return write_campaign_checked(data, save_root)
+        return write_campaign_checked(data, save_root, runtime_receipt)
+    if operation == 'save-receipt':
+        return campaign_save_receipt(data, save_root)
+    if operation in ('recovery-list', 'recovery-read', 'recovery-copy'):
+        # This module consumes save helpers; keep the import out of startup.
+        from .campaign_recovery import perform_campaign_recovery_operation
+        return perform_campaign_recovery_operation(data, save_root)
     if operation == 'read-campaign':
         path = local_save_target(data.get('path'), 'read', save_root)
         if not str(data.get('path', '')).startswith('战役/'):
@@ -311,7 +418,7 @@ def perform_local_save_operation(data, root=None):
                 profiles = Store(save_root, paths.APP_ROOT, paths.CACHE_ROOT / '联机资源')
                 ResourceStore(profiles, player_profiles).reconcile(state)
             compact = ModuleStore(save_root).externalize(parsed, 'campaign:' + str(parsed.get('campaignId') or state.get('campaignId') or os.path.dirname(path)))
-            return {'ok': True, 'text': encode(compact), 'sourceHash': hashlib.sha256(text.encode('utf-8')).hexdigest()}
+            return {'ok': True, 'text': encode(compact), 'sourceHash': campaign_text_hash(text)}
     if operation == 'archive-campaign':
         path = local_save_target(data.get('path'), 'read', save_root)
         if os.path.basename(path) != '当前存档.json' or len(str(data.get('path')).split('/')) != 3:

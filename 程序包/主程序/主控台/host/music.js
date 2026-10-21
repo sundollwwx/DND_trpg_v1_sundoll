@@ -1,4 +1,75 @@
 // BEGIN BUNDLED MUSIC MODULE
+/* HTTP audio transport: one host upload, authenticated player downloads over the room origin. */
+(function(root,factory){
+  if(typeof module==='object'&&module.exports)module.exports=factory;
+  else root.SundollHostRelay={create:factory};
+})(typeof globalThis!=='undefined'?globalThis:this,function(options){
+  const env=options.env||globalThis;
+  let current=null,generation=0;
+  const endpoint=()=>`${options.base()}/api/music-live`;
+  async function post(data){
+    const response=await env.fetch(endpoint(),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data),signal:env.AbortSignal.timeout(6000)});
+    const result=await response.json();if(!response.ok||!result.ok)throw Error(result.error||'音频中转连接失败');return result;
+  }
+  async function prepare(){
+    if(!env.AudioContext||!env.AudioWorkletNode)throw Error('请使用支持音频处理的 Chrome / Edge');
+    const response=await env.fetch(endpoint(),{cache:'no-store',signal:env.AbortSignal.timeout(6000)});
+    if(!response.ok)throw Error('音频中转服务尚未更新，请保存战役并重启服务');
+    const data=await response.json();if(data.transport!=='https-pcm')throw Error('音频中转服务不可用');
+  }
+  function stop(){
+    ++generation;const item=current;current=null;if(!item)return;
+    if(item.node){item.node.port.onmessage=null;item.node.disconnect();}
+    item.source?.disconnect();item.ctx.close().catch(()=>{});
+    if(item.id)post({action:'stop',id:item.id}).catch(()=>{});
+  }
+  async function start(stream){
+    stop();const token=++generation;
+    const ctx=new env.AudioContext({sampleRate:48000}),item={ctx,id:'',url:'',seq:0,queue:[],sending:false,signal:'waiting',silentPackets:0};current=item;
+    const valid=()=>current===item&&generation===token;
+    try{
+      await ctx.resume();
+      const worklet=`class PacketAudio extends AudioWorkletProcessor {
+        constructor(){super();this.data=new Int16Array(sampleRate/2*2);this.offset=0;}
+        process(inputs){const channels=inputs[0];if(!channels?.length)return true;
+          const left=channels[0],right=channels[1]||left;
+          for(let i=0;i<left.length;i++){this.data[this.offset++]=Math.round(Math.max(-1,Math.min(1,left[i]))*32767);this.data[this.offset++]=Math.round(Math.max(-1,Math.min(1,right[i]))*32767);
+            if(this.offset===this.data.length){this.port.postMessage({pcm:this.data.buffer,rate:sampleRate},[this.data.buffer]);this.data=new Int16Array(sampleRate/2*2);this.offset=0;}}
+          return true;}}
+        registerProcessor('room-audio-packets',PacketAudio);`;
+      const url=env.URL.createObjectURL(new env.Blob([worklet],{type:'text/javascript'}));
+      try{await ctx.audioWorklet.addModule(url);}finally{env.URL.revokeObjectURL(url);}
+      if(!valid())return null;
+      const info=await post({action:'start'});item.id=info.id;item.url=info.url;
+      if(!valid()){post({action:'stop',id:info.id}).catch(()=>{});return null;}
+      item.source=ctx.createMediaStreamSource(new env.MediaStream(stream.getAudioTracks()));
+      item.node=new env.AudioWorkletNode(ctx,'room-audio-packets');
+      // Worklet output is silence: the captured source is never locally echoed.
+      item.source.connect(item.node);item.node.connect(ctx.destination);
+      async function drain(){
+        if(item.sending)return;item.sending=true;
+        try{while(valid()&&item.queue.length){const packet=item.queue.shift();await post({action:'chunk',id:item.id,seq:++item.seq,...packet});}}
+        catch(e){if(valid()){stop();options.failed(e.message);}}
+        finally{item.sending=false;}
+      }
+      item.node.port.onmessage=event=>{
+        if(!valid())return;
+        const samples=new Int16Array(event.data.pcm);
+        const audible=samples.some(value=>Math.abs(value)>16);
+        item.silentPackets=audible?0:item.silentPackets+1;
+        const signal=audible?'sound':item.silentPackets>=4?'silent':item.signal;
+        if(signal!==item.signal){item.signal=signal;options.changed?.();}
+        const bytes=new Uint8Array(event.data.pcm);let binary='';
+        for(let i=0;i<bytes.length;i+=8192)binary+=String.fromCharCode(...bytes.subarray(i,i+8192));
+        if(item.queue.length>=6){stop();options.failed('音频上传过慢，请重新连接');return;}
+        item.queue.push({rate:event.data.rate,pcm:env.btoa(binary)});drain();
+      };
+      return info.url;
+    }catch(error){if(valid())stop();throw error;}
+  }
+  return {prepare,start,stop,url:()=>current?.url||'',signal:()=>current?.signal||'waiting'};
+});
+
 /* Audio capture and peer connections have one lifecycle, independent of the file queue. */
 (function(root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory;
@@ -7,13 +78,13 @@
   'use strict';
   const env = options.env || globalThis;
   const peers = new Map();
-  const rtcConfig = {iceServers:[{urls:['stun:stun.cloudflare.com:3478','stun:stun.l.google.com:19302']}]};
+  const rtcConfig = {iceServers:[{urls:['stun:stun.cloudflare.com:3478','stun:stun.l.google.com:19302']}] };
   let request = 0, pending = false, capture = null, paused = false, label = '', error = '';
   const changed = () => options.changed?.();
   const isCurrent = (id, entry) => peers.get(id) === entry;
   const release = stream => stream?.getTracks().forEach(track => { track.onended = null; track.stop(); });
   function status() {
-    return {active:!!capture,pending,paused,label,error,connected:[...peers.values()].filter(e=>e.pc.connectionState==='connected').length,total:peers.size};
+    return {active:!!capture,pending,paused,label,error,connected:[...peers.values()].filter(e=>e.pc.connectionState==='connected').length,total:peers.size,signal:options.relay?.signal?.()||'',transport:options.relay?'https':'webrtc',url:options.relay?.url()||''};
   }
   function closePeer(id, notify = false) {
     const entry = peers.get(id); if (!entry) return;
@@ -48,12 +119,14 @@
     changed();
   }
   function sync(players=options.players(), restart=false) {
+    if(options.relay){changed();return;}
     const ids=new Set((players||[]).filter(p=>p.online&&p.playerId).map(p=>p.playerId));
     for (const id of peers.keys()) if(restart||!ids.has(id)) closePeer(id);
     if(capture) ids.forEach(id=>createPeer(id));
     changed();
   }
   async function signal(event) {
+    if(options.relay)return;
     if(!capture || event?.target!=='host') return;
     const id=event.senderPlayerId, msg=event.signal||{};
     if(msg.type==='ready'){closePeer(id);await createPeer(id);return;}
@@ -69,11 +142,11 @@
       }else if(msg.type==='stop')closePeer(id);
     }catch(_){if(isCurrent(id,entry)){error='音频连接未完成，可点击重新连接';changed();}}
   }
-  function cancelPending(){++request;pending=false;changed();}
+  function cancelPending(){++request;if(pending)options.relay?.stop();pending=false;changed();}
   function stop({broadcast=true}={}) {
     ++request;pending=false;
     const wasActive=!!capture, stream=capture;capture=null;paused=false;
-    release(stream);
+    release(stream);options.relay?.stop();
     [...peers.keys()].forEach(id=>closePeer(id,true));
     if(wasActive)options.stopped?.(broadcast);
     changed();
@@ -82,7 +155,7 @@
     if(pending||capture)return;
     if(!options.online())throw new Error('请先开启联机');
     const media=env.navigator?.mediaDevices;
-    if(!env.RTCPeerConnection||!media)throw new Error('请通过 localhost 或 HTTPS，在 Chrome / Edge 中打开主控台');
+    if((!options.relay&&!env.RTCPeerConnection)||!media)throw new Error('请通过 localhost 或 HTTPS，在 Chrome / Edge 中打开主控台');
     if(kind==='device'&&!deviceId)throw new Error('请先选择接收音乐的输入设备');
     const token=++request;pending=true;error='';changed();
     let stream;
@@ -96,6 +169,12 @@
       }
       if(token!==request||!options.online()){release(stream);if(token===request){pending=false;changed();}return;}
       if(!stream.getAudioTracks().length)throw new Error(kind==='device'?'所选设备没有可用音频':'没有取得声音。请勾选共享音频；若没有此选项，请使用音频输入设备。');
+      if(options.relay){
+        await options.relay.prepare();
+        if(token!==request||!options.online()){release(stream);if(token===request){pending=false;changed();}return;}
+        const url=await options.relay.start(stream);
+        if(token!==request||!options.online()||!url){release(stream);if(url&&options.relay.url()===url)options.relay.stop();if(token===request){pending=false;changed();}return;}
+      }
       capture=stream;pending=false;paused=false;
       label=kind==='device'?`外部音源 · ${deviceLabel||'音频输入'}`:kind==='system'?'系统声音直播':'标签页声音直播';
       stream.getTracks().forEach(track=>{track.onended=()=>{if(capture===stream)stop();};});
@@ -104,6 +183,7 @@
     }catch(e){
       release(stream);
       if(token!==request)return;
+      options.relay?.stop();
       capture=null;pending=false;
       error=e.name==='NotAllowedError'?'未获得声音共享权限':e.name==='AbortError'?'已取消选择音源':e.message||'音源连接失败';
       changed();throw new Error(error);
@@ -160,7 +240,11 @@ const bgmPreviewAudio = new Audio();
 let bgmPreviewKey = '';
 let bgmPreviewRequest = 0;
 let liveAudioActive = false;
+const roomAudioRelay = SundollHostRelay.create({base:serverApiBase,changed:()=>updateLiveAudioUi(),failed:message=>{
+  stopLiveAudioBroadcast();bgmError=message;updateBgmStatus();
+}});
 const liveAudio = SundollLiveAudio.create({
+  relay: roomAudioRelay,
   online: isStreaming, players: getPlayers, signal: postHostWebRtcSignal,
   changed: () => { liveAudioActive = liveAudio.status().active; updateLiveAudioUi(); },
   started: () => {
@@ -328,19 +412,12 @@ function updateBgmStatus() {
   $('#bgm-now-title').textContent = title;
   $('#bgm-status').textContent = bgmError || `${bgmLoading ? '新曲加载中 · ' : ''}${status} · ${isStreaming() ? bgmSyncStatus : '仅本机播放'}`;
   $('#bgm-now').dataset.state = liveAudioActive ? (liveAudio.status().paused?'paused':'playing') : bgmPlaying ? 'playing' : bgmAudio.src ? 'paused' : 'stopped';
-  $('#bgm-mini-title').textContent = current || pending || liveAudioActive ? title : '音乐';
   $('#btn-bgm-open').title = `打开音乐播放器 · ${title} · ${status}`;
   $('#btn-bgm-open').classList.toggle('active', bgmPlaying || liveAudioActive);
-  $('#btn-bgm-mini-play').hidden = !liveAudioActive && !current;
-  $('#btn-bgm-mini-stop').hidden = !current && !liveAudioActive && !liveAudio.status().pending && !bgmLoading;
   const playing = liveAudioActive ? !liveAudio.status().paused : bgmPlaying;
-  $('#btn-bgm-mini-play').textContent = playing ? '⏸' : '▶';
-  $('#btn-bgm-mini-play').setAttribute('aria-label', playing ? '暂停音乐' : '继续音乐');
   $('#btn-bgm-play').textContent = liveAudioActive ? (playing ? '暂停广播' : '继续广播') : bgmPlaying ? '暂停' : bgmAudio.src ? '继续' : '重新播放';
   $('#btn-bgm-play').disabled = (!liveAudioActive && !current) || bgmLoading;
-  $('#btn-bgm-mini-play').disabled = bgmLoading;
   $('#btn-bgm-stop').disabled = !liveAudioActive && !liveAudio.status().pending && !bgmAudio.src && !bgmLoading;
-  $('#btn-bgm-mini-stop').disabled = $('#btn-bgm-stop').disabled;
   const queue = bgmQueue.filter((key) => bgmList.some((item) => bgmKey(item) === key));
   $('#btn-bgm-prev').disabled = $('#btn-bgm-next').disabled = liveAudioActive || bgmLoading || queue.length < 2;
   $('#bgm-mode').disabled = liveAudioActive;
@@ -588,7 +665,7 @@ function broadcastLiveBgm(action) {
   const request = ++bgmBroadcastRequest;
   if (!isStreaming()) return Promise.resolve();
   bgmSyncStatus = '正在发送…';
-  return sendRoomMusic(request, {op:'bgm',action,mode:'live',track:liveAudio.status().label||'外部音源',url:'',time:0,loop:false});
+  return sendRoomMusic(request, {op:'bgm',action,mode:'live',track:liveAudio.status().label||'外部音源',url:liveAudio.status().url||'',time:0,loop:false});
 }
 
 function postHostWebRtcSignal(playerId, signal) {
@@ -604,7 +681,7 @@ function updateLiveAudioUi() {
   const state = liveAudio.status();
   $('#btn-bgm-live').classList.toggle('active', state.active);
   $('#btn-bgm-live').textContent = state.pending ? '取消连接' : state.active ? '断开音源' : ({tab:'连接浏览器',system:'连接系统声音',device:'连接输入设备'}[$('#bgm-live-source').value] || '连接音源');
-  $('#bgm-live-status').textContent = state.error || (state.pending ? '等待选择音源…' : state.active ? `${state.paused?'已暂停 · ':''}${state.connected}/${state.total} 名玩家已连接` : '未连接');
+  $('#bgm-live-status').textContent = state.error || (state.pending ? '等待选择音源…' : state.active ? state.transport==='https'?`${state.paused?'已暂停':state.signal==='silent'?'未检测到音源声音':state.signal==='waiting'?'等待音源声音':'转播中'} · 房间中转`:`${state.paused?'已暂停 · ':''}${state.connected}/${state.total} 名玩家已连接` : '未连接');
   $('#bgm-live-source').disabled = state.active || state.pending;
   $('#bgm-live-device').disabled = state.active || state.pending;
   $('#btn-bgm-devices').disabled = state.active || state.pending;
@@ -647,7 +724,6 @@ $('#bgm-volume').value = Math.round(bgmAudio.volume * 100);
 $('#bgm-volume-value').textContent = `${$('#bgm-volume').value}%`;
 $('#bgm-mode').value = bgmMode;
 $('#btn-bgm-open').addEventListener('click', openBgmPlayer);
-$('#btn-bgm-resource-open').addEventListener('click', openBgmPlayer);
 $('#btn-bgm-close').addEventListener('click', closeBgmPlayer);
 $('#bgm-player').addEventListener('close', stopBgmPreview);
 $('#bgm-player').addEventListener('click', (event) => {
@@ -659,13 +735,13 @@ $('#btn-bgm-refresh').addEventListener('click', () => loadProjectMusicLibrary())
 $('#btn-bgm-pick').addEventListener('click', () => $('#file-bgm').click());
 $('#file-bgm').addEventListener('change', (event) => { pickBgmFiles(event.target.files); event.target.value = ''; });
 ['#bgm-scene', '#bgm-scope', '#bgm-search'].forEach((selector) => $(selector).addEventListener('input', renderBgmList));
-['#btn-bgm-play', '#btn-bgm-mini-play'].forEach((selector) => $(selector).addEventListener('click', toggleBgm));
-['#btn-bgm-stop', '#btn-bgm-mini-stop'].forEach((selector) => $(selector).addEventListener('click', () => {
+$('#btn-bgm-play').addEventListener('click', toggleBgm);
+$('#btn-bgm-stop').addEventListener('click', () => {
   stopBgmPreview();
   const active=liveAudioActive;
   stopLiveAudioBroadcast();
   if(!active)stopBgmAudio();
-}));
+});
 $('#btn-bgm-selected-play').addEventListener('click', () => playBgm(bgmList.findIndex((item) => bgmKey(item) === bgmSelectedKey)));
 $('#btn-bgm-preview').addEventListener('click', previewSelectedBgm);
 bgmPreviewAudio.addEventListener('ended', stopBgmPreview);
@@ -711,7 +787,7 @@ $('#bgm-seek').addEventListener('change', (event) => {
 });
 
 function snapshot() {
-  if(liveAudioActive)return {action:liveAudio.status().paused?'pause':'play',mode:'live',track:liveAudio.status().label,url:'',time:0,loop:false};
+  if(liveAudioActive)return {action:liveAudio.status().paused?'pause':'play',mode:'live',track:liveAudio.status().label,url:liveAudio.status().url||'',time:0,loop:false};
   const current = bgmList[bgmIndex];
   return bgmServerUrl && current ? {
     action: bgmPlaying ? 'play' : 'pause', mode: current.source==='temporary'?'upload':'library', trackId:current.id||'', loop:bgmAudio.loop, track: current.name,

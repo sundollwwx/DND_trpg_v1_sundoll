@@ -17,7 +17,7 @@ window.TravelBasket = (() => {
     'wood-boardwalk': {category:'路面',name:'木质栈道',icon:'⌁',in:'加入队伍',out:'抵达',image:'wood-boardwalk-v1.webp'},
     'volcanic-ground': {category:'路面',name:'火山焦土',icon:'⌁',in:'加入队伍',out:'抵达',image:'volcanic-ground-v1.webp'}
   };
-  let config, root, toggle, panel, status, art, deck, picker, skin='travel-wagon', opened=false, busy=false, ticket=0, timer, lastKey='', cached=null, outgoing=null, silhouette=null;
+  let config, root, toggle, panel, status, art, deck, picker, skin='travel-wagon', opened=false, busy=false, ticket=0, timer, lastKey='', cached=null, outgoing=null, silhouette=null, reads=null;
   const el=(tag,text,cls)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(cls)n.className=cls;return n;};
   function normalizeSkin(value){return skins[value]?value:({'road':'stone-road','wagon':'travel-wagon','ship':'voyage-ship'}[value]||'travel-wagon');}
   function context(){return String(config?.key?.()||'');}
@@ -38,6 +38,14 @@ window.TravelBasket = (() => {
   }
   function configure(options){
     config=options;if(root)return;
+    reads=SundollClientRuntime.createReadCoordinator({
+      env:globalThis,timeoutMs:10000,key:()=>context()+'|'+ticket,
+      canRead:()=>Boolean(root&&opened&&!busy&&!outgoing),
+      read:signal=>config.list({signal}),
+      started:quiet=>{const key=context();if(lastKey!==key){cached=null;deck.replaceChildren();status.textContent='';lastKey=key;}if(!quiet)status.textContent='正在查看队伍…';},
+      apply:data=>{cached=data;draw(data);status.textContent='';},
+      error:error=>{cached=null;deck.replaceChildren();status.textContent=error.message||'队伍暂时无法同步';},
+    });
     skin=normalizeSkin(config.skin?.());
     root=el('aside',undefined,'travel-basket');root.setAttribute('aria-label','旅行篮子');
     toggle=el('button');toggle.type='button';toggle.className='travel-toggle';toggle.setAttribute('aria-expanded','false');toggle.setAttribute('aria-controls','travel-panel');
@@ -74,7 +82,7 @@ window.TravelBasket = (() => {
     if(config.followOpen&&!fromHost)return;
     value=Boolean(value);if(config.followOpen)root.hidden=!value;
     if(opened===value)return;
-    cancelOutgoing();opened=value;panel.hidden=!value;toggle.setAttribute('aria-expanded',String(value));clearInterval(timer);++ticket;
+    cancelOutgoing();opened=value;panel.hidden=!value;toggle.setAttribute('aria-expanded',String(value));clearInterval(timer);++ticket;reads.cancel();
     if(value){refresh();timer=setInterval(()=>{if(!document.hidden)refresh(true);},12000);}else if(!config.followOpen)toggle.focus();
     if(!fromHost)config.setOpen?.(value);
   }
@@ -93,15 +101,9 @@ window.TravelBasket = (() => {
     if(picker)for(const card of picker.querySelectorAll('.travel-skin-card'))card.disabled=busy;
   }
 
-  async function run(action){if(busy)return;if(lastKey!==context())lastKey=context();busy=true;if(cached)draw(cached);status.textContent='正在安顿同行者…';const key=context();try{await action();if(key===context())status.textContent='';}catch(e){if(key===context())status.textContent=e.message||'操作未完成，请重试';}finally{busy=false;await refresh(true);}}
-  async function refresh(quiet=false){
-    if(!root||!opened||busy||outgoing)return;const key=context(),seq=++ticket;
-    if(lastKey!==key){cached=null;deck.replaceChildren();status.textContent='';lastKey=key;}
-    if(!quiet)status.textContent='正在查看队伍…';
-    try{const data=await config.list();if(seq!==ticket||key!==context()||!opened)return;cached=data;draw(data);if(!quiet)status.textContent='';}
-    catch(e){if(seq===ticket&&key===context()){cached=null;deck.replaceChildren();status.textContent=e.message||'队伍暂时无法同步';}}
-  }
-  function changed(){if(!root)return;if(config.open)setOpen(config.open()===true,true);const next=normalizeSkin(config.skin?.());if(next!==skin){skin=next;applySkin();}const different=lastKey!==context();if(different){cancelOutgoing();if(picker?.open)picker.close();++ticket;cached=null;deck.replaceChildren();status.textContent='';}if(opened&&!busy&&(different||config.local))refresh(true);}
+  async function run(action){if(busy)return;reads.cancel();++ticket;if(lastKey!==context())lastKey=context();busy=true;if(cached)draw(cached);status.textContent='正在安顿同行者…';const key=context();try{await action();if(key===context())status.textContent='';}catch(e){if(key===context())status.textContent=e.message||'操作未完成，请重试';}finally{busy=false;await refresh(true);}}
+  function refresh(quiet=false){return reads?.request(quiet)||Promise.resolve();}
+  function changed(){if(!root)return;if(config.open)setOpen(config.open()===true,true);const next=normalizeSkin(config.skin?.());if(next!==skin){skin=next;applySkin();}const different=lastKey!==context();if(different){cancelOutgoing();if(picker?.open)picker.close();++ticket;reads.cancel();cached=null;deck.replaceChildren();status.textContent='';lastKey=context();}if(opened&&!busy&&(different||config.local))refresh(true);}
   function cancelOutgoing(){
     const drag=outgoing;outgoing=null;if(!drag)return;
     drag.ghost?.remove();drag.token.classList.remove('travel-dragging');
@@ -109,7 +111,7 @@ window.TravelBasket = (() => {
   }
   function beginOutgoing(e,token,item){
     if(e.button!==0||busy||outgoing||!cached?.canPlace)return;
-    e.preventDefault();e.stopPropagation();++ticket;
+    e.preventDefault();e.stopPropagation();++ticket;reads.cancel();
     outgoing={token,item,pointerId:e.pointerId,x:e.clientX,y:e.clientY,key:context(),moved:false};
     token.setPointerCapture(e.pointerId);
   }

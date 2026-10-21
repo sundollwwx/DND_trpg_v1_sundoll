@@ -15,6 +15,7 @@ from .resource_database import ResourceDatabase
 from . import player_profiles as profiles
 from .resources import ResourceStore
 from .save_storage import SAVE_WRITE_LOCK, perform_local_save_operation, campaign_catalog
+from .content_packages import ContentPackages, local_package_id
 
 
 class ModuleRuntime:
@@ -30,25 +31,36 @@ class ModuleRuntime:
                 value = {'authority':secrets.token_hex(32)}
                 self.store.write_document(db,'transfer-authority','local','',value,0)
             else: value = entry['data']
-        return dict(authority=value['authority'], lootHash=hashlib.sha256(encode(ledger.get('mapItems',{})).encode()).hexdigest())
+        inventories = json.dumps(ledger.get('backpacks', {}), ensure_ascii=False,
+            separators=(',', ':'), sort_keys=True, allow_nan=False)
+        return dict(authority=value['authority'],
+            lootHash=hashlib.sha256(encode(ledger.get('mapItems',{})).encode()).hexdigest(),
+            inventoryHash=hashlib.sha256(inventories.encode()).hexdigest())
 
     def _check_transfer(self, db, payload, kind, identity):
         snapshot = payload.get('resourceSnapshot')
-        opposite = 'player' if kind == 'progress' else 'progress'
-        previous = [json.loads(row[0]) for row in db.execute("SELECT payload FROM documents WHERE kind=?",('transfer-'+opposite,))]
-        if snapshot:
-            if any((p.get('snapshot') or {}).get('authority') == snapshot['authority'] and p['snapshot']['lootHash'] != snapshot['lootHash'] for p in previous):
-                raise RevisionConflict('战役进度包与玩家包的战利品版本不一致；请从来源程序重新成套导出，以免复制已领取物品')
-        elif previous and (kind == 'player' or payload.get('mapItems')):
-            raise RevisionConflict('此旧模块缺少战利品版本，请从新版来源程序重新导出')
+        existing = self.store.document(db, 'transfer-'+kind, identity)
+        if existing and existing['data'].get('snapshot') != snapshot:
+            raise RevisionConflict('未完成的导入资源版本已变化，请从原工作区同时重新导出玩家包与战役进度包，或恢复整套备份')
+        previous = [json.loads(row['payload']) for row in db.execute(
+            "SELECT kind,id,payload FROM documents WHERE kind IN ('transfer-player','transfer-progress')")
+            if (row['kind'], row['id']) != ('transfer-'+kind, identity)]
+        for prior in previous:
+            former = prior.get('snapshot')
+            if not snapshot or not former:
+                raise RevisionConflict('此旧模块缺少资源版本，无法确认同一时刻；请从原工作区同时重新导出玩家包与战役进度包，或恢复整套备份')
+            if former['authority'] != snapshot['authority']: continue
+            if 'inventoryHash' not in former or 'inventoryHash' not in snapshot:
+                raise RevisionConflict('此旧模块缺少背包版本，无法确认同一时刻；请从原工作区同时重新导出玩家包与战役进度包，或恢复整套备份')
+            if former['lootHash'] != snapshot['lootHash'] or former['inventoryHash'] != snapshot['inventoryHash']:
+                raise RevisionConflict('战役进度包与玩家包的战利品版本或背包版本不一致；请从原工作区同时重新导出玩家包与战役进度包，或恢复整套备份，以免复制已转交或领取物品')
         if kind == 'progress':
             from .resources import tokens
             referenced = {t.get('ownerPlayerId') for _,t in tokens(payload.get('state',{})) if t.get('ownedPieceId')}
-            imported = {p['playerId'] for p in previous if snapshot and p.get('snapshot') == snapshot}
+            imported = {p['playerId'] for p in previous if p.get('playerId') and snapshot and p.get('snapshot') == snapshot}
             if any(self.store.document(db,'player-library',pid) and pid not in imported for pid in referenced):
                 raise RevisionConflict('此进度引用的玩家已在本机独立成长，不能混入另一时间的战利品；可导入战役内容包另开冒险')
         value = {'snapshot':snapshot, 'playerId':identity} if kind == 'player' else {'snapshot':snapshot,'campaignId':identity}
-        existing = self.store.document(db,'transfer-'+kind,identity)
         if not existing: self.store.write_document(db,'transfer-'+kind,identity,'',value,0)
 
     def ensure_empty_runtime(self):
@@ -57,6 +69,29 @@ class ModuleRuntime:
         if list(Workspace(self.root).players.glob('*/当前档案.json')) or (self.root / '玩家档案/冒险资源.json').exists():
             raise ValueError('现有玩家数据须先完成模块迁移；未修改旧档')
         database.activate(dict(characters={'@global':{}}, backpacks={}, mapItems={}), {}, {'emptyInstall': True})
+
+    def _existing_campaign(self, cid, rel):
+        """Check immutable identity across active and archived directory names."""
+        from .save_storage import campaign_summary
+        workspace = Workspace(self.root)
+        records = [r for r in campaign_catalog(self.root) if r['id'] == cid]
+        for marker in workspace.campaigns.glob('*/已删除.json'):
+            workspace.checked(marker)
+            path = workspace.checked(marker.parent / '当前存档.json')
+            if not path.is_file(): continue
+            record = campaign_summary(json.loads(path.read_text('utf-8')), marker.parent.name,
+                '战役/' + marker.parent.name + '/当前存档.json')
+            if record['id'] == cid: records.append(dict(record, archived=True))
+        if len(records) > 1:
+            raise RevisionConflict('战役身份重复，请先保留并核对各目录的存档，不能任意选择或再次导入')
+        if records:
+            if records[0].get('archived'):
+                raise RevisionConflict('此战役已归档，请先在冒险管理中恢复原战役，不能通过导入创建另一份同身份存档')
+            return True
+        targets = {workspace.save_path(rel.split('/')), workspace.campaign(cid) / '当前存档.json'}
+        if any(path.exists() for path in targets):
+            raise RevisionConflict('现有战役存档无法读取，请先保留并检查原文件，不能再次导入覆盖')
+        return False
 
     def create_run(self, identity, request_id):
         if not re.fullmatch(r'[A-Za-z0-9_-]{16,96}', str(request_id)): raise ValueError('操作编号无效')
@@ -70,15 +105,19 @@ class ModuleRuntime:
                 previous = self.store.document(db, 'module-launch', request_id)
                 if previous:
                     if previous['data']['moduleId'] != identity: raise RevisionConflict('操作编号冲突')
-                    launch = previous['data']
+                    launch = {key:value for key,value in previous['data'].items() if key != 'dataHash'}
+                    launch_hash = previous['data'].get('dataHash')
                 else:
                     cid = module['payload']['state'].get('campaignId') if progress else 'c-' + secrets.token_hex(16)
                     if not re.fullmatch(r'[A-Za-z0-9_-]{1,96}', str(cid)): raise ValueError('战役进度身份无效')
                     launch = dict(moduleId=identity, campaignId=cid, createdAt=int(time.time()*1000))
-                    self.store.write_document(db, 'module-launch', request_id, identity, launch, 0)
+                    launch_hash = module['manifest']['dataHash']
+                    self.store.write_document(db, 'module-launch', request_id, identity, dict(launch, dataHash=launch_hash), 0)
             cid = launch['campaignId']
             rel = '战役/' + cid + '/当前存档.json'
-            if Workspace(self.root).save_path(rel.split('/')).is_file() or any(r['id'] == cid for r in campaign_catalog(self.root)): return launch
+            if self._existing_campaign(cid, rel): return launch
+            if launch_hash != module['manifest']['dataHash']:
+                raise RevisionConflict('未完成的战役启动与当前模块版本不一致，请保留原模块并使用新的操作编号，不能混合两版内容')
             payload = copy.deepcopy(module['payload'])
             if progress:
                 with self.store.transaction() as db: self._check_transfer(db,payload,'progress',cid)
@@ -93,17 +132,21 @@ class ModuleRuntime:
                 return ids.get(node, node) if isinstance(node, str) else node
             state = remap(state)
             state.update(campaignId=cid, campaignName=module['manifest']['name'], moduleId=identity)
+            primary, package_list = self.packages.content_graph(module['manifest'], payload)
+            selection = payload.get('contentSelection', {})
+            ContentPackages(self.root).bind_run(cid, primary['id'], selection.get('enabledPackageIds'))
             state.pop('_ownedPieceLocations', None)
-            for m in state['maps']:
-                for token in m.get('tokens', []):
-                    if token.get('ownedPieceId'):
-                        # Progress packages can reference a player, but never recreate it.
-                        token.pop('characterRevision', None)
-            template_ids = self._merge_templates(payload.get('templates', []), identity, cid)
+            from .resources import tokens
+            for _, token in tokens(state):
+                if token.get('ownedPieceId'):
+                    # Map and parked pieces are projections of the imported player,
+                    # not writes to its current character resources.
+                    token.pop('characterRevision', None)
+            template_ids = self._merge_templates(payload.get('templates', []), identity, cid, primary, package_list)
             for m in state['maps']:
                 for t in m.get('tokens', []):
                     if t.get('sourcePresetId') in template_ids: t['sourcePresetId'] = template_ids[t['sourcePresetId']]
-            self._merge_items(payload.get('items', []), identity, cid, state['campaignName'])
+            item_ids = self._merge_items(payload.get('items', []), identity, cid, state['campaignName'], primary, package_list)
             if payload.get('mapItems'):
                 store = profiles.Store(self.root, self.app, cache_root(self.root,self.app))
                 resources = ResourceStore(store, profiles)
@@ -112,6 +155,11 @@ class ModuleRuntime:
                     groups = {}
                     for old_mid, group in payload['mapItems'].items():
                         g = remap(group)
+                        for marker in g.get('markers', []):
+                            for item in marker.get('items', []) + ([marker['containerItem']] if marker.get('containerItem') else []):
+                                old_template = item.get('sourceTemplateId')
+                                if old_template in item_ids:
+                                    item.update(item_ids[old_template]['origin'])
                         if not progress:
                             g['receipts'] = {}; g['lockChecks'] = {}; g['revision'] = 0
                         for marker in ([] if progress else g['markers']):
@@ -156,8 +204,11 @@ class ModuleRuntime:
                     temporary.replace(target)
                 finally:
                     if temporary.exists(): temporary.unlink()
+        if Workspace(self.root).active:
+            from .support_files import register_support_files
+            register_support_files(self.root, Workspace(self.root).campaign(cid))
 
-    def _merge_templates(self, templates, module_id, campaign_id=""):
+    def _merge_templates(self, templates, module_id, campaign_id="", primary=None, packages=None):
         path = self.root / '棋子库/棋子库.json'
         try: data = read_catalog(self.root, 'template')
         except FileNotFoundError: data = dict(format='sangduoer-library', schemaVersion=1, presets=[])
@@ -167,31 +218,47 @@ class ModuleRuntime:
             preset = copy.deepcopy(preset)
             if preset.get('ownedPieceId') or preset.get('characterId'): raise ValueError('角色不能自动进入模板库')
             old_id = preset['id']
-            preset['id'] = 'tpl-' + hashlib.sha256((module_id+':'+campaign_id+':'+preset['id']).encode()).hexdigest()[:24]
+            package_id = preset.get('contentPackageId') or (primary or {}).get('id') or local_package_id('archive:'+module_id)
+            entry_id = preset.get('contentEntryId') or preset['id']
+            preset['id'] = 'tpl-' + hashlib.sha256((package_id+':'+entry_id).encode()).hexdigest()[:24]
+            preset.update(contentPackageId=package_id, contentEntryId=entry_id)
             identities[old_id] = preset['id']
             if preset['id'] not in known:
                 preset['moduleId'] = module_id
-                if campaign_id: preset['campaignId'] = campaign_id
+                if campaign_id:
+                    meta = next((p for p in (packages or []) if p['id']==package_id), primary or {})
+                    if meta.get('scope') != 'general': preset['campaignId'] = meta.get('sourceCampaignId') or package_id
+                    else: preset.pop('campaignId', None)
                 data['presets'].append(preset); known.add(preset['id'])
         data['savedAt'] = int(time.time()*1000)
         write_catalog(self.root, 'template', data)
         return identities
 
-    def _merge_items(self, items, module_id, cid='', name=''):
+    def _merge_items(self, items, module_id, cid='', name='', primary=None, packages=None):
         from .item_library import ItemLibrary
         store = profiles.Store(self.root, self.app, cache_root(self.root,self.app))
         library = ItemLibrary(store, profiles)
         data = library.read()
         known = {p['id'] for p in data['templates']}
         from .inventory import item_definition
+        identities = {}
         for item in items:
-            key = 'item-' + hashlib.sha256((module_id+':'+cid+':'+item['id']).encode()).hexdigest()[:24]
+            fallback = next((p['id'] for p in (packages or []) if p['scope']==item.get('scope')), None)
+            package_id = item.get('contentPackageId') or fallback or (primary or {}).get('id') or local_package_id('archive:'+module_id)
+            meta = next((p for p in (packages or []) if p['id']==package_id), primary or {})
+            scope = meta.get('scope') or item.get('scope') or ('campaign' if cid else 'general')
+            entry_id = item.get('contentEntryId') or item['id']
+            key = 'item-' + hashlib.sha256((package_id+':'+entry_id).encode()).hexdigest()[:24]
+            value = dict(item_definition(item, ValueError), id=key, version=item.get('version',1), archived=False,
+                moduleId=module_id, contentPackageId=package_id, contentEntryId=entry_id,
+                **library.metadata(dict(scope=scope, campaignId=(meta.get('sourceCampaignId') or package_id) if scope=='campaign' else '', campaignName=meta.get('name') or name)))
+            identities[item['id']] = dict(id=key, origin=ContentPackages(self.root).origin_for_template(value))
             if key not in known:
-                data['templates'].append(dict(item_definition(item, ValueError), id=key, version=1, archived=False,
-                    **library.metadata(dict(scope='campaign' if cid else 'general', campaignId=cid, campaignName=name))))
+                data['templates'].append(value)
                 known.add(key)
         data['revision'] += 1
         write_catalog(self.root, 'item-template', data)
+        return identities
 
     def activate_general(self, identity):
         from .module_management import apply_general
@@ -202,10 +269,30 @@ class ModuleRuntime:
         with profiles.LOCK:
             resources = ResourceStore(store, profiles)
             if not resources.database.active(): raise ValueError('请先完成角色模块迁移')
-            lib = store.library(pid)
+            lib = copy.deepcopy(store.library(pid))
+            for piece in lib['pieces']:
+                piece.pop('ownerAccountId',None);piece.pop('activeRoomId',None)
+            bag = copy.deepcopy(resources.read(pid))
             ledger = resources.ledger()
             chars = {p['ownedPieceId']: ledger['characters']['@global'][p['ownedPieceId']] for p in lib['pieces']}
-            payload = dict(profile=store.read(pid), library=lib, characters=chars, backpack=resources.read(pid), resourceSnapshot=self._transfer_snapshot(ledger))
+            content = ContentPackages(self.root)
+            metadata = {p['id']:p for p in content.catalog()}
+            dependencies = {}
+            for item in bag.get('items', []) + [r['item'] for r in bag.get('removedItems', [])]:
+                origin = content.normalize_origin(item)
+                if not origin: raise ValueError('玩家背包仍有未确认来源的旧物品，请先确认归属后导出')
+                item.update(origin)
+                source_id = origin['sourcePackageId']
+                meta = metadata.get(source_id, {})
+                dependency = dict(id=source_id, scope=origin['sourceScope'],
+                    name=meta.get('name') or ('角色专属内容' if origin['sourceScope']=='personal' else '物品来源内容包'),
+                    sourceCampaignId=origin.get('sourceCampaignId', ''))
+                if origin['sourceScope']=='personal': dependency['sourcePlayerId']=origin['sourcePlayerId']
+                dependencies[source_id]=dependency
+            # Account bindings belong to this server and must not travel in packages.
+            profile = {key:value for key,value in store.read(pid).items() if key in ('playerId','name','enabled','revision')}
+            payload = dict(profile=profile, library=lib, characters=chars, backpack=bag,
+                contentDependencies=sorted(dependencies.values(),key=lambda p:p['id']), resourceSnapshot=self._transfer_snapshot(ledger))
             return self.packages.export(destination, 'player', payload['profile']['name'], payload, 'player-' + pid)
 
     def export_campaign(self, cid, kind, destination):
@@ -235,9 +322,23 @@ class ModuleRuntime:
                     if isinstance(card, dict): card.pop('completed', None)
             store = profiles.Store(self.root, self.app, cache_root(self.root,self.app))
             from .item_library import ItemLibrary
-            items = [i for i in ItemLibrary(store, profiles).read()['templates'] if not i['archived'] and (i['scope']=='general' or i.get('campaignId')==cid)]
+            content = ContentPackages(self.root)
+            context = content.context(cid)
+            package_lookup = {p['id']:p for p in context['packages']}
+            primary = package_lookup[context['sourcePackageId']]
+            items = []
+            for raw in ItemLibrary(store, profiles).read()['templates']:
+                if raw['archived']: continue
+                origin = content.origin_for_template(raw)
+                if origin['sourcePackageId'] not in context['enabledPackageIds'] or origin['sourcePackageId'] in context['missingPackageIds']: continue
+                items.append(dict(raw, contentPackageId=origin['sourcePackageId']))
+            templates = [dict(p, contentPackageId=p.get('contentPackageId') or primary['id']) for p in templates]
             ledger = ResourceStore(store, profiles).ledger()
             payload = dict(state=state, templates=templates, items=items, mapItems=ledger.get('mapItems',{}).get(cid,{}), documents=[], music=[])
+            payload.update(contentPackage={k:primary[k] for k in ('id','name','scope','sourceCampaignId')},
+                contentPackages=[{k:p[k] for k in ('id','name','scope','sourceCampaignId')} for p in context['packages']
+                                 if p['id'] in context['enabledPackageIds'] and p['available']],
+                contentSelection={k:context[k] for k in ('sourcePackageId','enabledPackageIds')})
             if kind == 'campaign-progress': payload['resourceSnapshot'] = self._transfer_snapshot(ledger)
             if kind == 'campaign-content':
                 payload['mapItems'] = copy.deepcopy(payload['mapItems'])
@@ -251,11 +352,13 @@ class ModuleRuntime:
             for folder, field, extensions in (('文档','documents',{'.pdf','.docx','.txt'}),('音乐','music',{'.mp3','.ogg','.wav','.m4a'})):
                 workspace = Workspace(self.root)
                 if workspace.active:
-                    import mimetypes
                     for support_root in workspace.support_roots(folder):
+                        from .support_files import register_support_files, TYPES
+                        register_support_files(self.root, support_root.parent.parent)
                         for file in support_root.rglob('*'):
                             if file.is_file() and not file.is_symlink() and file.suffix.lower() in extensions and any(part == cid or part.startswith(cid+'-') for part in file.parts):
-                                url = self.store.put_asset(file.read_bytes(), mimetypes.guess_type(str(file))[0], 'campaign:'+cid)
+                                workspace.checked(file)
+                                url = self.store.put_asset(file.read_bytes(), TYPES[folder][file.suffix.lower()], 'campaign:'+cid)
                                 payload[field].append({'name':file.stem,'fileUrl':url})
                 for path in (() if Workspace(self.root).active else (self.app/'asset'/folder).rglob('*')):
                     if not path.is_file() or path.is_symlink() or path.suffix.lower() not in extensions: continue
@@ -264,16 +367,29 @@ class ModuleRuntime:
             if state.get('moduleId'):
                 source = self.packages.payload(state['moduleId'])['payload']
                 for field in ('documents','music'): payload[field].extend(source.get(field, []))
-            return self.packages.export(destination, kind, state.get('campaignName','战役'), payload)
+            return self.packages.export(destination, kind, state.get('campaignName','战役'), payload,
+                ('progress-' + hashlib.sha256(cid.encode()).hexdigest()[:32]) if kind=='campaign-progress' else primary['id'])
 
     def activate_player(self, identity):
+        from .account_characters import context, Characters
+        shared=context(self.root)
+        if not shared:return self._activate_player_legacy(identity)
+        # A historical package is staged with its original IDs. Only the central
+        # import receipt publishes it as a new, unclaimed account character.
+        legacy=object.__new__(profiles.Store)
+        profiles.Store.__init__(legacy,self.root,self.app,cache_root(self.root,self.app))
+        result=self._activate_player_legacy(identity,legacy)
+        Characters(shared[0]).migrate(shared[1],legacy,result['playerId'])
+        return result
+
+    def _activate_player_legacy(self, identity, legacy=None):
         from .inventory import InventoryStore
         module = self.packages.payload(identity)
         if module.get('archived'): raise ValueError('请先恢复已卸载的模块')
         if module['manifest']['kind'] != 'player': raise ValueError('请选择玩家模块')
         payload = copy.deepcopy(module['payload'])
         pid = payload['profile']['playerId']
-        store = profiles.Store(self.root, self.app, cache_root(self.root,self.app))
+        store = legacy or profiles.Store(self.root, self.app, cache_root(self.root,self.app))
         with profiles.LOCK:
             self.ensure_empty_runtime()
             lib = payload['library']
@@ -326,6 +442,9 @@ class ModuleRuntime:
                         self.store.write_document(db, 'runtime-character', oid, pid, c, 0)
                     self.store.write_document(db, 'runtime-backpack', pid, pid, payload['backpack'], 0)
                     self.store.write_document(db, 'player-library', pid, pid, lib, 0)
+                    if payload.get('contentDependencies'):
+                        self.store.write_document(db, 'player-content-dependencies', pid, pid,
+                            {'packages':payload['contentDependencies']}, 0)
                     meta = self.store.document(db, 'runtime-meta', 'resources')
                     self.store.write_document(db, 'runtime-meta', 'resources', '', meta['data'], meta['revision'])
                     self.store.write_document(db, 'player-import', identity, pid, {'dataHash':module['manifest']['dataHash']}, 0)

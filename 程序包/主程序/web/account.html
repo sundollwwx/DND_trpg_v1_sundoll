@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <meta name="theme-color" content="#101719">
+  <title>账号 · 桑哆尔之歌</title>
+  <link rel="icon" href="/asset/界面/品牌/桑哆尔之歌-logo.png">
+  <link rel="stylesheet" href="/web/account.css?v=20261020-account-recovery-v1">
+  <script src="/shared/workspace-session.js"></script>
+  <script src="/web/account.js?v=20261020-account-recovery-v2" defer></script>
+<link rel="stylesheet" href="/shared/design-system.css?v=20261014-function-surfaces-v2">
+<script src="/shared/ui-assets-cache.js" defer></script>
+</head>
+<body data-view="auth">
+  <a class="skip-link" href="#account-app">跳到正文</a>
+  <header class="account-header">
+    <div class="account-header-inner">
+      <a class="account-brand" data-account-home-brand href="{{mainUrl}}" aria-label="桑哆尔之歌首页">
+        <img src="/asset/界面/品牌/桑哆尔之歌-logo.png" width="36" height="36" alt="">
+        <span class="brand-name">桑哆尔之歌<span class="brand-english">THE SONG OF SUNDOLL</span></span>
+      </a>
+      <a id="account-home" class="account-home-link" href="{{mainUrl}}"><span aria-hidden="true">←</span> 返回主站</a>
+    </div>
+  </header>
+  <main id="account-app" class="entrance login account" data-view="auth" tabindex="-1">
+    <div class="account-content">
+      <div class="account-heading">
+        <p class="eyebrow">YOUR NEXT CHAPTER</p>
+        <h1 id="account-title">登录账号</h1>
+        <p class="intro" id="account-intro" hidden></p>
+      </div>
+      <p id="account-notice" class="notice" hidden></p>
+      <p id="account-invitation-notice" class="notice" hidden></p>
+      <section id="account-auth" aria-label="邮箱账号">
+        <nav class="account-tabs" aria-label="登录或注册">
+          <button id="mode-login" type="button" aria-pressed="true">登录</button>
+          <button id="mode-register" type="button" aria-pressed="false">注册</button>
+        </nav>
+        <form id="account-form">
+          <div id="name-field" hidden><label for="account-name">昵称</label><input id="account-name" autocomplete="nickname" maxlength="24"></div>
+          <div id="email-field"><label for="account-email">邮箱地址</label><input id="account-email" type="email" autocomplete="email" maxlength="254" required></div>
+          <div id="password-field"><label id="password-label" for="account-password">密码</label><input id="account-password" type="password" autocomplete="current-password" maxlength="256" aria-describedby="password-hint" required><small id="password-hint" hidden>2–256 个字符。</small></div>
+          <div id="confirm-field" hidden><label for="account-confirm">确认密码</label><input id="account-confirm" type="password" autocomplete="new-password" maxlength="256"></div>
+          <div id="code-field" hidden>
+            <label for="account-code">邮箱验证码</label>
+            <input id="account-code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" minlength="6" maxlength="6" aria-describedby="code-destination">
+            <small id="code-destination"></small>
+            <div class="code-actions"><button id="code-resend" class="text-button" type="button">重新发送</button><button id="code-back" class="text-button" type="button">修改邮箱</button></div>
+          </div>
+          <button id="account-submit" type="submit">登录</button>
+        </form>
+        <button id="mode-forgot" class="text-button" type="button">忘记密码</button>
+      </section>
+      <section id="account-dashboard" hidden aria-label="我的冒险">
+        <div class="identity">
+          <div class="identity-details"><span id="identity-name"></span><small id="identity-email"></small></div>
+          <button id="account-logout" class="text-button" type="button">退出登录</button>
+        </div>
+        <section id="my-characters" hidden aria-label="我的角色">
+          <div class="room-heading"><h2>我的角色</h2><button id="character-refresh" class="text-button" type="button">刷新角色</button></div>
+          <p id="character-status" class="notice" role="status" aria-live="polite" hidden></p>
+          <div id="character-list" class="character-grid" aria-live="polite"></div>
+          <section id="player-onboarding" class="onboarding-panel" hidden aria-label="选择参团角色">
+            <div class="room-heading"><h3 id="player-onboarding-title">选择参团角色</h3><button id="player-onboarding-close" class="text-button" type="button">关闭</button></div>
+            <p id="player-onboarding-message"></p>
+            <label for="player-character">参团角色</label><select id="player-character"></select>
+            <label id="character-switch-label" class="character-switch" hidden><input id="character-switch" type="checkbox">将角色切换到这个房间，原房间停止修改此角色</label>
+            <div class="onboarding-actions"><button id="player-start" type="button">带此角色进入</button><button id="player-wait" class="text-button" type="button">等待认领旧角色</button><button id="player-recheck" class="text-button" type="button">重新检查</button></div>
+          </section>
+          <details class="character-create"><summary>创建新角色</summary><form id="character-create-form">
+            <label for="character-name">角色名称</label><input id="character-name" maxlength="60" required>
+            <div class="character-stats"><label>等级<input id="character-level" type="number" min="1" max="99" value="1" required></label><label>生命值上限<input id="character-hp" type="number" min="1" max="99999" value="1" required></label><label>护甲等级<input id="character-ac" type="number" min="0" max="99" value="10" required></label></div>
+            <button type="submit">创建角色</button>
+          </form></details>
+        </section>
+        <section id="campaign-rooms" hidden aria-label="我的房间">
+          <div class="room-heading"><h2>我的房间</h2><button id="room-refresh" class="text-button" type="button">刷新列表</button></div>
+          <div id="room-join-confirm" class="invitation-panel" hidden><button id="accept-room" type="button" hidden>接受战役邀请</button><button id="room-invite-change" class="text-button" type="button">改用其他邀请链接</button></div>
+          <p id="room-status" role="status" aria-live="polite" hidden></p>
+          <div id="room-list" aria-live="polite"></div>
+          <section id="room-share-panel" class="invitation-panel" hidden aria-label="分享玩家邀请">
+            <div class="room-heading"><h3 id="room-share-title">玩家邀请</h3><button id="room-share-close" class="text-button" type="button">关闭</button></div>
+            <p>朋友登录后可通过链接加入。7 天有效，重新生成会停用旧链接。</p>
+            <label for="room-share-url">玩家邀请链接</label><input id="room-share-url" readonly>
+            <div class="onboarding-actions"><button id="room-share-copy" type="button">复制链接</button><button id="room-share-revoke" class="text-button" type="button">停用此邀请</button></div>
+          </section>
+          <div class="personal-actions">
+            <form id="room-join-form" class="personal-action">
+              <div class="action-heading"><span class="action-role">玩家</span><h3>加入朋友的房间</h3></div>
+              <label for="room-join-url">玩家邀请链接</label><input id="room-join-url" type="url" required placeholder="粘贴朋友发来的完整链接">
+              <button type="submit">加入房间 <span aria-hidden="true">→</span></button>
+            </form>
+            <form id="room-create-form" class="personal-action">
+              <div class="action-heading"><span class="action-role">DM</span><h3>创建自己的房间</h3></div>
+              <label for="room-name">房间名称</label><input id="room-name" maxlength="60" required placeholder="例如：周五冒险小队">
+              <small id="room-create-status" role="status" hidden></small>
+              <button type="submit">创建房间，成为 DM <span aria-hidden="true">→</span></button>
+            </form>
+          </div>
+          <details class="account-help"><summary>迁入已有战役和角色</summary><p>已有角色由房主核对邮箱后交还本人。角色与背包跨房间沿用，房间地图和剧情分别保存。</p></details>
+          <section id="room-management" class="management-panel" hidden>
+            <div class="room-heading"><h3 id="room-management-title">管理成员</h3><button id="room-management-close" class="text-button" type="button">关闭管理</button></div>
+            <details id="room-migration" class="migration-panel" aria-label="旧存档迁移清单"><summary>旧存档迁移清单</summary><p id="room-migration-summary"></p><div id="room-migration-list"></div><a id="room-migration-continue" class="text-button" href="#">进入 DM 端 →</a></details>
+            <div id="room-members"></div>
+            <details class="room-profile-binding" aria-label="确认旧角色归属">
+              <summary>确认旧角色归属</summary>
+              <p>核对成员邮箱，选择应交还给他的角色。</p>
+              <p id="room-profiles-status" role="status" hidden></p>
+              <form id="room-bind-form"><label for="bind-member">房间成员</label><select id="bind-member" required><option value="">请选择成员</option></select><label for="bind-player">待认领角色</label><select id="bind-player" required><option value="">请选择旧角色</option></select><button id="room-bind-submit" type="submit" disabled>确认角色归属</button></form>
+            </details>
+            <form id="room-invite-form"><label for="invite-email">对方的邮箱</label><input id="invite-email" type="email" required maxlength="254"><label for="invite-role">房间身份</label><select id="invite-role"><option value="player">玩家</option><option value="dm">DM（可管理此房间的战役与资源）</option></select><button type="submit">生成邀请链接</button></form>
+            <p id="invite-help" hidden>仅受邀邮箱验证并登录后可接受，24 小时内有效。</p><input id="room-invitation" aria-label="战役邀请链接" readonly hidden>
+          </section>
+        </section>
+        <div id="profile-ready" class="profile-panel" hidden><p>玩家档案已连接。</p><a class="primary-link" href="/主控台/玩家.html">进入玩家端 →</a></div>
+        <div id="profile-missing" class="profile-panel" hidden><p>初次使用可以建立玩家档案。已有角色和背包，请让管理员邀请你的邮箱连接原档案。</p><form id="profile-form"><label for="profile-name">玩家名字</label><input id="profile-name" maxlength="24" autocomplete="nickname" required><button type="submit">建立新玩家档案</button></form></div>
+        <button id="bind-profile" type="button" hidden>连接邀请中的已有玩家档案</button>
+      </section>
+      <p id="account-status" role="status" aria-live="polite" aria-atomic="true"></p>
+    </div>
+  </main>
+  <footer class="account-footer">THE SONG OF SUNDOLL</footer>
+</body>
+</html>

@@ -40,41 +40,57 @@ class ModuleStore:
         self.root = Path(save_root) / '模块存储'
         self.assets = self.root / '原始资源'
         self.database = self.root / '模块.sqlite3'
+        self._rebuilding = False
 
     def connect(self):
+        if (not self.database.exists() and (self.root / 'runtime-v3.json').exists()
+                and not (self._rebuilding and self.database.name == '重建中.sqlite3')):
+            raise OSError('模块数据库缺失，未创建空库或读取旧档；请从完整模块记录或备份恢复')
         from .player_directories import recover
         recover(self.workspace.save)
         self.root.mkdir(parents=True, exist_ok=True)
-        db = sqlite3.connect(str(self.database), timeout=15, isolation_level=None, factory=ModuleConnection)
-        db.row_factory = sqlite3.Row
-        db.execute('PRAGMA foreign_keys=ON')
-        db.execute('PRAGMA journal_mode=WAL')
-        db.execute('PRAGMA synchronous=FULL')
-        db.execute('PRAGMA cache_size=-4096')
-        db.executescript('''
-            CREATE TABLE IF NOT EXISTS assets (
-                id TEXT PRIMARY KEY, mime TEXT NOT NULL, size INTEGER NOT NULL);
-            CREATE TABLE IF NOT EXISTS documents (
-                kind TEXT NOT NULL, id TEXT NOT NULL, owner TEXT NOT NULL,
-                revision INTEGER NOT NULL, payload TEXT NOT NULL,
-                PRIMARY KEY(kind,id));
-            CREATE INDEX IF NOT EXISTS documents_owner ON documents(kind,owner);
-            CREATE TABLE IF NOT EXISTS asset_links (
-                scope TEXT NOT NULL, asset_id TEXT NOT NULL REFERENCES assets(id),
-                PRIMARY KEY(scope,asset_id));
-            CREATE TABLE IF NOT EXISTS receipts (
-                scope TEXT NOT NULL, id TEXT NOT NULL, signature TEXT NOT NULL,
-                result TEXT NOT NULL, PRIMARY KEY(scope,id));
-            CREATE TABLE IF NOT EXISTS migrations (
-                id TEXT PRIMARY KEY, payload TEXT NOT NULL);
-        ''')
-        if self.workspace.active:
-            db.module_store = self
-            setup_projection(db)
-            try: project(self, db)
-            except BaseException:
-                db.close(); raise
-        return db
+        db = sqlite3.connect(str(self.database), uri=True, timeout=15, isolation_level=None, factory=ModuleConnection)
+        try:
+            db.row_factory = sqlite3.Row
+            db.execute('PRAGMA foreign_keys=ON')
+            from .account_characters import context
+            shared = context(self.workspace.save)
+            db.execute('PRAGMA journal_mode=' + ('DELETE' if shared else 'WAL'))
+            if shared:
+                # Only Characters initializes the central store. ATTACH's normal
+                # create-if-missing behavior would hide a lost account database.
+                people = (shared[0] / '角色.sqlite3').absolute()
+                if not people.is_file(): raise OSError('账号角色数据库缺失，请恢复一致备份')
+                db.execute('ATTACH DATABASE ? AS people', (people.as_uri() + '?mode=rw',))
+                db.execute('PRAGMA people.journal_mode=DELETE')
+                db.execute('PRAGMA people.synchronous=FULL')
+            db.execute('PRAGMA synchronous=FULL')
+            db.execute('PRAGMA cache_size=-4096')
+            db.executescript('''
+                CREATE TABLE IF NOT EXISTS assets (
+                    id TEXT PRIMARY KEY, mime TEXT NOT NULL, size INTEGER NOT NULL);
+                CREATE TABLE IF NOT EXISTS documents (
+                    kind TEXT NOT NULL, id TEXT NOT NULL, owner TEXT NOT NULL,
+                    revision INTEGER NOT NULL, payload TEXT NOT NULL,
+                    PRIMARY KEY(kind,id));
+                CREATE INDEX IF NOT EXISTS documents_owner ON documents(kind,owner);
+                CREATE TABLE IF NOT EXISTS asset_links (
+                    scope TEXT NOT NULL, asset_id TEXT NOT NULL REFERENCES assets(id),
+                    PRIMARY KEY(scope,asset_id));
+                CREATE TABLE IF NOT EXISTS receipts (
+                    scope TEXT NOT NULL, id TEXT NOT NULL, signature TEXT NOT NULL,
+                    result TEXT NOT NULL, PRIMARY KEY(scope,id));
+                CREATE TABLE IF NOT EXISTS migrations (
+                    id TEXT PRIMARY KEY, payload TEXT NOT NULL);
+            ''')
+            if self.workspace.active:
+                db.module_store = self
+                setup_projection(db)
+                project(self, db)
+            return db
+        except BaseException:
+            db.close()
+            raise
 
     @contextmanager
     def transaction(self):

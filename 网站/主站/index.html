@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="桑哆尔之歌：玩家与 DM 的冒险入口。">
+  <meta name="theme-color" content="#101719">
+  <meta name="guestbook-api" content="https://sundollworld.com">
+  <meta name="account-api" content="https://pl.sundollworld.com">
+  <title>桑哆尔之歌</title>
+  <link rel="icon" href="/assets/sundoll-logo.png">
+  <link rel="stylesheet" href="/style.css">
+  <script src="/site.js" defer></script>
+  <script src="/announcements.js" defer></script>
+  <script src="/site-account.js" defer></script>
+  <script src="/puzzle.js" defer></script>
+  <script src="/guestbook.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">跳到正文</a>
+  <header class="site-header">
+    <div class="header-inner wrap">
+      <a class="brand" href="/" aria-label="桑哆尔之歌首页"><img src="/assets/sundoll-logo.png" alt="" width="36" height="36"><span class="brand-name">桑哆尔之歌<span class="brand-english">THE SONG OF SUNDOLL</span></span></a>
+      <div class="header-actions"><nav class="site-nav" aria-label="主站导航"><a class="nav-current" aria-current="page" href="#main">首页</a><a href="/about.html">关于</a></nav>
+        <div class="header-user-controls">
+          <a class="account-signin" data-sundoll-entry="account" data-site-account-signedout href="https://pl.sundollworld.com/account" aria-label="登录或注册账号"><svg class="account-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="8" r="3.5"></circle><path d="M5 20v-1.5a7 7 0 0 1 14 0V20"></path></svg><span data-site-account-link-label>登录 / 注册</span></a>
+          <details class="account-menu" data-site-account-menu hidden>
+            <summary class="account-trigger" aria-label="账号菜单"><span class="account-avatar" data-site-account-initial aria-hidden="true"></span><span class="account-display-name" data-site-account-name></span><svg class="account-chevron" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="m4 6 4 4 4-4"></path></svg></summary>
+            <div class="account-popover">
+              <div class="account-popover-identity"><span class="account-popover-kicker">我的账号</span><strong data-site-account-name></strong></div>
+              <a class="account-popover-link" data-sundoll-entry="account" href="https://pl.sundollworld.com/account#dashboard"><svg class="account-menu-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m3 11 9-8 9 8M5 10v10h5v-6h4v6h5V10"></path></svg><span data-site-account-link-label>我的主页</span><span class="account-link-arrow" aria-hidden="true">→</span></a>
+              <button class="account-logout" data-site-account-logout type="button"><svg class="account-menu-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M10 4H5v16h5M10 12h11m-4-4 4 4-4 4"></path></svg><span data-site-account-logout-label>退出登录</span></button>
+            </div>
+          </details>
+        </div>
+      </div>
+    </div>
+  </header>
+  <main id="main">
+    <section id="play" class="hero" aria-labelledby="hero-title">
+      <div class="hero-landscape" aria-hidden="true"></div>
+      <div class="hero-grain" aria-hidden="true"></div>
+      <div class="hero-content wrap">
+        <div class="hero-heading">
+          <p class="eyebrow hero-eyebrow"><span aria-hidden="true"></span> THE SONG OF SUNDOLL</p>
+          <h1 id="hero-title">桑哆尔之歌</h1>
+          <p class="hero-intro">骰子落下，故事继续。</p>
+        </div>
+      </div>
+    </section>
+    <div class="home-lobby wrap">
+      <section class="adventure-panel" aria-labelledby="adventure-title">
+        <svg class="adventure-emblem" viewBox="0 0 160 180" aria-hidden="true" focusable="false"><path d="m80 8 68 42v80l-68 42-68-42V50Zm0 0L38 82l42 90 42-90ZM12 50l26 32-26 48m136-80-26 32 26 48M38 82h84M12 50h136M12 130l68-20 68 20M38 82l42 28 42-28"></path><circle cx="80" cy="90" r="78"></circle></svg>
+        <div class="section-heading"><p class="eyebrow">YOUR NEXT CHAPTER</p><h2 id="adventure-title">冒险大厅</h2></div>
+        <p class="adventure-greeting" data-site-adventure-greeting>创建房间，或加入朋友的冒险。</p>
+        <dl class="adventure-roles"><div><dt>DM</dt><dd>创建房间，邀请同伴</dd></div><div><dt>玩家</dt><dd>通过邀请，加入冒险</dd></div></dl>
+        <a class="adventure-entry" data-sundoll-entry="account" data-site-adventure-entry href="https://pl.sundollworld.com/account#dashboard"><span data-site-account-link-label>开始冒险</span><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 12h16m-6-6 6 6-6 6"></path></svg></a>
+      </section>
+      <section id="announcements" class="announcements lobby-news" aria-labelledby="announcement-title">
+        <div class="section-heading"><p class="eyebrow">THE FAERÛN TIMES</p><h2 id="announcement-title">费伦日报</h2></div>
+        <div id="announcement-list" class="announcement-list" data-page-size="4">
+          <!-- ANNOUNCEMENTS -->
+          <article class="announcement"><time datetime="2026-10-05">2026.10.05</time><h3>在酒馆传声留下你的想法吧！</h3><span class="announcement-star" aria-hidden="true">✦</span></article>
+          <article class="announcement"><time datetime="2026-10-05">2026.10.05</time><h3>传奇画像功能上线，快来试试吧</h3><span class="announcement-star" aria-hidden="true">✦</span></article>
+          <article class="announcement"><time datetime="2026-10-04">2026.10.04</time><h3>风骸岛完结啦</h3><span class="announcement-star" aria-hidden="true">✦</span></article>
+          <article class="announcement"><time datetime="2026-10-04">2026.10.04</time><h3>开启你的命运之骰吧！</h3><span class="announcement-star" aria-hidden="true">✦</span></article>
+          <article class="announcement"><time datetime="2026-10-04">2026.10.04</time><h3>桑哆尔之歌 · 主站焕新</h3><span class="announcement-star" aria-hidden="true">✦</span></article>
+          <article class="announcement"><time datetime="2026-09-28">2026.09.28</time><h3>传奇法师再次远航</h3><span class="announcement-star" aria-hidden="true">✦</span></article>
+          <article class="announcement"><time datetime="2026-09-27">2026.09.27</time><h3>传奇法师回归小队！</h3><span class="announcement-star" aria-hidden="true">✦</span></article>
+          <article class="announcement"><time datetime="2026-09-06">2026.09.06</time><h3>四人小队启程风骸岛</h3><span class="announcement-star" aria-hidden="true">✦</span></article>
+          <article class="announcement"><time datetime="2026-08-08">2026.08.08</time><h3>桑哆尔之歌酒馆试营业</h3><span class="announcement-star" aria-hidden="true">✦</span></article>
+          <!-- /ANNOUNCEMENTS -->
+        </div>
+        <nav id="announcement-pagination" class="announcement-pagination" aria-label="公告分页" hidden>
+          <button id="announcement-prev" class="quiet-button" type="button" disabled>上一页</button>
+          <span id="announcement-page-state" aria-live="polite">1 / 1</span>
+          <button id="announcement-next" class="quiet-button" type="button" disabled>下一页</button>
+        </nav>
+      </section>
+    </div>
+    <div class="world-content wrap">
+      <div class="notice-column">
+      <section id="guestbook-section" class="guestbook-section" aria-labelledby="guestbook-title">
+        <div class="guestbook-heading">
+          <div class="section-heading"><p class="eyebrow">TAVERN WHISPERS</p><h2 id="guestbook-title">酒馆传声</h2></div>
+          <div class="guestbook-heading-actions"><button id="guestbook-compose-toggle" class="quiet-button" type="button" aria-expanded="false" aria-controls="guestbook-compose">留言 <span aria-hidden="true">＋</span></button><button id="guestbook-refresh" class="quiet-button" type="button">刷新 <span aria-hidden="true">↻</span></button></div>
+        </div>
+        <p id="guestbook-account-status" class="guestbook-account-status" role="status">登录后即可留言。</p>
+        <div id="guestbook-compose" class="guestbook-compose" hidden>
+        <form id="guestbook-form" class="guestbook-form">
+          <p id="guestbook-identity" class="guestbook-identity"></p>
+          <label class="guestbook-field" for="guestbook-body"><span>留言</span><textarea id="guestbook-body" name="body" rows="3" maxlength="500" required placeholder="留句话吧"></textarea></label>
+          <div class="guestbook-form-actions"><p id="guestbook-feedback" role="status" aria-live="polite"></p><button id="guestbook-submit" class="quiet-button guestbook-submit" type="submit" disabled>发布 <span aria-hidden="true">↗</span></button></div>
+        </form>
+        </div>
+        <div id="guestbook-list" class="guestbook-list" aria-busy="true"></div>
+        <button id="guestbook-more" class="quiet-button guestbook-more" type="button" hidden>更多留言</button>
+      </section>
+      </div>
+      <aside class="play-corner" aria-label="小互动">
+      <section class="dice-section" aria-labelledby="dice-title">
+        <div class="dice-heading"><p class="eyebrow">A LITTLE FORTUNE</p><h2 id="dice-title">命运之骰</h2></div>
+        <button id="roll-dice" class="dice-button" type="button" aria-label="掷一枚二十面骰" disabled><span class="dice-face" aria-hidden="true"><span class="dice-lines"></span><span id="dice-face-value">✦</span></span></button>
+        <output id="dice-result" class="dice-result is-idle" aria-live="polite" aria-atomic="true"><span id="dice-result-roll" class="dice-result-roll" hidden></span><span id="dice-event-title" class="dice-event-title">书写你的命运</span><span id="dice-event-text" class="dice-event-text" tabindex="0" hidden></span></output>
+      </section>
+      <section id="puzzle-section" class="puzzle-section" aria-labelledby="puzzle-title">
+        <div class="puzzle-heading"><p class="eyebrow">A LITTLE PUZZLE</p><h2 id="puzzle-title">传奇画像</h2><span class="puzzle-name">忒修斯</span></div>
+        <p id="puzzle-help" class="sr-only">点击空位旁边的图片移动，也可用 Enter 或空格键。将图片复原后，空位会显示最后一块画像。</p>
+        <div id="puzzle-board" class="puzzle-board" role="group" aria-label="忒修斯的五乘五滑动拼图" aria-describedby="puzzle-help"></div>
+        <div class="puzzle-controls"><span id="puzzle-moves">0 步</span><button id="puzzle-shuffle" class="quiet-button" type="button" disabled>打乱</button></div>
+        <p id="puzzle-status" class="puzzle-status" role="status" aria-live="polite"></p>
+        <details class="puzzle-reference"><summary>原图 <span aria-hidden="true">↗</span></summary><img src="/assets/theseus-puzzle.png" alt="忒修斯肖像拼图原图" width="1024" height="1024" loading="lazy"></details>
+      </section>
+      </aside>
+    </div>
+  </main>
+
+  <footer class="site-footer wrap"><span class="footer-brand">THE SONG OF SUNDOLL</span><a href="/about.html">关于 Sundoll <span aria-hidden="true">↗</span></a><a class="footer-top" href="#main" aria-label="回到顶部">↑</a></footer>
+</body>
+</html>

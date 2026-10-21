@@ -107,6 +107,8 @@ main { flex:1; display:flex; min-height:0; }
 .row { display:flex; gap:6px; align-items:center; }
 .row > * { flex:1; min-width:0; }
 .row button { flex:0 0 auto; }
+#hd-modal .row { flex-wrap:wrap; }
+#hd-status { flex-basis:100%; }
 .icon-preview-row { display:flex; align-items:center; gap:8px; }
 .icon-preview-row img { width:32px; height:32px; border-radius:50%; object-fit:cover; border:1px solid var(--border); background:#141722; }
 .actions { display:flex; justify-content:flex-end; gap:8px; }
@@ -171,8 +173,11 @@ main { flex:1; display:flex; min-height:0; }
 ::-webkit-scrollbar { width:8px; height:8px; }
 ::-webkit-scrollbar-thumb { background:#333947; border-radius:8px; }
 </style>
+<link rel="stylesheet" href="../../主控台/shared/portrait-view.css?v=20261001-v1">
+<script src="../../主控台/shared/portrait-view.js?v=20261002-v3"></script>
+<link rel="stylesheet" href="../../shared/design-system.css?v=20261014-function-surfaces-v2">
 </head>
-<body>
+<body data-sundoll-surface="characters">
 
 <header>
   <div class="brand">🎖️ 棋子库 <em>分类管理</em></div>
@@ -255,7 +260,7 @@ main { flex:1; display:flex; min-height:0; }
       <button id="btn-icon-clear" class="small">移除图片</button>
     </div>
     <label>立绘预设<select id="ed-portrait-variant"></select></label>
-    <div class="row"><button id="btn-portrait-snapshot" type="button">＋ 保存当前图片为立绘预设</button><button id="btn-portrait-remove-variant" type="button">移除所选预设</button></div>
+    <div class="row"><button id="btn-portrait-view" type="button">调整显示范围</button><button id="btn-portrait-snapshot" type="button">＋ 保存当前图片为立绘预设</button><button id="btn-portrait-remove-variant" type="button">移除所选预设</button></div>
     <p class="hint">上传图片后可保存为预设；选择后点击「保存」生效。不会修改已放到地图上的单位。</p>
     <div class="actions">
       <button id="btn-cancel">取消</button>
@@ -270,7 +275,7 @@ main { flex:1; display:flex; min-height:0; }
   <div class="modal portrait-flow">
     <h2>🎨 立绘工作台</h2>
     <div class="portrait-step">① 先确认所属模块与批次；② 选择棋子并填写结构化要求；③ 一次生成一张；④ 交给用户审核；⑤ 只导入明确确认的成图；⑥ 在主控和玩家端复核。未确认候选不要入库。</div>
-    <div class="portrait-lock"><span class="portrait-lock-mark">SD</span><div><b>SD-ART 1.0 · SD-PORTRAIT 1.0</b><small>固定西幻规则书厚涂写实、单主体全身和 PARCHMENT-GZ-1 羊皮纸。等级不会改变背景，不生成拼版或缩略小图。</small></div></div>
+    <div class="portrait-lock"><span class="portrait-lock-mark">SD</span><div><b>SD-ART 1.0 · SD-PORTRAIT 2.0</b><small>固定西幻规则书厚涂写实、单主体全身和 PARCHMENT-SQUARE-2 羊皮纸。等级不会改变背景，不生成拼版或缩略小图。</small></div></div>
     <select id="portrait-token"></select>
     <div class="row">
       <select id="portrait-kind" title="立绘类型">
@@ -296,7 +301,7 @@ main { flex:1; display:flex; min-height:0; }
     </div>
     <div id="portrait-preview-row" class="portrait-preview" hidden>
       <img id="portrait-preview" alt="立绘预览">
-      <div class="portrait-step"><b id="portrait-preview-name"></b><br>已写入当前棋子库。请保存正式模块，并在主控台和玩家端检查圆形裁切与形态切换。</div>
+      <div class="portrait-step"><b id="portrait-preview-name"></b><br><span id="portrait-preview-status"></span></div>
     </div>
     <div class="actions"><button id="btn-portrait-close">关闭</button></div>
   </div>
@@ -305,11 +310,12 @@ main { flex:1; display:flex; min-height:0; }
 <div id="hd-modal" class="mask" hidden>
   <div class="modal">
     <h2>🖼️ 重建高清缓存</h2>
-    <p class="hint" style="font-size:12px;color:var(--muted);line-height:1.7;">选择项目里的「asset/棋子库」文件夹。工具会按每个预设记录的相对路径匹配原图，并在本浏览器重建最高 2048px 原图缓存、512px 显示版和 192px 缩略版；不会对图片进行 AI 超分辨率处理。</p>
+    <p class="hint" style="font-size:12px;color:var(--muted);line-height:1.7;">模块立绘可直接检查并加载 192px／512px 显示资源。旧素材只按已记录的路径匹配文件，更新已有浏览器缓存；不会改变棋子立绘、形态或原文件。</p>
     <div class="row">
-      <button id="btn-hd-pick" class="primary">📂 选择棋子库文件夹</button>
+      <button id="btn-hd-modules" class="primary">检查模块显示缓存</button>
+      <button id="btn-hd-pick">📂 选择旧素材文件夹</button>
       <input type="file" id="file-hd-dir" webkitdirectory multiple accept="image/*" hidden>
-      <span id="hd-status" class="hint" style="font-size:12px;color:var(--muted);">选择后自动开始处理</span>
+      <span id="hd-status" class="hint" style="font-size:12px;color:var(--muted);">原图与正式引用保持不变</span>
     </div>
     <div id="hd-progress" style="display:flex;flex-direction:column;gap:4px;max-height:38vh;overflow-y:auto;"></div>
     <div id="hd-missing" class="hd-missing" hidden></div>
@@ -426,20 +432,15 @@ function scaleToDataUrl(img, max, preferJpeg) {
   return c.toDataURL('image/png');
 }
 
-function processAvatarFile(file, cb) {
-  const reader = new FileReader();
-  reader.onload = () => {
-    const img = new Image();
-    img.onload = () => cb({
-      hd: scaleToDataUrl(img, AVATAR_HD_MAX, true),
-      display: scaleToDataUrl(img, AVATAR_DISPLAY_MAX, true),
-      thumb: scaleToDataUrl(img, AVATAR_LOW_MAX, true),
-    });
-    img.onerror = () => cb(null);
-    img.src = reader.result;
-  };
-  reader.onerror = () => cb(null);
-  reader.readAsDataURL(file);
+function processAvatarFile(file, cb, adjustView = true) {
+  (async () => {
+    try {
+      const {src, image:img} = await SundollPortraitView.prepareFile(file);
+      const portraitView = adjustView ? await SundollPortraitView.edit({src}) : undefined;
+      if (adjustView && !portraitView) return;
+      cb({hd:scaleToDataUrl(img,AVATAR_HD_MAX,true),display:scaleToDataUrl(img,AVATAR_DISPLAY_MAX,true),thumb:scaleToDataUrl(img,AVATAR_LOW_MAX,true),portraitView});
+    } catch (error) { cb(null); }
+  })();
 }
 
 const PORTRAIT_LOAD_REVISION = Date.now().toString(36);
@@ -454,17 +455,18 @@ function portraitLodUrl(path, tier = AVATAR_LOW_MAX) {
   return freshPortraitUrl(`显示缓存/${tier === AVATAR_DISPLAY_MAX ? AVATAR_DISPLAY_MAX : AVATAR_LOW_MAX}/${relative}`);
 }
 
-function applyPortraitBackground(el, path, tier = AVATAR_LOW_MAX) {
+function applyPortraitBackground(el, path, tier = AVATAR_LOW_MAX, source = {}) {
   const original = freshPortraitUrl(canonicalPortraitPath(path));
   const candidate = portraitLodUrl(path, tier);
+  const useOriginal=()=>{el.style.backgroundImage=`url("${original}")`;SundollPortraitView.apply(el,{...source,iconImgPath:path},{legacyScale:String(path).includes('/零式-')?1.192:1.163});};
   el.dataset.portraitUrl = candidate;
   el.style.backgroundImage = `url("${candidate}")`;
   const known = portraitLodProbes.get(candidate);
-  if (known === false) { el.style.backgroundImage = `url("${original}")`; return; }
+  if (known === false) { useOriginal(); return; }
   if (known === true) return;
   if (known) {
     known.then((ok) => {
-      if (!ok && el.isConnected && el.dataset.portraitUrl === candidate) el.style.backgroundImage = `url("${original}")`;
+      if (!ok && el.isConnected && el.dataset.portraitUrl === candidate) useOriginal();
     });
     return;
   }
@@ -476,7 +478,7 @@ function applyPortraitBackground(el, path, tier = AVATAR_LOW_MAX) {
   }).then((ok) => { portraitLodProbes.set(candidate, ok); return ok; });
   portraitLodProbes.set(candidate, pending);
   pending.then((ok) => {
-    if (!ok && el.isConnected && el.dataset.portraitUrl === candidate) el.style.backgroundImage = `url("${original}")`;
+    if (!ok && el.isConnected && el.dataset.portraitUrl === candidate) useOriginal();
   });
 }
 
@@ -493,13 +495,15 @@ function applyPortraitImage(el, path, tier = AVATAR_DISPLAY_MAX) {
   el.src = candidate;
 }
 
-function applyAvatar(el, iconImg, iconImgId, iconImgHd, iconImgPath) {
+function applyAvatar(el, iconImg, iconImgId, iconImgHd, iconImgPath, source = {}) {
+  const updateView=()=>SundollPortraitView.apply(el,source,{legacyScale:iconImgPath?(String(iconImgPath).includes('/零式-')?1.192:1.163):1});
   if (iconImg) el.style.backgroundImage = `url("${iconImg}")`;
   if (iconImgHd) el.style.backgroundImage = `url("${iconImgHd}")`;
   if (iconImgPath) {
     el.style.backgroundSize = String(iconImgPath).includes('/零式-') ? '119.2% 119.2%' : '116.3% 116.3%';
     el.style.backgroundPosition = 'center';
-    applyPortraitBackground(el, iconImgPath);
+    applyPortraitBackground(el, iconImgPath, AVATAR_LOW_MAX, source);
+    updateView();
     return;
   }
   if (iconImgId) {
@@ -512,6 +516,7 @@ function applyAvatar(el, iconImg, iconImgId, iconImgHd, iconImgPath) {
       }).catch(() => {});
     }
   }
+  updateView();
 }
 
 // 图片降到指定上限：用 createImageBitmap 离主线程解码，不卡界面
@@ -795,12 +800,12 @@ function scheduleLibraryFileWrite() {
 }
 
 function updateLibPersistStatus(st) {
-  const el = $('#lib-persist-status') || $('#persist-status');
+  const el = $('#persist-status');
   if (!el) return;
   if (st === 'ok') { el.textContent = '已保存到所属模块'; el.classList.add('on'); }
   else if (st === 'denied') { el.textContent = '“存档”文件夹待授权'; el.classList.remove('on'); }
   else if (st === 'error') { el.textContent = '存档连接失败 · 本页内容保留'; el.classList.remove('on'); }
-  else if (st === 'pending') { el.textContent = '有未保存内容 · 点击保存到存档'; el.classList.remove('on'); }
+  else if (st === 'pending') { el.textContent = '有未保存内容 · 点击保存到模块工作区'; el.classList.remove('on'); }
   else { el.textContent = '按所属模块保存'; el.classList.remove('on'); }
 }
 
@@ -808,7 +813,7 @@ async function persistLibraryButton() {
   if (libraryUsesLocalSaveBridge()) {
     clearTimeout(libFileTimer);
     const result = await flushLibraryFileWrite();
-    toast(result === 'ok' ? '✅ 已保存到当前项目的“存档”' : '保存未完成，本页内容已保留，请检查本机服务后重试');
+    toast(result === 'ok' ? '✅ 已保存到所属模块' : '保存未完成，本页内容已保留，请检查本机服务后重试');
     return;
   }
   if (!window.showDirectoryPicker) {
@@ -888,7 +893,7 @@ function loadLibrary() {
   return [];
 }
 
-function saveLibrary() {
+function saveLibrary({ flush = false } = {}) {
   // 每次落盘前执行一次轻量化迁移，旧存档中的重复高清 data URL 会被移除。
   presets = presets.map(normalize);
   const savedAt = Date.now();
@@ -900,6 +905,10 @@ function saveLibrary() {
     localStorage.setItem(LIBRARY_SAVED_AT_KEY, String(savedAt));
   } catch (e) {
     toast('⚠ 保存失败：浏览器存储空间不足');
+  }
+  if (flush) {
+    clearTimeout(libFileTimer);
+    return flushLibraryFileWrite();
   }
   scheduleLibraryFileWrite();
 }
@@ -1032,7 +1041,7 @@ function renderGrid() {
     if (p.iconImg || p.iconImgHd || p.iconImgPath || p.iconImgId) {
       thumb.style.backgroundSize = 'cover';
       thumb.style.backgroundPosition = 'center';
-      applyAvatar(thumb, p.iconImg, p.iconImgId, p.iconImgHd, p.iconImgPath);
+      applyAvatar(thumb, p.iconImg, p.iconImgId, p.iconImgHd, p.iconImgPath, p);
     } else {
       thumb.textContent = p.icon || meta.defaultIcon;
     }
@@ -1189,7 +1198,7 @@ function openEditor(id) {
     $('#ed-icon').value = p.icon || '';
     const editPath = canonicalPortraitPath(p.iconImgPath);
     avatar = p.iconImg || p.iconImgHd || editPath || p.iconImgId
-      ? { iconImgId: p.iconImgId || null, iconImg: p.iconImg || null, iconImgHd: editPath ? null : (p.iconImgHd || null), iconImgPath: editPath }
+      ? { iconImgId: p.iconImgId || null, iconImg: p.iconImg || null, iconImgHd: editPath ? null : (p.iconImgHd || null), iconImgPath: editPath, portraitView: SundollPortraitView.normalize(p.portraitView) }
       : null;
   }
   refreshPortraitVariants();
@@ -1205,8 +1214,20 @@ $('#ed-portrait-variant').addEventListener('change', (e) => {
   if (e.target.value === '') return;
   const v = editorPortraitVariants[Number(e.target.value)];
   if (!v) return;
-  avatar = { iconImgPath: v.iconImgPath || null, iconImg: v.iconImg || null, iconImgHd: v.iconImgHd || null, iconImgId: v.iconImgId || null };
+  avatar = { iconImgPath: v.iconImgPath || null, iconImg: v.iconImg || null, iconImgHd: v.iconImgHd || null, iconImgId: v.iconImgId || null, portraitView: SundollPortraitView.normalize(v.portraitView) };
   syncIconPreview();
+});
+$('#btn-portrait-view').addEventListener('click', async () => {
+  if (!avatar) { toast('请先上传或选择图片'); return; }
+  const src=avatar.iconImgPath?freshPortraitUrl(canonicalPortraitPath(avatar.iconImgPath)):avatar.iconImgHd||avatar.iconImg||await avatarGetDisplay(avatar.iconImgId);
+  if (!src) return;
+  const view=await SundollPortraitView.edit({src,view:avatar.portraitView,legacyScale:avatar.iconImgPath?1.163:1});
+  if (!view) return;
+  const selected=$('#ed-portrait-variant').value;
+  const index=selected!==''?Number(selected):editorPortraitVariants.findIndex(v=>SundollPortraitView.sameView(v.portraitView,avatar.portraitView)&&['iconImgPath','iconImgId','iconImgHd','iconImg'].some(k=>v[k]&&v[k]===avatar[k]));
+  avatar.portraitView=view;
+  if(index>=0&&editorPortraitVariants[index])editorPortraitVariants[index].portraitView={...view};
+  toast('显示范围已调整，点击保存生效');
 });
 $('#btn-portrait-snapshot').addEventListener('click', () => {
   if (!avatar) { toast('请先上传或选择一张图片'); return; }
@@ -1244,6 +1265,7 @@ function saveEditor() {
     iconImgHd: avatar ? avatar.iconImgHd : null,
     iconImgPath: avatar ? avatar.iconImgPath || null : null,
     iconImgId: avatar ? avatar.iconImgId : null,
+    portraitView: avatar ? avatar.portraitView : undefined,
     size: [1, 2, 3, 4].includes(Number($('#ed-size').value)) ? Number($('#ed-size').value) : 1,
     hpMax: Math.max(1, parseInt($('#ed-hp').value, 10) || 10),
     ac: Math.max(0, parseInt($('#ed-ac').value, 10) || 10),
@@ -1393,7 +1415,7 @@ const PORTRAIT_PROMPT_PROFILES = Object.freeze({
   }
 });
 
-const PORTRAIT_BACKGROUND_PROFILE = '统一羊皮纸底，严格遵守《羊皮纸背景一致性规范.md》PARCHMENT-GZ-1。以已确认的戈卓系列纸面为参考；暖蜂蜜金棕，中央较亮，细密低对比纸纹，外围自然褐色斑驳旧化，不得偏灰白、冷灰或橙红。纸面居中，横向约85%、纵向约87%，左右留白约7.5%、上下约6.5%，圆外纯白，无描边、装饰环或场景。多形态复用同一背景范围和色温，不因等级、姿态或特效改变。';
+const PORTRAIT_BACKGROUND_PROFILE = 'PARCHMENT-SQUARE-2：满幅1:1方形羊皮纸，没有画在原图上的圆盘、圆外留白或装饰框。sRGB主色#D9B574 RGB(217,181,116)，亮部#E7CB93 RGB(231,203,147)，暗部#B58B50 RGB(181,139,80)。低对比纹理，柔和旧化，背景不能抢主体。数值是目标色，严格一致必须复用固定底图与独立主体层。多形态使用同一底图。';
 
 function portraitKindFor(p) {
   if (!p) return 'creature';
@@ -1419,7 +1441,7 @@ function portraitPromptFor(p) {
   const avoid = $('#portrait-avoid').value.trim();
   const role = TYPE_META[p.type] ? TYPE_META[p.type].label : '角色';
   return [
-    '用途：跑团地图棋子立绘。标准：SD-ART 1.0 / SD-PORTRAIT 1.0 / PARCHMENT-GZ-1。',
+    '用途：跑团地图棋子立绘。标准：SD-ART 1.0 / SD-PORTRAIT 2.0 / PARCHMENT-SQUARE-2。',
     `类型：${profile.label}。`,
     `主体：${p.name}；分类：${p.category || '其他'}；阵营用途：${role}。`,
     appearance ? `外貌、服装与材质：${appearance}。` : '外貌、服装与材质：依据主体名称和分类建立明确、克制、容易复现的造型，材质分区清楚。',
@@ -1427,9 +1449,9 @@ function portraitPromptFor(p) {
     locked ? `一致性锁定：${locked}。同一主体的脸型、年龄感、肤色、发色、服装结构、装备结构和主色不得漂移。` : '一致性锁定：如存在已确认参考图，保持同一主体的脸型、年龄感、肤色、发色、服装与装备结构，只改变本次明确要求的姿态或状态。',
     '画面形式：只画一个主体和一个形态，单幅完整画面。禁止九宫格、设定页、多姿态拼版、缩略小图、画中画或额外肖像。',
     '风格：SD-ART 1.0 西幻规则书插画质感，厚涂写实，人物比例成熟自然，生物解剖可信，皮肤、布料、皮革、木、石与金属材质明确；暖色高光、较冷暗部，魔法光效克制，细节服从整体轮廓和识别。',
-    '圆形棋子适配：输出为 1:1 正方形，并在画布正中央明确画出一个完整圆形底板，底板直径约占画布 86%；界面会把这块底板放大约 116.3% 后裁切成圆形棋子。完整保留头顶、底部、四肢、角、翼、尾、武器和关键特效，新绘关键辨识信息优先位于圆形底板内；背景修订必须锁定原主体的大小、位置、姿态、颜色和细节，不得为适应底板而缩小或裁掉主体。用户明确允许尺寸适配时，可对主体、装备及特效统一等比例缩放，不改变造型或身体比例；否则保留原有越界元素。单独检查圆形显示裁切。',
+    '画布与显示：输出1:1方形，建议1024或2048px，满幅背景。不要绘制圆形底板。完整保留主体、四肢、翼、尾、武器及特效。上传时拖动和缩放调整棋子的显示范围；圆形外观由程序统一裁切，原图完整保存。',
     '小尺寸可读性：以最终圆形裁切效果检查；缩小到 192×192 时边缘、姿态和主要装备不能糊成一团，缩小到 64×64 时仍能辨认主体类别、朝向以及 1—2 个核心特征。使用清楚的剪影、大色块、明暗层级和单一色彩焦点，不依赖细碎纹样、微小饰品或密集粒子。',
-    `背景：${PORTRAIT_BACKGROUND_PROFILE} 背景对比和细节密度低于主体，保持头肩、武器与肢体轮廓清楚；不能添加额外角色。底板完整居中，圆外背景均匀纯白（保留已存在的主体和特效叠加），不要厚重装饰环、徽章框或透明棋盘格。`,
+    `背景：${PORTRAIT_BACKGROUND_PROFILE} 背景对比和细节低于主体，保持轮廓清楚；不要圆盘、白色圆外留边、透明棋盘格、额外角色或场景。`,
     `类型限制：${profile.limits}`,
     `额外禁止：${avoid || '无额外项目；执行通用禁止项'}。`,
     '通用限制：不要文字、UI、签名、水印、厚重边框、彩色装饰环、多格排版或小图预览；不要卡通化、塑料感3D渲染或摄影拼贴；不要裁切主体；不要添加未要求的角色、肢体或叙事元素。'
@@ -1472,7 +1494,7 @@ async function copyPortraitPrompt() {
 }
 
 function importPortraitFile(file) {
-  const p = portraitSelectedPreset();
+  let p = portraitSelectedPreset();
   if (!p || !file) return;
   processAvatarFile(file, async (res) => {
     if (!res) { toast('立绘读取失败'); return; }
@@ -1482,19 +1504,27 @@ function importPortraitFile(file) {
       try { archivedPath = await archivePortraitFile(p, file); }
       catch (e) { toast('原图归档失败，已改用内嵌高清方式保存'); }
       await storeAvatar(aid, res.hd);
+      p = presets.find(current => current.id === p.id);
+      if (!p) throw new Error('这枚棋子已移除，请重新选择棋子后导入');
       p.iconImgId = aid;
       p.iconImg = res.thumb;
+      p.portraitView = res.portraitView;
       p.iconImgHd = archivedPath ? null : res.display;
       p.iconImgPath = archivedPath;
-      await saveLibrary();
+      const result = await saveLibrary({ flush: true });
       $('#portrait-preview').src = res.display;
       $('#portrait-preview-name').textContent = p.name;
+      $('#portrait-preview-status').textContent = result === 'ok'
+        ? '已保存到所属模块。可在主控台和玩家端检查裁切与形态切换。'
+        : '尚未完成正式保存；本页修改保留，请点击保存重试。';
       $('#portrait-preview-row').hidden = false;
       renderAll();
       updateHdBadge();
-      toast(archivedPath ? `✅ 「${p.name}」原图已归档并入库` : `✅ 「${p.name}」已以内嵌高清方式入库`);
+      toast(result === 'ok'
+        ? `✅ 「${p.name}」已保存到所属模块`
+        : `「${p.name}」尚未完成正式保存，本页修改已保留，请点击保存重试`);
     } catch (e) {
-      toast('立绘写入失败，请检查浏览器存储空间');
+      toast('立绘未完成保存：' + (e.message || '请保留本页内容后重试'));
     }
   });
 }
@@ -1549,40 +1579,83 @@ function updateHdBadge() {
   const btn = $('#btn-hd');
   if (btn) {
     btn.title = n
-      ? `还有 ${n} 个棋子没有立绘；可选择棋子库文件夹重建缓存并查看未匹配名单`
-      : '从项目原图重建本浏览器的 2048/512/192px 图片缓存';
+      ? `还有 ${n} 个棋子没有立绘；缓存检查不会创建缺失的原图`
+      : '检查模块显示资源或更新已有浏览器缓存，不修改正式立绘';
   }
 }
 
-async function runHdRepair(files) {
+function modulePortraitUrls(piece) {
+  const urls = new Set();
+  for (const source of [piece, ...(Array.isArray(piece.portraitVariants) ? piece.portraitVariants : [])]) {
+    for (const portrait of [source, source?.initiativePortrait]) {
+      const url = portrait?.iconImgPath || portrait?.iconImgHd || portrait?.iconImg;
+      if (/^\/api\/module-assets\/[0-9a-f]{64}$/.test(url || '')) urls.add(url);
+    }
+  }
+  return [...urls];
+}
+
+async function checkModulePortraitCache(url) {
+  let fallback = false;
+  for (const tier of [192, 512]) {
+    const response = await fetch(url + '?variant=token-' + tier, { cache: 'reload' });
+    const mime = response.headers.get('Content-Type') || '';
+    if (!response.ok || !mime.startsWith('image/')) throw new Error('模块显示资源读取失败');
+    if (!(await response.blob()).size) throw new Error('模块显示资源为空');
+    fallback ||= !mime.startsWith('image/webp');
+  }
+  return { fallback };
+}
+
+async function runHdRepair(files = []) {
   const box = $('#hd-progress');
   box.innerHTML = '';
   $('#btn-hd-pick').disabled = true;
+  $('#btn-hd-modules').disabled = true;
   $('#hd-status').textContent = '处理中…';
   const byPath = new Map();
-  const byName = new Map();
   files.forEach((f) => {
     byPath.set(hdNormPath(f.webkitRelativePath || f.name), f);
-    byName.set(f.name, f);
   });
-  let ok = 0, fail = 0, skip = 0;
+  let ok = 0, fail = 0;
   const missingNames = [];
+  const checkedModules = new Map();
   for (const p of presets) {
+    const moduleUrls = modulePortraitUrls(p);
+    if (moduleUrls.length) {
+      try {
+        let fallback = false;
+        for (const url of moduleUrls) {
+          if (!checkedModules.has(url)) checkedModules.set(url, checkModulePortraitCache(url));
+          const checked = await checkedModules.get(url);
+          fallback = fallback || checked.fallback;
+        }
+        ok++;
+        hdAddRow(p.name, fallback ? '✓ 显示资源可读，服务使用原图后备' : '✓ 模块显示缓存可读', 'ok');
+      } catch (error) {
+        fail++;
+        hdAddRow(p.name, '✗ 模块显示资源读取失败，正式引用未改变', 'err');
+      }
+      continue;
+    }
     const expected = canonicalPortraitPath(p.iconImgPath);
-    let file = expected ? byPath.get(hdNormPath(expected)) : null;
-    if (!file && byName.get(p.name + '.png')) file = byName.get(p.name + '.png');
-    if (!file && p.name === '火蜥蜴火蛇' && byName.get('火蛇.png')) file = byName.get('火蛇.png');
-    if (!file) { skip++; missingNames.push(p.name); hdAddRow(p.name, '无原图，跳过', 'skip'); continue; }
-    const res = await new Promise((resolve) => processAvatarFile(file, resolve));
+    const file = expected ? byPath.get(hdNormPath(expected)) : null;
+    if (!p.iconImgId || (expected && !file)) {
+      missingNames.push(p.name); hdAddRow(p.name, '未匹配已有浏览器缓存，原图与引用保持', 'skip'); continue;
+    }
+    if (!expected) {
+      try {
+        const hd = await avatarGet(p.iconImgId);
+        if (!hd) throw new Error('已有浏览器原图缓存不存在');
+        await storeAvatar(p.iconImgId, hd);
+        ok++; hdAddRow(p.name, '✓ 已有浏览器缓存已更新', 'ok');
+      } catch (error) { fail++; hdAddRow(p.name, '✗ 已有浏览器缓存不可读', 'err'); }
+      continue;
+    }
+    const res = await new Promise((resolve) => processAvatarFile(file, resolve, false));
     if (!res) { fail++; hdAddRow(p.name, '✗ 图片读取失败', 'err'); continue; }
     try {
-      let aid = p.iconImgId;
-      if (!aid) { aid = 'a' + (uid++); p.iconImgId = aid; }
-      await storeAvatar(aid, res.hd);
-      p.iconImg = res.thumb;
-      p.iconImgPath = canonicalPortraitPath(hdNormPath(file.webkitRelativePath || file.name));
-      // 项目原图可直接读取，不再把 512px data URL 重复写进棋子数据。
-      p.iconImgHd = p.iconImgPath ? null : res.display;
+      await storeAvatar(p.iconImgId, res.hd);
       ok++;
       hdAddRow(p.name, '✓ 缓存已重建', 'ok');
     } catch (e) {
@@ -1590,25 +1663,26 @@ async function runHdRepair(files) {
       hdAddRow(p.name, '✗ 写入失败', 'err');
     }
   }
-  saveLibrary();
   $('#btn-hd-pick').disabled = false;
+  $('#btn-hd-modules').disabled = false;
   const missingBox = $('#hd-missing');
   if (missingNames.length) {
-    missingBox.innerHTML = '⚠️ 有 <b>' + missingNames.length + '</b> 个棋子没有匹配到原图（还没画立绘，或文件没放在对应位置）：<br>' +
+    missingBox.innerHTML = '有 <b>' + missingNames.length + '</b> 个棋子未匹配已有浏览器缓存；原图与正式引用保持不变：<br>' +
       missingNames.map((n) => esc(n)).join('、');
     missingBox.hidden = false;
-    toast('有 ' + missingNames.length + ' 个棋子没有匹配到原图，已列出名单');
+    toast('有 ' + missingNames.length + ' 个棋子未重建缓存，正式立绘保持不变');
   } else {
     missingBox.hidden = true;
   }
   updateHdBadge();
-  $('#hd-status').textContent = `完成：成功 ${ok}，失败 ${fail}，未匹配 ${missingNames.length}。跑团台同步后即可使用新缓存。`;
+  $('#hd-status').textContent = `完成：成功 ${ok}，失败 ${fail}，跳过 ${missingNames.length}。正式棋子数据与原文件未改变。`;
 }
 
 $('#btn-hd').addEventListener('click', () => { $('#hd-modal').hidden = false; });
 $('#btn-hd-close').addEventListener('click', () => { $('#hd-modal').hidden = true; });
 $('#hd-modal').addEventListener('click', (e) => { if (e.target === $('#hd-modal')) $('#hd-modal').hidden = true; });
 $('#btn-hd-pick').addEventListener('click', () => $('#file-hd-dir').click());
+$('#btn-hd-modules').addEventListener('click', () => runHdRepair());
 $('#file-hd-dir').addEventListener('change', (e) => {
   const files = [...(e.target.files || [])];
   e.target.value = '';
@@ -1626,7 +1700,7 @@ $('#file-icon').addEventListener('change', (e) => {
     if (!res) { toast('图标读取失败'); return; }
     const id = 'a' + (uid++);
     storeAvatar(id, res.hd).then(() => {
-      avatar = { iconImgId: id, iconImg: res.thumb, iconImgHd: res.display, iconImgPath: null };
+      avatar = { iconImgId: id, iconImg: res.thumb, iconImgHd: res.display, iconImgPath: null, portraitView: res.portraitView };
       syncIconPreview();
     });
   });

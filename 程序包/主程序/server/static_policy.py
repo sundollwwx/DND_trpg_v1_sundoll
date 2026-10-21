@@ -3,11 +3,18 @@ import os
 from pathlib import Path
 
 PUBLIC_FILES = frozenset({
+    'shared/ui-assets-cache.js',
+    'shared/room-context.js', 'shared/design-system.css',
+    'web/entry.css', 'web/dm-login.js', 'web/account.js', 'web/account.css',
+    '主控台/shared/client-runtime.js', '主控台/shared/dining.js', '主控台/shared/dining.css', '主控台/shared/lifestyle.js',
     '主控台/shared/chest-locked.svg', '主控台/shared/chest-unlocked.svg',
+    '主控台/shared/pending-requests.js',
     '主控台/shared/map-items.js', '主控台/shared/map-items.css',
-    '主控台/shared/downed-portrait.js',
+    '主控台/shared/downed-portrait.js', '主控台/shared/portrait-view.js', '主控台/shared/portrait-view.css',
     '主控台/shared/danmaku.js', '主控台/shared/danmaku.css',
-    '主控台/封面背景.png', '主控台/玩家.html', '主控台/player/player.js', '主控台/player/player.css',
+    '主控台/shared/assets/environment-initiative.png',
+    '主控台/shared/initiative-ribbon.js', '主控台/shared/initiative-ribbon.css',
+    '主控台/玩家.html', '主控台/player/player.js', '主控台/player/player.css',
     '主控台/shared/journal.js', '主控台/shared/journal.css', '主控台/shared/player-library.js',
     '主控台/shared/travel-basket.js', '主控台/shared/travel-basket.css',
     '主控台/shared/backpack.js', '主控台/shared/backpack.css',
@@ -16,9 +23,15 @@ PUBLIC_FILES = frozenset({
     'asset/界面/休息动画/休息动画.css',
 })
 HOST_FILES = frozenset({
+    'shared/dm-session.js',
+    'shared/map-forms.js', '主控台/host/map-forms.js', '主控台/host/map-forms.css',
     '主控台/主控台.html', '主控台/host/app.js', '主控台/host/style.css',
-    '主控台/host/bootstrap.js', '主控台/host/music.js', '主控台/host/storage.js', '主控台/host/documents.js',
+    '主控台/host/initiative-portrait-defaults.js',
+    '主控台/host/load-progress.js', '主控台/host/load-progress.css',
+    '主控台/host/bootstrap.js', '主控台/host/encounter-ui.js', '主控台/host/music.js', '主控台/host/storage.js', '主控台/host/documents.js',
     '主控台/host/item-library.js', '主控台/host/item-library.css',
+    '主控台/host/daily-life.js', '主控台/host/daily-life.css',
+    '主控台/host/lifestyle-ui.js', '主控台/host/world-ui.js',
     '主控台/host/travel-basket.js',
     '主控台/host/modules.js', '主控台/host/modules.css',
     '主控台/host/prep-handbook.js', '主控台/host/prep-handbook.css',

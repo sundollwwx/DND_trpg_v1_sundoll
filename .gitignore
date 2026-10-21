@@ -19,7 +19,7 @@ __pycache__/
 *.temp
 ~$*
 
-# Campaign saves and player content are versioned with the owner's authorization.
+# The public repository contains source and explicit public assets only.
 
 # Regenerable multiplayer map/avatar cache.
 .sundoll-cache/
@@ -56,8 +56,35 @@ __pycache__/
 /旧恢复备份/
 /旧发行包/
 
-# This repository distributes the runnable workspace, not local production tools.
-/开发包/
+# Public development tools are selected explicitly; local reports stay private.
+/开发包/*
+!/开发包/README.md
+!/开发包/build_distribution_v3.py
+!/开发包/build_distribution_v4.py
+!/开发包/verify_distribution_v3.py
+!/开发包/verify_unified_workspace.py
+!/开发包/activate_workspace_v4.py
+!/开发包/migrate_modules_v3.py
+!/开发包/migrate_workspace_v4.py
+!/开发包/benchmark_module_reads.py
+!/开发包/tests/
+!/开发包/github/
+!/开发包/maintenance/
+!/开发包/scripts/
+!/开发包/docs/
+!/开发包/生活玩法/
+/开发包/生活玩法/*
+!/开发包/生活玩法/export_fishing.py
+!/开发包/生活玩法/export_menus.py
+/开发包/docs/*
+!/开发包/docs/README.md
+!/开发包/docs/部署与维护.md
+!/开发包/docs/内容包与角色物品.md
+!/开发包/docs/旅行篮子.md
+!/开发包/docs/棋子形态与存档.md
+!/开发包/docs/玩家背包.md
+/开发包/tests/test_visual_creation_standards.py
+/开发包/tests/test_desktop_assets.cjs
 /创作包/
 /output/
 /备团/
@@ -66,7 +93,43 @@ __pycache__/
 /程序包/运行数据/维护记录/
 /程序包/运行数据/运行日志/
 /程序包/运行数据/联机/
+**/联机/resend-api-key
 /程序包/运行数据/正式切换记录*.json
 /程序包/运行数据/同级模块迁移报告.json
 /程序包/运行数据/存档/迁移报告.json
 /程序包/运行数据/存档/存档索引-恢复前-*.json
+
+# Installation snapshots contain every account's private saves and credentials.
+**/私人备份/
+**/运行数据/安装级恢复任务/
+**/运行数据/安装级恢复.json
+**/运行数据/.安装维护.lock
+**/运行数据/房间运行状态.json
+**/运行数据/检查点保留/
+
+# Account-owned characters are private production data, exported only deliberately.
+**/运行数据/账号角色/
+
+# Account rooms and installation snapshots must never enter the source checkout.
+**/运行数据/战役空间/
+**/运行数据/安装级备份/
+**/运行数据/迁移暂存*/
+
+# Retired original workspace is a private archive, never a second live save.
+**/运行数据/历史归档/
+**/运行数据/账号房间模式.json
+**/运行数据/原工作区归档事务.json
+
+# All authoritative local data, machine settings and author-only art stay local.
+/程序包/运行数据/
+/程序包/战役包/
+/程序包/玩家包/
+/程序包/通用包/
+/程序包/桌面端/
+/程序包/主程序/asset/棋子库/立绘/
+**/.wrangler/
+**/.env
+**/.env.*
+
+# Completed author-only cleanup script; not part of public maintenance.
+/开发包/maintenance/archive_verified_cleanup.py

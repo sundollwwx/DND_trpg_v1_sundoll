@@ -1,4 +1,60 @@
 // BEGIN BUNDLED MUSIC MODULE
+/* Receive bounded PCM packets from the player's room origin, never from a host LAN address. */
+(function(root,factory){
+  if(typeof module==='object'&&module.exports)module.exports=factory;
+  else root.SundollPlayerRelay={create:factory};
+})(typeof globalThis!=='undefined'?globalThis:this,function(options){
+  const env=options.env||globalThis;
+  let current=null;
+  const changed=()=>options.changed?.();
+  function stop(){
+    const item=current;current=null;if(!item)return;
+    env.clearTimeout(item.timer);item.abort?.abort();
+    item.sources.forEach(source=>{try{source.stop();}catch(_){}source.disconnect();});
+    item.ctx.onstatechange=null;item.ctx.close().catch(()=>{});
+  }
+  function resume(){if(current)current.ctx.resume().catch(()=>{});}
+  function start(url){
+    if(current?.url===url){resume();return current.destination.stream;}
+    stop();
+    if(!/^\/api\/music-live\?id=[a-f0-9]{32}$/.test(url))throw Error('无效的音频中转地址');
+    const ctx=new env.AudioContext(),destination=ctx.createMediaStreamDestination();
+    const item={url,ctx,destination,cursor:-1,nextTime:0,sources:new Set(),error:'',timer:null,abort:null,received:false,silent:false};current=item;
+    ctx.onstatechange=changed;resume();
+    function flush(){item.sources.forEach(source=>{try{source.stop();}catch(_){}source.disconnect();});item.sources.clear();item.nextTime=0;}
+    async function poll(){
+      if(current!==item||!options.session())return;
+      item.abort=new env.AbortController();const deadline=env.setTimeout(()=>item.abort?.abort(),6000);
+      try{
+        const r=await env.fetch(url+'&after='+item.cursor,{headers:{'X-Sundoll-Session':options.session()},cache:'no-store',signal:item.abort.signal});
+        if(!r.ok){item.received=false;throw Error(r.status===401?'登录已失效':'音频连接中断');}
+        const data=await r.json();if(current!==item)return;
+        if(!data.active){flush();throw Error('音源已断开');}
+        if(data.reset)flush();
+        for(const packet of data.packets){
+          if(packet.seq<=item.cursor&&!data.reset)continue;
+          item.cursor=packet.seq;
+          // While autoplay is blocked, discard old packets and remain at the live edge.
+          if(ctx.state!=='running')continue;
+          const binary=env.atob(packet.pcm),bytes=new Uint8Array(binary.length);
+          for(let i=0;i<bytes.length;i++)bytes[i]=binary.charCodeAt(i);
+          const pcm=new DataView(bytes.buffer),frames=bytes.length/4,buffer=ctx.createBuffer(2,frames,packet.rate);
+          item.received=true;item.silent=!new Int16Array(bytes.buffer).some(value=>Math.abs(value)>16);
+          for(let ch=0;ch<2;ch++){const channel=buffer.getChannelData(ch);for(let i=0;i<frames;i++)channel[i]=pcm.getInt16(i*4+ch*2,true)/32768;}
+          if(item.nextTime<ctx.currentTime||item.nextTime>ctx.currentTime+2)flush();
+          if(!item.nextTime)item.nextTime=ctx.currentTime+.7;
+          const source=ctx.createBufferSource();source.buffer=buffer;source.connect(destination);item.sources.add(source);
+          source.onended=()=>{item.sources.delete(source);source.disconnect();};source.start(item.nextTime);item.nextTime+=buffer.duration;
+        }
+        item.error='';
+      }catch(e){if(current===item)item.error=e.name==='AbortError'?'音频连接超时，正在重试':e.message;}
+      finally{env.clearTimeout(deadline);if(current===item){changed();item.timer=env.setTimeout(poll,item.error?1000:250);}}
+    }
+    poll();return destination.stream;
+  }
+  return {start,stop,resume,blocked:()=>!!current&&current.ctx.state!=='running',error:()=>current?.error||'',receiving:()=>!!current?.received,silent:()=>!!current?.silent};
+});
+
 /* Player audio is a receiver: room commands select playback, local controls set volume only. */
 (function(root,factory){
   if(typeof module==='object'&&module.exports)module.exports=factory;
@@ -7,24 +63,31 @@
   'use strict';
   const {$,session,playerId,serverNow}=options,env=options.env||globalThis;
   const file=new env.Audio(),live=new env.Audio();
-  const rtcConfig={iceServers:[{urls:['stun:stun.cloudflare.com:3478','stun:stun.l.google.com:19302']}]};
+  const rtcConfig={iceServers:[{urls:['stun:stun.cloudflare.com:3478','stun:stun.l.google.com:19302']}] };
   let command={action:'stop',mode:'library'},key='',lastIssued=0,revision=0,peer=null,ice=[],muted=false,blocked=false,error='';
+  const relay=env.SundollPlayerRelay?.create({env,session,changed:()=>ui()});
   const current=()=>command.mode==='live'?live:file;
   function ui(){
     $('#player-audio-title').textContent=command.track||(command.mode==='live'?'外部音源':'尚未播放');
     let status=command.action==='stop'?'等待主控台':command.action==='pause'?'主控台已暂停':command.mode==='live'&&!live.srcObject?'正在连接外部音源…':current().paused?'正在加载声音…':'正在播放 · 与主控台同步';
-    $('#player-audio-status').textContent=error||(blocked?'点击“启用声音”开始收听':status);
-    $('#player-audio-enable').hidden=command.action!=='play'||(!blocked&&!error&&!current().paused);
+    if(command.action==='play'&&command.mode==='live'&&command.url&&relay){
+      if(relay.receiving?.()===false)status='正在等待中转音频…';
+      else if(relay.silent?.())status='已接收 · 音源暂无声音';
+    }
+    $('#player-audio-status').textContent=error||(relay?.error()||'')||((blocked||relay?.blocked())?'点击“启用声音”开始收听':status);
+    $('#player-audio-enable').hidden=command.action!=='play'||(!blocked&&!relay?.blocked()&&!relay?.error()&&!error&&!current().paused);
     $('#player-audio-mute').textContent=muted||Number($('#player-audio-volume').value)===0?'🔇':'🔊';
   }
   async function play(){
     const audio=current(),requested=revision;
     if(command.action!=='play'||(audio===live&&!live.srcObject)|| (audio===file&&!file.src)){ui();return;}
+    relay?.resume();
     try{await audio.play();if(requested!==revision)return;blocked=false;error='';}
     catch(e){if(requested!==revision)return;blocked=e.name==='NotAllowedError';error=blocked?'':'音乐加载失败，可点击“启用声音”重试';}
     ui();
   }
   function closeLive(){
+    relay?.stop();
     ice=[];
     const old=peer;peer=null;
     if(old){old.ontrack=null;old.onicecandidate=null;old.onconnectionstatechange=null;old.close();}
@@ -50,6 +113,13 @@
     command={...next,mode:next.mode||'library'};
     if(command.mode==='live'){
       file.onloadedmetadata=null;file.pause();
+      if(command.url){
+        if(peer)closeLive();
+        if(command.action!=='play')closeLive();
+        else if(relay){try{live.srcObject=relay.start(command.url);await play();}catch(e){error=e.message;}}
+        else error='此浏览器不支持音频中转';
+        ui();return;
+      }
       if(command.action==='stop')closeLive();
       else if(command.action==='pause')live.pause();
       else await play();
@@ -75,6 +145,7 @@
     return pc;
   }
   async function signal(event){
+    if(command.mode==='live'&&command.url)return;
     if(!session()||!event||event.target!==playerId()||!event.signal)return;
     const msg=event.signal,token=session();
     try{
@@ -124,13 +195,7 @@
   };
   const MAX_TOKEN_CONDITIONS = 20;
   const CONDITION_SPRITE_URL = '../asset/界面/状态图标-v1.png';
-  const PLAYER_HOME_THEMES = Object.freeze({
-    a:{label:'冒险桌',image:'../asset/界面/主页背景/a-玩家端.jpg'},
-    b:{label:'城外营地',image:'../asset/界面/主页背景/b-玩家端.jpg'},
-    c:{label:'传送门大厅',image:'../asset/界面/主页背景/c-玩家端.jpg'},
-    d:{label:'旅途区域地图',image:'../asset/界面/主页背景/d-玩家端.jpg'}
-  });
-  let state = null, currentMap = null, playerMapId = null, lastPresentedMapId = null, playerMapBrowserChapterId = null, view = {scale:1,ox:0,oy:0}, myName = '', myPlayerId = '', sessionToken = '', roomCode = '', players = [], presenceStatus = 'online', selectedId = null, drag = null, toastTimer = null, peekTimer = null, restAnimationTimer = null, localRolls = new Set(), lastMapViewKey = '', flowPanel = 'initiative', flowClockAnchor = { localNow: performance.now(), serverNow: Date.now() }, flowTimer = null, measureMode = false, measureDraft = null, doodleTool = null, doodleColor = '#ff4d4f', doodleWidth = 6, doodleDraft = null, presenceTimer = null, streamES = null, streamAppliedSeq = 0, lastStateRevision = 0, spellAimTokenId = null, pendingMapReaction = null, spellRangeRaf = null, initiativePending = false, lastFlowScrollEntryId = null, editingPlayerConditionId = null, activePlayerDetailTab = 'status', diceVisibility = 'public', contextTokenId = null, investigationTokenId = null, playerPortraitManagerTokenId = null, playerTempHpUndo = null;
+  let state = null, currentMap = null, playerMapId = null, lastPresentedMapId = null, lastMapPresentationId = null, playerMapBrowserChapterId = null, view = {scale:1,ox:0,oy:0}, myName = '', myPlayerId = '', myCharacterId = '', sessionToken = '', roomCode = '', players = [], presenceStatus = 'online', selectedId = null, drag = null, toastTimer = null, peekTimer = null, restAnimationTimer = null, localRolls = new Set(), lastMapViewKey = '', flowPanel = 'initiative', flowClockAnchor = { localNow: performance.now(), serverNow: Date.now() }, flowTimer = null, measureMode = false, measureDraft = null, doodleTool = null, doodleColor = '#ff4d4f', doodleWidth = 6, doodleDraft = null, presenceTimer = null, streamES = null, streamAppliedSeq = 0, lastStateRevision = 0, spellAimTokenId = null, pendingMapReaction = null, spellRangeRaf = null, lastFlowScrollEntryId = null, editingPlayerConditionId = null, activePlayerDetailTab = 'status', diceVisibility = 'public', contextTokenId = null, investigationTokenId = null, playerPortraitManagerTokenId = null, playerTempHpUndo = null;
   const localReactionIds = new Set();
   const playedRestTransitions = new Set();
   const mapPreloadCached = new Set(), mapPreloadQueued = new Set(), mapPreloadAttempts = new Map();
@@ -138,14 +203,7 @@
   const mapAssetLoads = new Map(), mapVariantFailures = new Set();
   let activeMapAssetSource = '', activeMapAssetReady = false;
   const REQUIRED_SERVER_PROTOCOL=SundollProtocol.version,PLAYER_PORTRAIT_SOURCE_LIMIT=12*1024*1024,PLAYER_PORTRAIT_TARGET_BYTES=280*1024;
-  let playerSpawnPending=false,playerPortraitPending=false,playerDraftPortrait='',playerDeletePending=null,playerMountPending=null,playerDismountPending=null;
-  function applyJoinHomeTheme(themeKey){
-    const mask=$('#join-mask'),key=Object.prototype.hasOwnProperty.call(PLAYER_HOME_THEMES,themeKey)?themeKey:'a',theme=PLAYER_HOME_THEMES[key];if(!mask||!theme)return;
-    mask.dataset.homeTheme=key;mask.dataset.homeThemeLabel=theme.label;mask.style.setProperty('--join-background-image','url("'+new URL(theme.image,document.baseURI).href+'")');
-    document.querySelectorAll('[data-join-theme]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.joinTheme===key)));
-  }
-  function randomizeJoinHomeTheme(){const keys=Object.keys(PLAYER_HOME_THEMES);applyJoinHomeTheme(keys[Math.floor(Math.random()*keys.length)]);}
-  function initJoinHomeThemePicker(){const picker=$('#join-theme-picker');if(!picker)return;picker.addEventListener('click',event=>{const button=event.target.closest('[data-join-theme]');if(button&&picker.contains(button))applyJoinHomeTheme(button.dataset.joinTheme);});}
+  let playerSpawnPending=false,playerPortraitPending=false,playerDraftPortrait='',playerDraftPortraitView={scale:1,offsetX:0,offsetY:0},playerDeletePending=null,playerMountPending=null,playerDismountPending=null;
   function preloadConditionPixels(){const image=new Image();image.onload=()=>document.documentElement.classList.add('condition-pixels-ready');image.onerror=()=>document.documentElement.classList.remove('condition-pixels-ready');image.src=CONDITION_SPRITE_URL;}
   let conditionPixelsStarted=false;
   function ensureConditionPixels(){if(!conditionPixelsStarted){conditionPixelsStarted=true;preloadConditionPixels();}}
@@ -182,37 +240,55 @@
   function requestAction(action) {
     const body={player:myName||'玩家',sessionToken,actionId:actionId(),action,campaignId:state?.campaignId,serverSessionId:state?._sessionId};
     const requestedToken=sessionToken;
-    return fetch('/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(async r=>{const result={ok:r.ok,data:await r.json().catch(()=>({}))};if(r.status===401&&sessionToken===requestedToken)handleSessionRevoked({playerId:myPlayerId,reason:result.data.error||'玩家会话已失效'});return result;});
+    return SundollClientRuntime.requestJson('/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)},
+      {timeoutMs:8000,message:'操作确认超时，请重新同步后核对'}).then(({response:r,data})=>{
+        const result={ok:r.ok&&data?.ok===true,unconfirmed:r.ok&&typeof data?.ok!=='boolean',data:data||{}};
+        if(r.ok&&data?.ok!==true&&!result.data.error)result.data.error='未收到有效操作确认，请重新同步后核对';
+        if(r.status===401&&sessionToken===requestedToken)handleSessionRevoked({playerId:myPlayerId,reason:result.data.error||'玩家会话已失效'});
+        return result;
+      });
   }
   function dataUrlBytes(value){const comma=String(value||'').indexOf(',');return comma<0?0:Math.ceil((value.length-comma-1)*3/4);}
   function renderPlayerDraftPortrait(){
     const pick=$('#player-token-image-pick'),preview=$('#player-token-image-preview'),label=$('#player-token-image-label'),clear=$('#player-token-image-clear');if(!pick||!preview||!label||!clear)return;
+    let adjust=$('#player-token-image-view');
+    if(!adjust){adjust=document.createElement('button');adjust.id='player-token-image-view';adjust.className='draft-image-adjust';adjust.type='button';adjust.textContent='调整范围';adjust.onclick=editPlayerDraftPortraitView;pick.parentElement.append(adjust);}
+    adjust.hidden=!playerDraftPortrait;adjust.disabled=playerPortraitPending||playerSpawnPending;
     pick.classList.toggle('has-image',!!playerDraftPortrait);preview.style.backgroundImage=playerDraftPortrait?'url("'+playerDraftPortrait+'")':'none';preview.textContent=playerDraftPortrait?'':'＋';label.textContent=playerPortraitPending?'正在处理图片…':playerDraftPortrait?'更换棋子图片':'上传棋子图片';clear.hidden=!playerDraftPortrait;pick.disabled=playerPortraitPending||playerSpawnPending;clear.disabled=playerPortraitPending||playerSpawnPending;
+    SundollPortraitView.apply(preview,{iconImg:playerDraftPortrait,portraitView:playerDraftPortraitView},{legacyScale:1});
   }
-  function compressPlayerDraftPortrait(file){
-    return new Promise((resolve,reject)=>{
-      const source=URL.createObjectURL(file),image=new Image();
-      image.onerror=()=>{URL.revokeObjectURL(source);reject(new Error('无法读取这张图片'));};
-      image.onload=()=>{
-        try{
-          const width=image.naturalWidth||image.width,height=image.naturalHeight||image.height,crop=Math.min(width,height);if(!crop)throw new Error('图片尺寸无效');
-          const first=Math.min(512,Math.max(1,Math.floor(crop))),edges=[...new Set([first,Math.min(first,448),Math.min(first,384),Math.min(first,320)])],qualities=[.9,.82,.74,.66];
-          for(const edge of edges){
-            const canvas=document.createElement('canvas');canvas.width=edge;canvas.height=edge;const context=canvas.getContext('2d',{alpha:true});if(!context)throw new Error('浏览器无法处理图片');context.imageSmoothingEnabled=true;context.imageSmoothingQuality='high';context.drawImage(image,(width-crop)/2,(height-crop)/2,crop,crop,0,0,edge,edge);
-            for(const quality of qualities){const data=canvas.toDataURL('image/webp',quality);if(dataUrlBytes(data)<=PLAYER_PORTRAIT_TARGET_BYTES)return resolve(data);}
-          }
-          throw new Error('图片内容过于复杂，请换一张图片');
-        }catch(error){reject(error);}finally{URL.revokeObjectURL(source);}
-      };
-      image.src=source;
-    });
+  async function compressPlayerDraftPortrait(file,prepared){
+    const loaded=prepared||await SundollPortraitView.prepareFile(file),image=loaded.image;
+    try{
+      const width=image.naturalWidth||image.width,height=image.naturalHeight||image.height,longest=Math.max(width,height);if(!width||!height)throw new Error('图片尺寸无效');
+      const first=Math.min(512,Math.max(1,Math.floor(longest))),edges=[...new Set([first,Math.min(first,448),Math.min(first,384),Math.min(first,320)])],qualities=[.9,.82,.74,.66];
+      for(const edge of edges){
+        const canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(width*edge/longest));canvas.height=Math.max(1,Math.round(height*edge/longest));const context=canvas.getContext('2d',{alpha:true});if(!context)throw new Error('浏览器无法处理图片');context.imageSmoothingEnabled=true;context.imageSmoothingQuality='high';context.drawImage(image,0,0,width,height,0,0,canvas.width,canvas.height);
+        for(const quality of qualities){const data=canvas.toDataURL('image/webp',quality);if(dataUrlBytes(data)<=PLAYER_PORTRAIT_TARGET_BYTES)return data;}
+      }
+      throw new Error('图片内容过于复杂，请换一张图片');
+    }finally{if(!prepared&&String(loaded.src||'').startsWith('blob:'))URL.revokeObjectURL(loaded.src);}
+  }
+  async function editPlayerDraftPortraitView(){
+    if(!playerDraftPortrait||playerPortraitPending||playerSpawnPending)return;
+    const source=playerDraftPortrait;
+    try{const view=await SundollPortraitView.edit({src:source,view:playerDraftPortraitView,legacyScale:1,title:'临时棋子 · 显示范围'});
+      if(view&&playerDraftPortrait===source){playerDraftPortraitView=view;renderPlayerDraftPortrait();}
+    }catch(error){toast(error.message||'调整失败');}
   }
   async function choosePlayerDraftPortrait(file){
     if(!file)return;if(!['image/png','image/jpeg','image/webp'].includes(file.type)){toast('⚠ 请选择 PNG、JPG 或 WebP 图片');return;}if(file.size>PLAYER_PORTRAIT_SOURCE_LIMIT){toast('⚠ 原图不能超过 12 MB');return;}
     playerPortraitPending=true;renderPlayerDraftPortrait();updatePlayerPlaceUi();
-    try{playerDraftPortrait=await compressPlayerDraftPortrait(file);toast('✓ 棋子图片已准备好');}
+    let prepared;
+    try{
+      prepared=await SundollPortraitView.prepareFile(file);
+      const nextView=await SundollPortraitView.edit({src:prepared.src,view:{scale:1,offsetX:0,offsetY:0},legacyScale:1,title:'临时棋子 · 显示范围'});
+      if(!nextView)return;
+      const nextPortrait=await compressPlayerDraftPortrait(file,prepared);
+      playerDraftPortrait=nextPortrait;playerDraftPortraitView=nextView;toast('✓ 棋子图片已准备好');
+    }
     catch(error){toast('⚠ '+(error.message||'图片处理失败'));}
-    finally{playerPortraitPending=false;renderPlayerDraftPortrait();updatePlayerPlaceUi();}
+    finally{if(prepared&&String(prepared.src||'').startsWith('blob:'))URL.revokeObjectURL(prepared.src);playerPortraitPending=false;renderPlayerDraftPortrait();updatePlayerPlaceUi();}
   }
   function updatePlayerPlaceUi() {
     const button=$('#player-place-token');if(!button)return;
@@ -227,7 +303,7 @@
     const center={x:(board.clientWidth/2-view.ox)/Math.max(.2,view.scale),y:(board.clientHeight/2-view.oy)/Math.max(.2,view.scale)},position=state&&state.snap===false?{x:center.x,y:center.y}:snap(center.x,center.y,{size}),grid=Number(currentMap.gridSize)||50,margin=size*grid/2,x=clamp(position.x,margin,currentMap.mapW-margin),y=clamp(position.y,margin,currentMap.mapH-margin);
     playerSpawnPending=true;updatePlayerPlaceUi();
     try{
-      const result=await requestAction({op:'spawnToken',mapId:currentMap.id,x,y,draft:{name,hpMax,ac,icon,size,sizeCategory,iconImg:playerDraftPortrait||null}}),data=result.data||{};
+      const result=await requestAction({op:'spawnToken',mapId:currentMap.id,x,y,draft:{name,hpMax,ac,icon,size,sizeCategory,iconImg:playerDraftPortrait||null,...(playerDraftPortrait?{portraitView:playerDraftPortraitView}:{})}}),data=result.data||{};
       if(!result.ok||data.ok===false){updatePlayerPlaceUi(data.error||'放置失败');toast('⚠ '+(data.error||'放置失败'));return;}
       updatePlayerPlaceUi('已放置「'+name+'」；可继续调整后再次放置');
     }catch(error){updatePlayerPlaceUi('放置未送达，请检查连接');toast('⚠ 放置未送达');}
@@ -244,6 +320,7 @@
   }
   async function savePlayerName() {
     const input=$('#player-name'),name=input.value.trim(),token=sessionToken,oldName=myName;
+    if(emailAccountMode){input.value=myName;return;}
     if(playerNameSaving||!token||name===myName)return;
     if(!name||name.length>24){input.value=myName;toast('玩家名需为 1–24 个字符');return;}
     playerNameSaving=true;input.readOnly=true;
@@ -263,7 +340,7 @@
     if(!players.length){box.innerHTML='<span class="hint">暂无其他玩家</span>';return;}
     players.forEach(p=>{const row=document.createElement('div');row.className='player-row'+(p.name===myName?' me':'');const dot=document.createElement('i');dot.className='player-dot'+(p.online?' online':'');const name=document.createElement('span');name.className='player-row-name';name.textContent=p.name||'未命名玩家';const status=document.createElement('span');status.className='player-row-status';status.textContent=p.online?(p.status==='ready'?'已准备':'在线'):'离线';row.append(dot,name,status);box.appendChild(row);});
   }
-  function updateSessionUi() { $('#session-badge').textContent=sessionToken?(myName+' · 已加入'):'未加入'; $('#player-name').readOnly=!sessionToken||playerNameSaving; $('#btn-join .player-action-label').textContent=sessionToken?'切换玩家':'加入房间'; renderPlayers(players); updateEndTurnUi(); updatePlayerPlaceUi(); }
+  function updateSessionUi() { $('#session-badge').textContent=sessionToken?'已加入房间':'未加入'; $('#player-name').readOnly=emailAccountMode||!sessionToken||playerNameSaving; $('#player-name').title=emailAccountMode?'账号昵称':'点击修改名字'; $('#btn-join .player-action-label').textContent=emailAccountMode?'我的主页':sessionToken?'切换玩家':'加入房间'; renderPlayers(players); updateEndTurnUi(); updatePlayerPlaceUi(); }
   function leavePlayerDoodleMode() {
     if(!doodleTool&&!doodleDraft)return;
     doodleTool=null;doodleDraft=null;
@@ -311,8 +388,15 @@
       forget(token){entries=entries.filter(e=>e.token!==token);save();},
     };
   }
-  let switchPresence=Promise.resolve(), joinPending=false, registeringPlayer=false;
+  let switchPresence=Promise.resolve(), joinPending=false, registeringPlayer=false, emailAccountMode=false;
+  function playerAccountEntry(registering=false) {
+    const roomId = window.SundollRoom?.id;
+    if (!/^r[0-9a-f]{32}$/.test(roomId || '')) return '/account' + (registering ? '#register' : '#dashboard');
+    const target = '/rooms/' + roomId + '/主控台/玩家.html';
+    return '/account#' + (registering ? 'register&' : '') + 'continue=' + encodeURIComponent(target);
+  }
   function setJoinMode(registering) {
+    if(emailAccountMode){location.assign(registering?playerAccountEntry(true):'/account#dashboard');return;}
     if(joinPending)return;
     registeringPlayer=!!registering;
     $('#join-mode-login').setAttribute('aria-pressed',String(!registeringPlayer));
@@ -324,17 +408,18 @@
   }
   let switchStorage;try{switchStorage=window.sessionStorage;}catch(e){}
   const sessionMemory=createPlayerSessionMemory(switchStorage);
-  async function joinSession(nickname, requestedRoom, resume=true) {
+  async function joinSession(nickname) {
     await switchPresence;
-    const payload={nickname:String(nickname||'').trim(),roomCode:String(requestedRoom||roomCode||'').trim()};
+    const payload={nickname:String(nickname||'').trim()};
     payload.authMethod='name';
-    if(!payload.nickname)throw new Error('请填写玩家名');
-    const res=await fetch(registeringPlayer?'/api/register':'/api/session',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}); const data=await res.json().catch(()=>({}));
+    if(!emailAccountMode&&!payload.nickname)throw new Error('请填写玩家名');
+    const {response:res,data}=await SundollClientRuntime.requestJson(emailAccountMode?'/api/account/player-session':registeringPlayer?'/api/register':'/api/session',{method:'POST',headers:{'Content-Type':'application/json',...(emailAccountMode?{'X-Sundoll-Account':'1'}:{})},body:JSON.stringify(emailAccountMode?{}:payload)},{env:globalThis,timeoutMs:10000,message:'加入房间超时，请重试'});
+    if(emailAccountMode&&(res.status===401||res.status===409)){location.assign(playerAccountEntry());throw new Error('请先登录邮箱账号并选择参团角色');}
     if(registeringPlayer&&res.status===404)throw new Error('服务尚未启用自助注册，请主控保存战役并重启服务');
     if(!res.ok||!data.ok){if(res.status===401&&payload.sessionToken){sessionMemory.forget(payload.sessionToken);if(sessionToken===payload.sessionToken)clearStoredSession();}throw new Error(data.error||'无法加入房间');}
-    if(data.session?.persistent!==true)throw new Error('服务尚未启用名字登录，请主持人保存并重启服务后再试');
+    if(data.session?.persistent!==true)throw new Error('参团角色暂时无法读取，请主持人检查服务后再试');
     const previousToken=sessionToken;
-    sessionToken=data.session?.sessionToken||sessionToken; myName=data.session?.name||payload.nickname; myPlayerId=String(data.session?.playerId||''); roomCode=data.roomCode||payload.roomCode;
+    sessionToken=data.session?.sessionToken||sessionToken; myName=data.session?.name||payload.nickname; myPlayerId=String(data.session?.playerId||'');myCharacterId=String(data.session?.characterId||''); roomCode=data.roomCode||'';
     sessionMemory.remember({token:sessionToken,name:myName,room:roomCode});
     if(previousToken&&previousToken!==sessionToken)sendPresence('offline',previousToken);
     try { localStorage.setItem('sangduoer-watch-name',myName); if(sessionToken)localStorage.setItem('sangduoer-watch-session',sessionToken); } catch(e) {}
@@ -344,6 +429,7 @@
     $('#player-name').value=myName; $('#join-mask').hidden=true; $('#join-error').textContent=''; updateSessionUi();
     if(currentMap)renderTokens(currentMap); if(selectedId)openDetail(selectedId);
     sendPresence('online');
+    connectStream();
     return true;
   }
   function setJoinHomeBusy(busy) {
@@ -359,33 +445,41 @@
     if(!url)image.removeAttribute('src');
   }
   function clearStoredSession() {
-    sessionToken='';myPlayerId='';window.TravelBasket?.changed();PlayerBackpack.contextChanged();closePlayerLiveAudio();try{localStorage.removeItem('sangduoer-watch-session');}catch(e){}
+    sessionToken='';myPlayerId='';myCharacterId='';window.TravelBasket?.changed();PlayerBackpack.contextChanged();closePlayerLiveAudio();try{localStorage.removeItem('sangduoer-watch-session');}catch(e){}
   }
   async function validateStoredSession() {
     if(!sessionToken)return false;
+    const requestedToken=sessionToken;
     try{
-      const response=await fetch('/api/session',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionToken})}),data=await response.json().catch(()=>({}));
+      const {response,data}=await SundollClientRuntime.requestJson('/api/session',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionToken:requestedToken})},{env:globalThis,timeoutMs:8000,message:(emailAccountMode||window.SundollRoom)?'上次会话核对超时，请重新进入或返回我的主页':'上次会话核对超时，可以直接用名字登录'});
+      if(sessionToken!==requestedToken)return false;
       if(!response.ok||!data.ok)throw Object.assign(new Error(data.error||'会话已失效'),{status:response.status});
-      myName=String(data.session?.name||myName).trim();myPlayerId=String(data.session?.playerId||'');roomCode=String(data.roomCode||roomCode).trim();
+      myName=String(data.session?.name||myName).trim();myPlayerId=String(data.session?.playerId||'');myCharacterId=String(data.session?.characterId||'');roomCode=String(data.roomCode||roomCode).trim();
       sessionMemory.remember({token:sessionToken,name:myName,room:roomCode});
       try{if(myName)localStorage.setItem('sangduoer-watch-name',myName);}catch(e){}
-      $('#join-name').value=myName;$('#join-room').value=roomCode;$('#join-submit').textContent='继续进入玩家地图';
+      $('#join-name').value=myName;$('#join-submit').textContent='继续进入玩家地图';
       $('#join-session-hint').textContent='已找到上次的玩家身份，确认后继续进入。';
       return true;
     }catch(error){
-      if(error.status===401){sessionMemory.forget(sessionToken);clearStoredSession();}
-      $('#join-submit').textContent='进入玩家地图';$('#join-session-hint').textContent='上次会话暂时无法恢复；可以重试，或输入玩家名字登录。';return false;
+      if(sessionToken!==requestedToken)return false;
+      if(error.status===401){sessionMemory.forget(requestedToken);clearStoredSession();}
+      $('#join-submit').textContent='进入玩家地图';$('#join-session-hint').textContent=(emailAccountMode||window.SundollRoom)?'上次会话暂时无法恢复；可以重新进入，或返回我的主页核对邮箱账号。':'上次会话暂时无法恢复；可以重试，或输入玩家名字登录。';return false;
     }
   }
   async function refreshPlayerHome() {
     setJoinHomeStatus('连接服务器中','checking');
-    const infoResponse=await fetch('/api/info',{cache:'no-store'});
+    const {response:infoResponse,data:info}=await SundollClientRuntime.requestJson('/api/info',{cache:'no-store'},{env:globalThis,timeoutMs:8000,message:'房间预览超时，请刷新重试'});
     if(!infoResponse.ok)throw new Error('服务器没有响应');
-    const info=await infoResponse.json();
     if(Number(info.protocolVersion)!==REQUIRED_SERVER_PROTOCOL)throw new Error('联机服务器版本过旧，请重新运行启动程序');
-    if(!roomCode)roomCode=String(info.roomCode||'').trim();
-    if(!$('#join-room').value)$('#join-room').value=roomCode;
-    $('#join-room-code').textContent=info.roomCode||roomCode||'—';
+    emailAccountMode=info.authentication?.method==='email_password';
+    document.querySelector('.join-mode-switch')?.classList.toggle('account-navigation',emailAccountMode);
+    if(emailAccountMode){
+      $('#join-name').closest('label').hidden=true;
+      $('#join-mode-login').textContent='我的主页';$('#join-mode-register').textContent='注册邮箱账号';$('#join-mode-register').hidden=!!window.SundollRoom;
+      $('#join-session-hint').textContent=window.SundollRoom?'使用当前账号进入已选择的角色。':'使用邮箱账号进入已绑定的玩家档案；切换账号请打开账号中心。';
+      $('#join-submit').textContent='使用邮箱账号进入';
+    }
+    roomCode=String(info.roomCode||'').trim();
     $('#join-map-name').textContent=info.activeMapName||'尚未载入地图';
     $('#join-player-count').textContent=Number.isFinite(Number(info.playerCount))?`${Number(info.playerCount)} 人在线`:'—';
     $('#join-campaign-name').textContent=info.campaignName||'等待主控台载入战役';
@@ -397,18 +491,41 @@
     return true;
   }
   async function bootstrapSession() {
-    randomizeJoinHomeTheme();
-    const q=new URLSearchParams(location.search), urlRoom=q.get('room')||''; roomCode=urlRoom;
-    $('#join-mask').hidden=false;$('#join-name').value=myName;$('#join-room').value=roomCode;setJoinHomeBusy(true);
+    // Old invitation parameters are accepted but never used as an admission code.
+    const url=new URL(location.href);if(url.searchParams.has('room')){url.searchParams.delete('room');history.replaceState(null,'',url.pathname+url.search+url.hash);}
+    $('#join-mask').hidden=false;$('#join-name').value=myName;
     const preview=refreshPlayerHome().catch(error=>{setJoinHomeStatus('服务器未连接','error');$('#join-room-hint').textContent='请确认主控台已经开启联机服务';$('#join-error').textContent=error.message||'暂时无法连接服务器';});
-    const session=validateStoredSession();
+    // A room page must obtain its player identity from the current email cookie;
+    // a cached player token cannot replace that account/room authorization.
+    const session=window.SundollRoom?Promise.resolve(false):validateStoredSession();
     await Promise.all([preview,session]);
-    setJoinHomeBusy(false);updateSessionUi();
-    requestAnimationFrame(()=>$('#join-name').focus());
+    if (window.SundollRoom && emailAccountMode) {
+      joinPending = true;
+      try { await joinSession(myName); }
+      catch (error) { $('#join-error').textContent = error.message || '暂时无法进入房间，请重试。'; }
+      finally { joinPending = false; }
+    }
+    updateSessionUi();
+    if(!joinPending)requestAnimationFrame(()=>$(emailAccountMode?'#join-submit':'#join-name').focus());
   }
   function sendPresence(status=presenceStatus,requestedToken=sessionToken) { if(!requestedToken)return Promise.resolve();if(requestedToken===sessionToken)presenceStatus=status;return fetch('/api/presence',{method:'POST',headers:{'Content-Type':'application/json'},signal:AbortSignal.timeout(5000),body:JSON.stringify({sessionToken:requestedToken,status})}).then(response=>{if(response.status===401&&sessionToken===requestedToken)handleSessionRevoked({playerId:myPlayerId,reason:'玩家会话已失效'});return response;}).catch(()=>{}); }
-  function returnToJoinHome({notifyServer=true,hint='输入玩家名字返回原账号，或切换到另一位玩家。'}={}) { clearTimeout(patchTimer);patchTimer=null;pendingPatch=null;if(notifyServer&&sessionToken){sessionMemory.remember({token:sessionToken,name:myName,room:roomCode});switchPresence=sendPresence('offline');}if(streamES){try{streamES.close();}catch(e){}streamES=null;}clearStoredSession();setConnection('未进入',false);$('#join-error').textContent='';$('#join-name').value=myName;$('#join-room').value=roomCode;$('#join-submit').textContent='进入玩家地图';$('#join-session-hint').textContent=hint;randomizeJoinHomeTheme();$('#join-mask').hidden=false;closeDetail();updateSessionUi();if(currentMap)renderTokens(currentMap);refreshPlayerHome().catch(()=>setJoinHomeStatus('服务器未连接','error')); }
-  function leaveSession() { returnToJoinHome(); }
+  function returnToJoinHome({notifyServer=true,hint='输入玩家名字返回原账号，或切换到另一位玩家。'}={}) { clearTimeout(patchTimer);patchTimer=null;pendingPatch=null;if(notifyServer&&sessionToken){sessionMemory.remember({token:sessionToken,name:myName,room:roomCode});switchPresence=sendPresence('offline');}if(streamES){try{streamES.close();}catch(e){}streamES=null;}clearStoredSession();setConnection('未进入',false);$('#join-error').textContent='';$('#join-name').value=myName;$('#join-submit').textContent='进入玩家地图';$('#join-session-hint').textContent=hint;$('#join-mask').hidden=false;closeDetail();updateSessionUi();if(currentMap)renderTokens(currentMap);refreshPlayerHome().catch(()=>setJoinHomeStatus('服务器未连接','error')); }
+  let leavingSession=false;
+  async function leaveSession() {
+    if(leavingSession)return;
+    leavingSession=true;
+    $('#btn-join').disabled=true;
+    try {
+      if(await dispatchPendingPatch()===false){toast('请先保存角色修改，再'+(emailAccountMode?'返回我的主页':'切换玩家'));return;}
+      if(emailAccountMode){
+        await sendPresence('offline');
+        if(streamES){try{streamES.close();}catch(_){}streamES=null;}
+        location.assign('/account#dashboard');return;
+      }
+      returnToJoinHome();
+    } catch(error) { toast(error.message||'角色修改尚未保存，请重试。'); }
+    finally { leavingSession=false;$('#btn-join').disabled=false; }
+  }
   function handleSessionRevoked(event) { if(!sessionToken||String(event&&event.playerId||'')!==String(myPlayerId||''))return;sessionMemory.forget(sessionToken);const reason=String(event&&event.reason||'已被主控台移出房间');returnToJoinHome({notifyServer:false,hint:reason+'。如需继续游戏，请重新加入。'});toast('👋 '+reason); }
   async function releaseOwnedPiece(piece, destinationOverride, fromBasket=false,dropPosition=null) {
     if(!sessionToken)throw new Error('请先加入房间');
@@ -457,10 +574,9 @@
     followOpen:true,open:()=>Boolean(sessionToken&&myPlayerId&&state?.travelBasketOpen===true),
     parent:board,skin:()=>state?.travelBasketSkin||'travel-wagon',
     key:()=>[sessionToken,myPlayerId,state?.campaignId,currentMap?.id].join('|'),
-    list:async()=>{
+    list:async({signal}={})=>{
       if(!sessionToken||!myPlayerId)throw new Error('请先登录玩家档案');
-      const response=await fetch('/api/player-profiles',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({op:'travelBasket',sessionToken})});
-      const data=await response.json();if(!response.ok||!data.ok)throw new Error(data.error||'队伍暂时无法同步');
+      const {response,data}=await SundollClientRuntime.requestJson('/api/player-profiles',{signal,method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({op:'travelBasket',sessionToken})},{env:globalThis,timeoutMs:10000,message:'旅行队伍读取超时，请重试'});if(!response.ok||!data.ok)throw new Error(data.error||'队伍暂时无法同步');
       if(data.campaignId!==state?.campaignId)throw new Error('战役正在切换，请稍候');
       const row=t=>({...t,image:assetUrl(t)});
       return {stored:data.stored.map(row),available:data.available.map(row),canPlace:Boolean(currentMap&&playerMapOpen(currentMap))};
@@ -470,7 +586,8 @@
 
   });
   PlayerLibrary.configure({host:false,session:()=>sessionToken,recall:recallOwnedPiece,transfer:(piece,mapId)=>releaseOwnedPiece(piece,mapId),destinations:()=> (state?.maps||[]).filter(playerMapOpen).map(m=>({id:m.id,name:m.name||m.floorLabel||'地图'})),place:piece=>releaseOwnedPiece(piece),placeLabel:'释放到当前地图',placeStatus:'已释放到当前地图',
-    signIn:()=>returnToJoinHome({hint:'输入玩家名字，打开你的个人收藏。'}),
+    emailAccount:()=>emailAccountMode,
+    signIn:()=>emailAccountMode?location.assign('/account#dashboard'):returnToJoinHome({hint:'输入玩家名字，打开你的个人收藏。'}),
     mapId:()=>currentMap?.id || '',
     mapName:()=>currentMap?.name || '',
     describePlacement:piece=>{
@@ -491,11 +608,12 @@
     finally{button.disabled=false;}
   };
 
-  PlayerBackpack.configure({host:false,roll:(...args)=>playPlayerDice(...args),campaignId:()=>state?.campaignId||'',characters:(chars,campaign)=>{if(campaign!==state?.campaignId)return;for(const c of chars)applyAction({op:'characterState',characterId:c.id,ownerPlayerId:c.ownerPlayerId,patch:{...c.base,...c.runtime,characterRevision:c.revision}});},session:()=>sessionToken,playerId:()=>myPlayerId,
-    signIn:()=>returnToJoinHome({hint:'使用玩家名字登录，打开你的物品和个人棋子。'})
+  PlayerBackpack.configure({host:false,roll:(...args)=>playPlayerDice(...args),campaignId:()=>state?.campaignId||'',packageContextRevision:()=>state?.packageContextRevision||'',characters:(chars,campaign)=>{if(campaign!==state?.campaignId)return;for(const c of chars)applyAction({op:'characterState',characterId:c.id,ownerPlayerId:c.ownerPlayerId,patch:{...c.base,...c.runtime,characterRevision:c.revision}});},session:()=>sessionToken,playerId:()=>myPlayerId,
+    emailAccount:()=>emailAccountMode,
+    signIn:()=>emailAccountMode?location.assign('/account#dashboard'):returnToJoinHome({hint:'使用玩家名字登录，打开你的物品和个人棋子。'})
   });
-  $('#btn-player-library').onclick=()=>PlayerLibrary.open();
-  $('#btn-player-backpack').onclick=()=>PlayerBackpack.open();
+  $('#btn-player-library').onclick=()=>PlayerLibrary.open({ownedPieceId:myCharacterId,edit:false});
+  $('#btn-player-backpack').onclick=()=>PlayerBackpack.open({characterId:myCharacterId});
   $('#btn-player-maps').onclick=()=>openPlayerMapBrowser();
   $('#btn-player-journal').onclick=()=>CampaignJournal.open();
   function mine(t) { return !!myPlayerId && (t.ownerPlayerId || t.owner || '') === myPlayerId; }
@@ -518,22 +636,34 @@
   }
   function originalPortraitUrl(t) { return t&&t.iconImgPath ? projectAssetUrl(t.iconImgPath) : assetUrl(t); }
   function normalizePlayerPortraitVariants(raw) {
-    return(Array.isArray(raw)?raw:[]).filter(v=>v&&typeof v==='object'&&String(v.name||'').trim()&&(v.iconImgPath||v.iconImg||v.iconImgHd||v.iconImgId)).slice(0,24).map(v=>({name:String(v.name).trim().slice(0,24),iconImg:v.iconImg||null,iconImgHd:v.iconImgHd||null,iconImgPath:v.iconImgPath||null,iconImgId:v.iconImgId||null}));
+    return(Array.isArray(raw)?raw:[]).filter(v=>v&&typeof v==='object'&&String(v.name||'').trim()&&(v.iconImgPath||v.iconImg||v.iconImgHd||v.iconImgId)).slice(0,24).map(v=>({name:String(v.name).trim().slice(0,24),iconImg:v.iconImg||null,iconImgHd:v.iconImgHd||null,iconImgPath:v.iconImgPath||null,iconImgId:v.iconImgId||null,...(globalThis.SundollPortraitView?.normalize(v.portraitView)?{portraitView:SundollPortraitView.normalize(v.portraitView)}:{}),...(SundollRules.normalizeInitiativePortrait(v.initiativePortrait)?{initiativePortrait:SundollRules.normalizeInitiativePortrait(v.initiativePortrait)}:{})}));
   }
   function portraitIdentity(source) { if(!source)return'';if(source.iconImgPath)return'path:'+String(source.iconImgPath).replace(/\\/g,'/');if(source.iconImgId)return'id:'+source.iconImgId;if(source.iconImgHd)return'hd:'+source.iconImgHd;if(source.iconImg)return'img:'+source.iconImg;return''; }
-  function currentPortraitVariantIndex(t,variants=normalizePlayerPortraitVariants(t&&t.portraitVariants)) { const identity=portraitIdentity(t);if(!identity)return-1;const hinted=Number.isInteger(t&&t.portraitVariant)?t.portraitVariant:-1;if(hinted>=0&&hinted<variants.length&&portraitIdentity(variants[hinted])===identity)return hinted;return variants.findIndex(v=>portraitIdentity(v)===identity); }
+  function currentPortraitVariantIndex(t,variants=normalizePlayerPortraitVariants(t&&t.portraitVariants)) {
+    const identity=portraitIdentity(t);if(!identity)return-1;
+    const matches=v=>portraitIdentity(v)===identity&&SundollPortraitView.sameView(v?.portraitView,t.portraitView);
+    const hinted=Number.isInteger(t&&t.portraitVariant)?t.portraitVariant:-1;
+    if(hinted>=0&&hinted<variants.length&&matches(variants[hinted]))return hinted;
+    return variants.findIndex(matches);
+  }
+  function applyPlayerTokenPortrait(token,form) {
+    for(const key of ['iconImgPath','iconImg','iconImgHd','iconImgId'])token[key]=form[key]||null;
+    const portraitView=globalThis.SundollPortraitView?.normalize(form.portraitView);
+    if(portraitView)token.portraitView=portraitView;else delete token.portraitView;
+  }
   function applyPlayerPortrait(el,t) {
     const url=assetUrl(t); if(!url)return false;
     el.dataset.portraitUrl=url;
     el.style.backgroundImage='url("'+url+'")';
-    if(t.iconImgPath){el.style.backgroundSize=String(t.iconImgPath).includes('/零式-')?'119.2% 119.2%':'116.3% 116.3%';el.style.backgroundPosition='center';}
+    SundollPortraitView.apply(el,t,{legacyScale:t.iconImgPath?(String(t.iconImgPath).includes('/零式-')?1.192:1.163):1});
     const fallback=originalPortraitUrl(t); if(!t.iconImgPath||url===fallback)return true;
+    const useOriginal=()=>{el.style.backgroundImage='url("'+fallback+'")';SundollPortraitView.apply(el,t,{legacyScale:String(t.iconImgPath).includes('/零式-')?1.192:1.163});};
     const known=portraitProbes.get(url);
-    if(known===false){el.style.backgroundImage='url("'+fallback+'")';return true;}
+    if(known===false){useOriginal();return true;}
     if(known===true)return true;
-    if(known){known.then(ok=>{if(!ok&&el.isConnected&&el.dataset.portraitUrl===url)el.style.backgroundImage='url("'+fallback+'")';});return true;}
+    if(known){known.then(ok=>{if(!ok&&el.isConnected&&el.dataset.portraitUrl===url)useOriginal();});return true;}
     const pending=new Promise(resolve=>{const img=new Image();img.onload=()=>resolve(true);img.onerror=()=>resolve(false);img.src=url;}).then(ok=>{portraitProbes.set(url,ok);return ok;});
-    portraitProbes.set(url,pending);pending.then(ok=>{if(!ok&&el.isConnected&&el.dataset.portraitUrl===url)el.style.backgroundImage='url("'+fallback+'")';});
+    portraitProbes.set(url,pending);pending.then(ok=>{if(!ok&&el.isConnected&&el.dataset.portraitUrl===url)useOriginal();});
     return true;
   }
   function applyView() { world.style.transform = 'translate(' + view.ox + 'px,' + view.oy + 'px) scale(' + view.scale + ')'; document.querySelectorAll('.map-reaction').forEach(el=>el.style.setProperty('--reaction-scale',String(1/clamp(Number(view.scale)||1,.2,6)))); }
@@ -748,7 +878,7 @@ function showMapReaction(a){if(!currentMap||!a||a.mapId!==currentMap.id||!MAP_RE
   function updateToolButtons(){
     document.querySelectorAll('#btn-measure,#dock-measure').forEach(el=>el.classList.toggle('active',measureMode));
     document.querySelectorAll('[data-doodle-tool]').forEach(el=>el.classList.toggle('active',el.dataset.doodleTool===doodleTool));
-    $('#btn-ready').textContent=presenceStatus==='ready'?'取消准备':'✓ 准备';$('#dock-ready').textContent=presenceStatus==='ready'?'取消准备':'✓ 准备';
+    $('#dock-ready').textContent=presenceStatus==='ready'?'取消准备':'✓ 准备';$('#dock-ready').setAttribute('aria-pressed',String(presenceStatus==='ready'));$('#dock-ready').classList.toggle('active',presenceStatus==='ready');
     board.style.cursor=measureMode||doodleTool?'crosshair':'';
   }
   function toggleMeasure(){
@@ -769,7 +899,7 @@ function showMapReaction(a){if(!currentMap||!a||a.mapId!==currentMap.id||!MAP_RE
     document.querySelectorAll('#end-turn').forEach(b=>{b.disabled=!can;b.title=endTurnPending?'正在结束回合':turnPathActionPending?'正在修改路径':can?'结束当前角色回合':e.playMode==='turn'?'还没有轮到你的角色':e.playMode==='prepare'?'战斗尚未开始':'自由模式没有回合结束操作';});
     status.className='';
     if(!sessionToken){status.textContent='尚未加入房间';}
-    else if(e.playMode==='prepare'){status.classList.add('prepare');status.textContent='战斗准备 · 同先攻玩家可换位';}
+    else if(e.playMode==='prepare'){status.classList.add('prepare');status.textContent='战斗准备 · 顺序由 DM 决定';}
     else if(e.playMode!=='turn'){status.classList.add('free');status.textContent='自由行动 · 可操控自己的棋子';}
     else if(ownsCurrent){status.classList.add('mine');status.textContent=(endTurnPending?'… 正在结束 · ':turnPathActionPending?'… 正在修改路径 · ':'✓ 你的回合 · ')+(entry&&entry.name||current.name||'当前角色');}
     else {status.classList.add('locked');status.textContent='🔒 等待 '+(entry&&entry.name||'主控台关联当前角色');}
@@ -828,12 +958,14 @@ function showMapReaction(a){if(!currentMap||!a||a.mapId!==currentMap.id||!MAP_RE
       const result=await requestAction({op,mapId:currentMap.id,tokenId:current.id,playMode:'turn',turnSerial:Number(e.turnSerial)||1}),data=result.data||{};
       if(!result.ok||data.ok===false)toast('⚠ '+(data.error||'路径修改失败'));
       await syncRoomState();
-    }catch(error){toast('⚠ 路径修改未送达');await syncRoomState();}
+    }catch(error){toast('⚠ 路径修改结果未确认，请重新同步后核对');await syncRoomState();}
     finally{turnPathActionPending=null;updateEndTurnUi();}
   }
 
   let lastMapPaintKey = '';
+  function renderGridCover(m){return SundollClientRuntime.renderCover(world,m,{rules:SundollRules,document});}
   function renderMap(m) {
+    renderGridCover(m);
     const paintKey=JSON.stringify([m.id,m.mapW,m.mapH,m.mapData,m.gridSize,m.gridVisible,state?.showGrid,m.gridLineWidth,m.gridOffsetX,m.gridOffsetY]);
     if(paintKey===lastMapPaintKey)return;
     lastMapPaintKey=paintKey;
@@ -1083,6 +1215,7 @@ function showMapReaction(a){if(!currentMap||!a||a.mapId!==currentMap.id||!MAP_RE
     container.appendChild(badges);
   }
   function renderTokens(m) {
+    renderPlayerInitiativeRibbon(state);
     if(typeof window!=='undefined')window.MapItems?.refresh().catch(()=>{});
     if(typeof window!=='undefined')window.TravelBasket?.changed();
     SundollSize.repair(m);
@@ -1130,12 +1263,31 @@ function showMapReaction(a){if(!currentMap||!a||a.mapId!==currentMap.id||!MAP_RE
     updateEndTurnUi();
   }
   function renderLinks(list) { const box=$('#player-links'); box.innerHTML=''; (list||[]).forEach(l=>{ if (!l || !l.name || !/^https?:\/\//i.test(l.url)) return; const a=document.createElement('a'); a.href=l.url; a.target='_blank'; a.rel='noopener noreferrer'; a.textContent=l.name; box.appendChild(a); }); if(!box.children.length)box.innerHTML='<span class="hint">主控台尚未添加共享网站</span>'; }
-  const FLOW_SEASONS=[{key:'spring',label:'春季',icon:'🌱',first:1,last:13},{key:'summer',label:'夏季',icon:'☀️',first:14,last:26},{key:'autumn',label:'秋季',icon:'🍂',first:27,last:39},{key:'winter',label:'冬季',icon:'❄️',first:40,last:52}];
-  const FLOW_CLIMATES={temperate:{label:'温带',icon:'🌿',diurnalRange:5},cold:{label:'寒带',icon:'🧊',diurnalRange:6},tropical:{label:'热带',icon:'🌴',diurnalRange:3},arid:{label:'干旱',icon:'🏜️',diurnalRange:9},coastal:{label:'海洋',icon:'🌊',diurnalRange:3},highland:{label:'高山',icon:'⛰️',diurnalRange:7}};
-  const FLOW_WEATHER={clear:{label:'晴朗',icon:'☀️'},cloudy:{label:'多云',icon:'☁️'},rain:{label:'降雨',icon:'🌧️'},storm:{label:'雷暴',icon:'⛈️'},fog:{label:'浓雾',icon:'🌫️'},snow:{label:'降雪',icon:'🌨️'},wind:{label:'强风',icon:'💨'},heat:{label:'酷热',icon:'🏜️'}};
-  const FLOW_WINDS={calm:'无风',breeze:'微风',strong:'强风',gale:'烈风'};
-  const FLOW_HOURLY_TEMP_CURVE=[-.60,-.72,-.82,-.90,-1,-.95,-.70,-.35,0,.25,.50,.70,.85,.95,1,.95,.80,.55,.25,0,-.15,-.30,-.42,-.52];
-  function flowWeatherPresentation(raw,parts){const w=raw&&typeof raw==='object'?raw:{},climate=FLOW_CLIMATES[w.climate]||FLOW_CLIMATES.temperate,condition=FLOW_WEATHER[w.condition]||FLOW_WEATHER.clear,week=Number(parts&&parts.week)||1,hour=Math.max(0,Math.min(23,Math.trunc(Number(parts&&parts.hour)||0))),season=FLOW_SEASONS.find(s=>week>=s.first&&week<=s.last)||FLOW_SEASONS[0],baseTemperature=Number.isFinite(Number(w.temperature))?Math.round(Number(w.temperature)):18,temperature=Math.max(-100,Math.min(100,baseTemperature+Math.round(climate.diurnalRange*FLOW_HOURLY_TEMP_CURVE[hour]))),wind=FLOW_WINDS[w.wind]||FLOW_WINDS.breeze;return{icon:condition.icon,name:condition.label,compact:condition.icon+' '+condition.label+' · '+temperature+'°C',detail:climate.icon+' '+climate.label+' · '+season.icon+' '+season.label+' · '+temperature+'°C · '+wind};}
+  const FLOW_CLIMATE_CONFIG=window.SundollClimateConfig;
+  const FLOW_CLIMATE_AVAILABLE=Boolean(FLOW_CLIMATE_CONFIG?.seasons&&FLOW_CLIMATE_CONFIG?.climates&&FLOW_CLIMATE_CONFIG?.temperature&&FLOW_CLIMATE_CONFIG?.defaultWeather);
+  const FLOW_SEASONS=FLOW_CLIMATE_CONFIG?.seasons||[];
+  const FLOW_CLIMATES=FLOW_CLIMATE_CONFIG?.climates||{};
+  const FLOW_WEATHER=FLOW_CLIMATE_CONFIG?.conditions||{};
+  const FLOW_WINDS=Object.fromEntries(Object.entries(FLOW_CLIMATE_CONFIG?.winds||{}).map(([key,value])=>[key,value.label]));
+  const FLOW_HOURLY_TEMP_CURVE=FLOW_CLIMATE_CONFIG?.temperature?.hourlyCurve||[];
+  function flowWeatherPresentation(raw,parts){
+    if(!FLOW_CLIMATE_AVAILABLE)return{available:false,icon:'⌁',name:'天气已暂停',effectiveTemperature:null,
+      compact:'天气已暂停',detail:'天气资料不可用；当前天气保留，等待主持人恢复资料。'};
+    const w=raw&&typeof raw==='object'?raw:{},defaults=FLOW_CLIMATE_CONFIG.defaultWeather;
+    const climate=FLOW_CLIMATES[w.climate]||FLOW_CLIMATES[defaults.climate];
+    const condition=FLOW_WEATHER[w.condition]||FLOW_WEATHER[defaults.condition];
+    const week=Number(parts&&parts.week)||1,hour=Math.max(0,Math.min(23,Math.trunc(Number(parts&&parts.hour)||0)));
+    const season=FLOW_SEASONS.find(s=>week>=s.firstWeek&&week<=s.lastWeek)||FLOW_SEASONS[0];
+    const rawTemperature=w.temperature===null||w.temperature===''?NaN:Number(w.temperature);
+    const limits=FLOW_CLIMATE_CONFIG.temperature;
+    const baseTemperature=Math.round(Math.max(limits.min,Math.min(limits.max,Number.isFinite(rawTemperature)?rawTemperature:defaults.temperature))*10)/10;
+    const effectiveTemperature=Math.max(limits.min,Math.min(limits.max,baseTemperature+Math.round(climate.diurnalRange*FLOW_HOURLY_TEMP_CURVE[hour])));
+    const temperature=Math.round(effectiveTemperature*10)/10;
+    const wind=FLOW_WINDS[w.wind]||FLOW_WINDS[defaults.wind];
+    return{icon:condition.icon,name:condition.label,baseTemperature,effectiveTemperature,temperature,auto:typeof w.auto==='boolean'?w.auto:defaults.auto,
+      compact:condition.icon+' '+condition.label+' · '+temperature+'°C',
+      detail:climate.icon+' '+climate.label+' · '+season.icon+' '+season.label+' · '+temperature+'°C · '+wind};
+  }
   function flowWorldParts(totalSeconds) {
     const total=Math.max(0,Math.floor(Number(totalSeconds)||0)), secondsPerDay=WORLD_MINUTES_PER_DAY*60, dayIndex=Math.floor(total/secondsPerDay), dayOfYear=dayIndex%(WORLD_DAYS_PER_WEEK*WORLD_WEEKS_PER_YEAR), inDay=total%secondsPerDay;
     return {year:Math.floor(dayIndex/(WORLD_DAYS_PER_WEEK*WORLD_WEEKS_PER_YEAR))+1,week:Math.floor(dayOfYear/WORLD_DAYS_PER_WEEK)+1,day:(dayOfYear%WORLD_DAYS_PER_WEEK)+1,hour:Math.floor(inDay/3600),minute:Math.floor((inDay%3600)/60),second:inDay%60};
@@ -1154,13 +1306,6 @@ function showMapReaction(a){if(!currentMap||!a||a.mapId!==currentMap.id||!MAP_RE
   }
   function flowEncounterMap(next){return(next&&next.maps||[]).find(map=>map.id===next.activeMapId)||(next&&next.maps||[])[0]||null;}
   function flowEntryToken(map,entry){return map&&entry&&entry.tokenId?(map.tokens||[]).find(token=>token.id===entry.tokenId)||null:null;}
-  function flowEntryControllers(map,entry){
-    const token=flowEntryToken(map,entry);if(!token)return[];
-    const owner=String(token.ownerPlayerId||token.owner||'').trim();if(owner)return[owner];
-    if(!token)return[];
-    return[...new Set((map.tokens||[]).filter(candidate=>candidate.mountId===token.id).map(candidate=>String(candidate.ownerPlayerId||candidate.owner||'').trim()).filter(Boolean))];
-  }
-  function flowOwnsEntry(map,entry){return!!sessionToken&&!!myName&&flowEntryControllers(map,entry).includes(myPlayerId);}
   function sortFlowInitiativeEntries(e){
     if(!e||!Array.isArray(e.entries))return;
     e.entries.sort((a,b)=>{
@@ -1176,6 +1321,7 @@ function showMapReaction(a){if(!currentMap||!a||a.mapId!==currentMap.id||!MAP_RE
     // 完整快照可能先于 SSE 到达；这时同一标准动作已经落地，不再重复交换。
     if(currentSerial===nextSerial)return true;
     if(currentSerial!==serial)return false;
+    e.entries=SundollRules.normalizeInitiativeEntryOrders(e.entries);
     const entry=e.entries.find(item=>item&&item.id===action.entryId);
     if(!entry)return false;
     if(action.op==='initiativeSwap'){
@@ -1193,19 +1339,6 @@ function showMapReaction(a){if(!currentMap||!a||a.mapId!==currentMap.id||!MAP_RE
     lastFlowScrollEntryId=targetId;
     requestAnimationFrame(()=>{const current=list.querySelector('.flow-chip.current');if(!current||!list.isConnected)return;const listRect=list.getBoundingClientRect(),itemRect=current.getBoundingClientRect(),top=list.scrollTop+itemRect.top-listRect.top-(listRect.height-itemRect.height)/2;list.scrollTo({top:Math.max(0,top),behavior:'smooth'});});
   }
-  async function submitFlowInitiativeAction(action){
-    const e=encounter();
-    if(!sessionToken){toast('请先加入房间');return;}
-    if(e.playMode!=='prepare'){toast('只能在战斗准备阶段调整先攻');return;}
-    if(initiativePending)return;
-    initiativePending=true;renderFlow(state);
-    try{
-      const result=await requestAction({...action,turnSerial:Number(e.turnSerial)||1}),data=result.data||{};
-      if(!result.ok||data.ok===false)toast('⚠ '+(data.error||'先攻调整失败'));
-      await syncRoomState();
-    }catch(error){toast('⚠ 先攻调整未送达');await syncRoomState();}
-    finally{initiativePending=false;renderFlow(state);}
-  }
   function refreshPlayerClock() {
     if(document.hidden||!state?.encounter)return;
     const e=state.encounter,p=flowWorldParts(flowWorldTotal(e)),weather=flowWeatherPresentation(e.weather,p);
@@ -1213,11 +1346,68 @@ function showMapReaction(a){if(!currentMap||!a||a.mapId!==currentMap.id||!MAP_RE
       '#flow-time-clock':flowClockLabel(p),'#flow-weather-summary':weather.compact,'#flow-weather-meta':weather.detail};
     Object.entries(values).forEach(([selector,value])=>{const el=$(selector);if(el&&el.textContent!==value)el.textContent=value;});
   }
+  function playerInitiativePortraitForToken(t) {
+    if (!t) return null;
+    const variants = normalizePlayerPortraitVariants(t.portraitVariants);
+    const index = currentPortraitVariantIndex(t, variants);
+    return SundollRules.normalizeInitiativePortrait(variants[index]?.initiativePortrait)
+      || SundollRules.normalizeInitiativePortrait(t.initiativePortrait) || t;
+  }
+  function renderPlayerInitiativeRibbon(next) {
+    const container = $('#player-initiative-ribbon');
+    if (!container || !window.SundollInitiativeRibbon) return;
+    const e = next?.encounter || {}, map = flowEncounterMap(next);
+    const entries = (e.entries || []).map(entry => {
+      const token = (map?.tokens || []).find(t => t.id === entry.tokenId);
+      const source = playerInitiativePortraitForToken(token);
+      return { ...entry, type: token?.type || 'npc', icon: token?.icon || '◎',
+        imageUrl: source ? originalPortraitUrl(source) || originalPortraitUrl(token) : '' };
+    });
+    window.SundollInitiativeRibbon.render(container, { entries, mode: e.playMode,
+      round: e.round, currentEntryId: e.currentEntryId, onSelect: focusPlayerInitiativeEntry,
+      onManage: openPlayerInitiativeManager });
+  }
+  function focusPlayerInitiativeEntry(entry) {
+    if (entry?.kind === 'environment') { openPlayerInitiativeManager(); return; }
+    const map = flowEncounterMap(state);
+    const token = (map?.tokens || []).find(t => t.id === entry.tokenId);
+    if (!token) { toast('这位行动者目前没有可定位的棋子'); return; }
+    if (currentMap?.id !== map.id) switchPlayerMap(map.id);
+    if (currentMap?.id !== map.id) return;
+    const anchor = token.mountId ? map.tokens.find(t => t.id === token.mountId) || token : token;
+    const rect = board.getBoundingClientRect();
+    view.ox = rect.width / 2 - anchor.x * view.scale;
+    view.oy = Math.max(rect.height / 2, 155) - anchor.y * view.scale;
+    applyView();
+    if (ownedToken(token)) { selectedId = token.id; renderTokens(map); openDetail(token.id); }
+    else showTokenInvestigation(token);
+  }
+
+  let playerInitiativeManagerReturnFocus = null;
+  function openPlayerInitiativeManager() {
+    const modal = $('#player-initiative-manager-modal');
+    if (!modal) return;
+    playerInitiativeManagerReturnFocus = document.activeElement;
+    modal.hidden = false;
+    $('#flow-open-initiative').setAttribute('aria-expanded', 'true');
+    lastFlowScrollEntryId = null;
+    renderFlow(state);
+    $('#player-initiative-manager-close').focus();
+  }
+  function closePlayerInitiativeManager() {
+    $('#player-initiative-manager-modal').hidden = true;
+    $('#flow-open-initiative').setAttribute('aria-expanded', 'false');
+    const trigger = playerInitiativeManagerReturnFocus;
+    if (trigger?.isConnected && typeof trigger.focus === 'function') trigger.focus();
+    else $('#flow-open-initiative').focus();
+  }
+
   function renderFlow(next) {
+    renderPlayerInitiativeRibbon(next);
     const bar=$('#flowbar'), e=next&&next.encounter&&typeof next.encounter==='object'?next.encounter:{playMode:'free',round:1,currentEntryId:null,entries:[],worldTime:{totalSeconds:480*60}};
     const p=flowWorldParts(flowWorldTotal(e)), entries=Array.isArray(e.entries)?e.entries:[], currentIndex=entries.findIndex(x=>x.id===e.currentEntryId), current=currentIndex>=0?entries[currentIndex]:null, nextEntry=entries.length&&currentIndex>=0?entries[(currentIndex+1)%entries.length]:entries[0]||null, weather=flowWeatherPresentation(e.weather,p), preparing=e.playMode==='prepare', inTurn=e.playMode==='turn', map=flowEncounterMap(next);
     bar.classList.toggle('collapsed',bar.dataset.collapsed!=='false');
-    $('#flow-toggle').textContent=(bar.dataset.collapsed!=='false'?'▸':'▾')+' 游戏流程';
+    $('#flow-toggle').textContent=(bar.dataset.collapsed!=='false'?'▸':'▾')+' 时间与天气';
     $('#flow-toggle').setAttribute('aria-expanded',String(bar.dataset.collapsed==='false'));
     $('#flow-mode').textContent=inTurn?'回合制':preparing?'战斗准备':'自由模式';
     $('#flow-mode').classList.toggle('prepare',preparing);
@@ -1226,28 +1416,20 @@ function showMapReaction(a){if(!currentMap||!a||a.mapId!==currentMap.id||!MAP_RE
     $('#flow-date').textContent=flowDateLabel(p)+' '+flowClockLabel(p);
     $('#flow-round').textContent=inTurn?'第 '+(Math.max(1,Number(e.round)||1)+' 轮'):preparing?'战斗准备阶段':'自由行动';
     $('#flow-current').textContent=inTurn&&current?current.name||'未命名单位':preparing?'确认你的先攻顺序':'所有单位可行动';
-    $('#flow-next').textContent=inTurn&&nextEntry?'下一位：'+(nextEntry.name||'未命名单位'):preparing?'先攻相同的玩家可以互换顺序':'进入战斗后显示下一位';
+    $('#flow-next').textContent=inTurn&&nextEntry?'下一位：'+(nextEntry.name||'未命名单位'):preparing?'等待主持人开始战斗':'进入战斗后显示下一位';
+    $('#flow-swap-status').textContent='同先攻的行动顺序由 DM 决定。';
     $('#flow-time-date').textContent=flowDateLabel(p);
     $('#flow-time-clock').textContent=flowClockLabel(p);
     $('#flow-time-mode').textContent=inTurn?'战斗轮推进：每轮 +'+(Number(e.secondsPerRound)||6)+' 秒':(e.worldTime.runningSince?'时间运行中':'时间已暂停');
     $('#flow-weather-icon').textContent=weather.icon;
     $('#flow-weather-name').textContent=weather.name;
     $('#flow-weather-meta').textContent=weather.detail;
-    document.querySelectorAll('[data-flow-panel]').forEach(tab=>{const active=tab.dataset.flowPanel===flowPanel;tab.classList.toggle('active',active);tab.setAttribute('aria-selected',String(active));});
-    $('#flow-panel-initiative').hidden=flowPanel!=='initiative'; $('#flow-panel-time').hidden=flowPanel!=='time';
     const list=$('#flow-init-list'),previousScrollTop=list.scrollTop; list.innerHTML='';
     if(!entries.length){list.innerHTML='<span class="flow-empty">等待主控台设置先攻</span>';lastFlowScrollEntryId=null;return;}
     entries.forEach((entry,index)=>{
-      const active=inTurn&&entry.id===e.currentEntryId,owned=preparing&&flowOwnsEntry(map,entry),chip=document.createElement('div');
-      chip.className='flow-chip'+(active?' current':'')+(owned?' owned-adjustable':'');chip.dataset.entryId=entry.id;
+      const active=inTurn&&entry.id===e.currentEntryId,chip=document.createElement('div');
+      chip.className='flow-chip'+(active?' current':'');chip.dataset.entryId=entry.id;
       chip.innerHTML='<span class="flow-chip-order">'+(index+1)+'</span><span class="flow-chip-dot" style="background:'+(entry.color||'#e0b34c')+'"></span><span class="flow-chip-name">'+esc(entry.name||'未命名单位')+'</span><span class="flow-chip-value">'+(Number(entry.value)||0)+'</span>'+(active?'<span class="flow-chip-current">行动中</span>':'');
-      if(owned){
-        const actions=document.createElement('div');actions.className='flow-chip-actions';actions.setAttribute('aria-label','同先攻换位');
-        const makeSwap=(label,target,title)=>{const button=document.createElement('button');button.type='button';button.textContent=label;button.title=title;const allowed=!!target&&Number(target.value)===Number(entry.value)&&flowEntryControllers(map,target).length>0;button.disabled=initiativePending||!allowed;button.addEventListener('click',event=>{event.stopPropagation();if(allowed)submitFlowInitiativeAction({op:'initiativeSwap',entryId:entry.id,targetEntryId:target.id});});return button;};
-        actions.appendChild(makeSwap('↑',entries[index-1],entries[index-1]?'与上一位同先攻玩家换位':'已经是第一位'));
-        actions.appendChild(makeSwap('↓',entries[index+1],entries[index+1]?'与下一位同先攻玩家换位':'已经是最后一位'));
-        chip.appendChild(actions);
-      }
       list.appendChild(chip);
     });
     list.scrollTop=previousScrollTop;scrollFlowCurrentIntoView(list,e);
@@ -1273,7 +1455,7 @@ function showMapReaction(a){if(!currentMap||!a||a.mapId!==currentMap.id||!MAP_RE
     if(!locations.length){columns.innerHTML='<div class="player-map-empty">这个章节还没有地点</div>';return;}
     locations.forEach(location=>{const section=document.createElement('section'),heading=document.createElement('h3'),list=document.createElement('div'),revealed=playerMapGroupOpen(structure,{locationId:location.id});section.className='player-map-location'+(revealed?'':' locked');heading.textContent=revealed?(location.name||'未命名地点'):'?';heading.title=revealed?heading.textContent:'这个地点尚无已开放地图';list.className='player-map-floor-list';const maps=structure.maps.filter(map=>structure.locationId(map)===location.id);
       if(!maps.length)list.innerHTML='<div class="player-map-empty">暂无地图</div>';
-      maps.forEach((map,index)=>{const open=playerMapOpen(map),ready=open&&!!map.mapData,card=document.createElement('article'),button=document.createElement('button'),preview=document.createElement('span'),order=document.createElement('span'),copy=document.createElement('span'),title=document.createElement('strong'),meta=document.createElement('span');card.className='player-map-card'+(map.id===currentMap?.id?' current':'')+(open?'':' locked');button.type='button';button.className='player-map-open';button.dataset.playerMapOpen=map.id;button.disabled=!ready;button.title=!open?'这张地图尚未开放':ready?'进入 '+(map.floorLabel||map.name):'地图资源正在准备';preview.className='player-map-preview';if(ready)preview.style.backgroundImage='linear-gradient(#0002,#0005),url("'+String(map.mapData).replace(/"/g,'%22')+'")';else{const question=document.createElement('span');question.className='player-map-question';question.textContent=open?'…':'?';preview.appendChild(question);}order.className='player-map-badge player-map-order';order.textContent=String(index+1);preview.appendChild(order);if(map.id===state?.activeMapId){const badge=document.createElement('span');badge.className='player-map-badge player-map-presented';badge.textContent='DM 引导';preview.appendChild(badge);}copy.className='player-map-copy';title.textContent=open?(map.floorLabel||map.name||'未命名地图'):'?';meta.textContent=!open?'尚未开放':ready?(map.name||'已开放'):'已开放 · 资源准备中';copy.append(title,meta);button.append(preview,copy);card.appendChild(button);list.appendChild(card);});section.append(heading,list);columns.appendChild(section);});
+      maps.forEach((map,index)=>{const open=playerMapOpen(map),ready=open&&!!map.mapData,card=document.createElement('article'),button=document.createElement('button'),preview=document.createElement('span'),order=document.createElement('span'),copy=document.createElement('span'),title=document.createElement('strong'),meta=document.createElement('span');card.className='player-map-card'+(map.id===currentMap?.id?' current':'')+(open?'':' locked');button.type='button';button.className='player-map-open';button.dataset.playerMapOpen=map.id;button.disabled=!ready;button.title=!open?'这张地图尚未开放':ready?'进入 '+(map.floorLabel||map.name):'地图资源正在准备';preview.className='player-map-preview';if(ready&&SundollRules.mapCoverPath(map)){preview.textContent='已遮盖';}else if(ready)preview.style.backgroundImage='linear-gradient(#0002,#0005),url("'+String(map.mapData).replace(/"/g,'%22')+'")';else{const question=document.createElement('span');question.className='player-map-question';question.textContent=open?'…':'?';preview.appendChild(question);}order.className='player-map-badge player-map-order';order.textContent=String(index+1);preview.appendChild(order);if(map.id===state?.activeMapId){const badge=document.createElement('span');badge.className='player-map-badge player-map-presented';badge.textContent='DM 引导';preview.appendChild(badge);}copy.className='player-map-copy';title.textContent=open?(map.floorLabel||map.name||'未命名地图'):'?';meta.textContent=!open?'尚未开放':ready?(map.name||'已开放'):'已开放 · 资源准备中';copy.append(title,meta);button.append(preview,copy);card.appendChild(button);list.appendChild(card);});section.append(heading,list);columns.appendChild(section);});
     requestAnimationFrame(()=>columns.querySelector('.player-map-card.current')?.scrollIntoView({block:'nearest',inline:'center'}));
   }
   function closePlayerMapBrowser(){$('#player-map-browser-modal').hidden=true;}
@@ -1289,7 +1471,9 @@ function showMapReaction(a){if(!currentMap||!a||a.mapId!==currentMap.id||!MAP_RE
     const previousMaps=new Map((state?.maps||[]).map(map=>[map.id,map]));
     (next.maps||[]).forEach(map=>{const old=previousMaps.get(map.id);if(playerMapOpen(map)&&!map.mapData&&old?.mapData)map.mapData=old.mapData;});
     const presentedChanged=lastPresentedMapId!==null&&next.activeMapId!==lastPresentedMapId;
-    if(!playerMapId||presentedChanged)playerMapId=next.activeMapId;
+    const presentationRequested=Boolean(next.mapPresentationId)&&next.mapPresentationId!==lastMapPresentationId;
+    if(!playerMapId||presentedChanged||presentationRequested)playerMapId=next.activeMapId;
+    lastMapPresentationId=next.mapPresentationId||null;
     lastPresentedMapId=next.activeMapId||null;
     let chosen=(next.maps||[]).find(map=>map.id===playerMapId&&playerMapOpen(map)&&map.mapData);
     if(!chosen)chosen=(next.maps||[]).find(map=>map.id===next.activeMapId&&playerMapOpen(map)&&map.mapData)||(next.maps||[]).find(map=>playerMapOpen(map)&&map.mapData)||null;
@@ -1302,29 +1486,37 @@ function showMapReaction(a){if(!currentMap||!a||a.mapId!==currentMap.id||!MAP_RE
     if(next._sessionId && next._sessionId!==state?._sessionId){
       playerMusic.reset();
       if(state?._sessionId)retiredServerSessions.add(state._sessionId);
-      lastStateRevision=0;streamAppliedSeq=0;playerMapId=null;lastPresentedMapId=null;lastMapViewKey='';
+      lastStateRevision=0;streamAppliedSeq=0;playerMapId=null;lastPresentedMapId=null;lastMapPresentationId=null;lastMapViewKey='';
       drag=null;measureDraft=null;doodleDraft=null;
       clearTimeout(patchTimer);patchTimer=null;pendingPatch=null;
     }
     return true;
   }
   function render(next) {
+    if(next?.encounter){
+      next.encounter.entries=SundollRules.normalizeInitiativeEntryOrders(next.encounter.entries);
+      next.encounter.allowInitiativeSwap=false;
+    }
     if(!next||typeof next!=='object')return;
     if(!acceptPlayerStreamSession(next))return;
     next.journal=CampaignJournal.normalize(next.journal,next.campaignId);
     const incomingRevision=Number(next._stateRevision)||0;if(incomingRevision&&incomingRevision<lastStateRevision)return;
+    flowClockAnchor={localNow:performance.now(),serverNow:Number(next._serverNow)||Date.now()};
+    if(next._bgm)applyBgm(next._bgm);
     const incomingEncounter=next&&next.encounter&&typeof next.encounter==='object'?next.encounter:null;
     if(drag&&drag.kind==='token'&&incomingEncounter&&Number(incomingEncounter.turnSerial)!==Number(drag.turnSerial)){drag=null;toast('⚠ 回合已变化，当前移动已取消');}
     if(drag&&drag.kind==='spell-aim'&&incomingEncounter&&Number(incomingEncounter.turnSerial)!==Number(drag.turnSerial)){cancelSpellAim();toast('⚠ 回合已变化，锥形方向未修改');}
     const previousMapId=currentMap&&currentMap.id;
+    const packageContextChanged=state?.campaignId!==next.campaignId||state?.packageContextRevision!==next.packageContextRevision;
     const nextCurrentMap=mapForPlayerSnapshot(next);state=next; lastStateRevision=Math.max(lastStateRevision,incomingRevision);streamAppliedSeq=Math.max(streamAppliedSeq,Number(next._streamSeq)||0);flowClockAnchor={localNow:performance.now(),serverNow:Number(next._serverNow)||Date.now()}; renderFlow(next); currentMap=nextCurrentMap;updateEndTurnUi();updatePlayerPlaceUi();renderPlayerMapBrowser();
     if(previousMapId&&(!currentMap||previousMapId!==currentMap.id)){hideTokenPeek();hideTokenContextMenu();hideTokenInvestigation();closePlayerPortraitManager();closeDetail();cancelMapReaction();cancelSpellAim();$('#reaction-layer').innerHTML='';doodleDraft=null;if(drag&&(drag.kind==='doodle'||drag.kind==='doodle-erase'))drag=null;}
     setConnection('已连接',true); $('#campaign').textContent=next.campaignName?'📂 '+next.campaignName:'';applyJoinCampaignCover(next._campaignCoverUrl);
     renderLinks(next.sharedResources || next._links);
+    window.SundollDining?.receive(next._diningMenu, String(next.campaignId || '') + ':' + String(next._sessionId || ''));
     CampaignJournal.refresh();
     PlayerBackpack.contextChanged();
+    if(packageContextChanged)window.MapItems?.contextChanged?.();
     const sharedNote=$('#shared-note'); if(sharedNote){sharedNote.textContent=next.sharedNotes||''; if(!sharedNote.textContent)sharedNote.innerHTML='<span class="hint">等待主控台发布内容</span>';}
-    if(next._bgm) applyBgm(next._bgm);
     if (!currentMap) { $('#empty').style.display='grid';renderSpellRanges();$('#reaction-layer').innerHTML='';return; }
     $('#empty').style.display='none'; renderMap(currentMap);queueMapAssetPreloads(next._mapPreloads,currentMap.mapData); renderDoodles(); renderTurnPath(); renderTokens(currentMap);renderSpellRanges();
     const mapViewKey=currentMap.id+'|'+currentMap.mapW+'|'+currentMap.mapH;
@@ -1335,32 +1527,61 @@ function showMapReaction(a){if(!currentMap||!a||a.mapId!==currentMap.id||!MAP_RE
   let patchTimer=null, pendingPatch=null, endTurnPending=false, turnPathActionPending=null;
   function clonePatchValue(value){return value&&typeof value==='object'?JSON.parse(JSON.stringify(value)):value;}
   function patchValuesEqual(a,b){if(a&&typeof a==='object'&&b&&typeof b==='object')return JSON.stringify(a)===JSON.stringify(b);return Object.is(a,b)||String(a)===String(b);}
+  function playerPatchContext(){return{sessionToken,playerId:myPlayerId,campaignId:state?.campaignId||null,serverSessionId:state?._sessionId||null};}
+  function samePlayerPatchTarget(a,b){return a.id===b.id&&a.mapId===b.mapId&&a.ownedPieceId===b.ownedPieceId&&a.ownerPlayerId===b.ownerPlayerId&&JSON.stringify(a.context)===JSON.stringify(b.context);}
+  function playerPatchToken(job){
+    if(JSON.stringify(job.context)!==JSON.stringify(playerPatchContext()))return null;
+    const map=(state?.maps||[]).find(item=>item.id===job.mapId),token=map?.tokens?.find(item=>item.id===job.id);
+    return token&&token.ownedPieceId===job.ownedPieceId&&token.ownerPlayerId===job.ownerPlayerId?token:null;
+  }
+  const queuedPatchJobs=new Set();
   function restoreRejectedPatch(job){
-    const map=state&&(state.maps||[]).find(item=>(item.tokens||[]).some(token=>token.id===job.id)), token=map&&(map.tokens||[]).find(item=>item.id===job.id);
+    const token=playerPatchToken(job);if(!token)return;
+    const map=(state.maps||[]).find(item=>item.id===job.mapId);
     if(token)Object.keys(job.before).forEach(key=>{if(patchValuesEqual(token[key],job.patch[key]))token[key]=clonePatchValue(job.before[key]);});
     if(currentMap&&map===currentMap){renderTokens(currentMap);renderSpellRanges();if(selectedId===job.id)openDetail(job.id);if(playerPortraitManagerTokenId===job.id)renderPlayerPortraitManager();}
-    syncRoomState();
+    return syncRoomState(job.context);
+  }
+  function confirmPlayerPatch(job,data){
+    const token=playerPatchToken(job);if(!token)return;
+    const update=(data.characterUpdates||[]).find(item=>item.op==='characterState'&&item.characterId===job.ownedPieceId&&item.ownerPlayerId===job.ownerPlayerId);
+    const revision=update?.patch?.characterRevision;
+    if(!Number.isInteger(revision))return;
+    const waiting=[...queuedPatchJobs,pendingPatch].filter(item=>item&&item!==job&&samePlayerPatchTarget(job,item));
+    for(const next of waiting){
+      // Only this request's receipt may advance a dependent optimistic edit.
+      if(next.characterRevision===job.characterRevision)next.characterRevision=revision;
+      for(const key of Object.keys(next.before))if(key in update.patch)next.before[key]=clonePatchValue(update.patch[key]);
+    }
+    if((token.characterRevision||0)>revision)return;
+    applyAction(update);
+    for(const next of waiting)Object.assign(token,next.patch);
+    if(currentMap?.id===job.mapId){renderTokens(currentMap);renderSpellRanges();if(selectedId===job.id)openDetail(job.id);}
   }
   const pendingPatchRequests=new Set();
   async function dispatchPendingPatch(){
     clearTimeout(patchTimer);patchTimer=null;const job=pendingPatch;pendingPatch=null;
     if(!job){const results=await Promise.all([...pendingPatchRequests]);return results.every(result=>result!==false);}
-    const action={op:'patchToken',tokenId:job.id,mapId:job.mapId,patch:job.patch,playMode:job.playMode,characterRevision:job.characterRevision};if(job.turnSerial!=null)action.turnSerial=job.turnSerial;
     const preceding=[...pendingPatchRequests];
+    queuedPatchJobs.add(job);
     const request=(async()=>{
-      const results=await Promise.all(preceding);if(results.some(result=>result===false))return false;
-      try{const r=await requestAction(action),d=r.data||{};if(!r.ok||d.ok===false){restoreRejectedPatch(job);toast('⚠ '+(d.error||'同步失败'));return false;}return true;}
-      catch(error){restoreRejectedPatch(job);toast('⚠ 修改未送达');return false;}
+      const results=await Promise.all(preceding);if(results.some((result,index)=>result===false&&samePlayerPatchTarget(preceding[index].patchJob,job))){await restoreRejectedPatch(job);return false;}
+      if(!playerPatchToken(job)){toast('⚠ 战役或玩家身份已变化，旧修改未提交');return false;}
+      const action={op:'patchToken',tokenId:job.id,mapId:job.mapId,patch:job.patch,playMode:job.playMode,characterRevision:job.characterRevision};if(job.turnSerial!=null)action.turnSerial=job.turnSerial;
+      try{const r=await requestAction(action),d=r.data||{};if(!r.ok||d.ok===false){const synced=await restoreRejectedPatch(job);if(playerPatchToken(job))toast(r.unconfirmed?(synced?'⚠ 保存回执未确认，已重新读取服务器状态；请核对后再操作':'⚠ 保存结果未确认，服务器状态也未读取成功；请重新连接后核对'):'⚠ '+(d.error||'同步失败'));return false;}confirmPlayerPatch(job,d);return true;}
+      catch(error){const synced=await restoreRejectedPatch(job);if(playerPatchToken(job))toast(synced?'⚠ 保存回执未确认，已重新读取服务器状态；请核对后再操作':'⚠ 保存结果未确认，服务器状态也未读取成功；请重新连接后核对');return false;}
     })();
+    request.patchJob=job;
     pendingPatchRequests.add(request);
-    try{return await request;}finally{pendingPatchRequests.delete(request);}
+    try{return await request;}finally{pendingPatchRequests.delete(request);queuedPatchJobs.delete(job);}
   }
   function sendPatch(id, patch, before) {
     if (!sessionToken || !myName || !id) return;
     const e=encounter(),mapId=currentMap?.id||null,playMode=e.playMode==='turn'?'turn':'free', turnSerial=playMode==='turn'?(Number(e.turnSerial)||1):null;
-    if(pendingPatch&&(pendingPatch.id!==id||pendingPatch.mapId!==mapId||pendingPatch.playMode!==playMode||pendingPatch.turnSerial!==turnSerial))dispatchPendingPatch();
-    if(!pendingPatch)pendingPatch={id,mapId,playMode,turnSerial,characterRevision:currentMap?.tokens?.find(t=>t.id===id)?.characterRevision,patch:{},before:{}};
-    Object.keys(patch).forEach(key=>{if(!(key in pendingPatch.before))pendingPatch.before[key]=clonePatchValue(before[key]);pendingPatch.patch[key]=clonePatchValue(patch[key]);});
+    const token=currentMap?.tokens?.find(item=>item.id===id),target={id,mapId,ownedPieceId:token?.ownedPieceId,ownerPlayerId:token?.ownerPlayerId,context:playerPatchContext()};
+    if(pendingPatch&&(!samePlayerPatchTarget(pendingPatch,target)||pendingPatch.playMode!==playMode||pendingPatch.turnSerial!==turnSerial))dispatchPendingPatch();
+    if(!pendingPatch)pendingPatch={...target,playMode,turnSerial,characterRevision:token?.characterRevision,patch:{},before:{}};
+    Object.keys(patch).forEach(key=>{if(!(key in pendingPatch.before)){const earlier=[...queuedPatchJobs].find(job=>samePlayerPatchTarget(job,pendingPatch)&&key in job.before);pendingPatch.before[key]=clonePatchValue(earlier?earlier.before[key]:before[key]);}pendingPatch.patch[key]=clonePatchValue(patch[key]);});
     clearTimeout(patchTimer);patchTimer=setTimeout(dispatchPendingPatch,180);
   }
   function makePlayerConditionId(){return window.crypto&&typeof window.crypto.randomUUID==='function'?'cond-'+window.crypto.randomUUID():'cond-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,10);}
@@ -1417,7 +1638,7 @@ function showMapReaction(a){if(!currentMap||!a||a.mapId!==currentMap.id||!MAP_RE
       const result=await requestAction({op:'deletePlayerToken',mapId:currentMap.id,tokenId:t.id}),data=result.data||{};
       if(!result.ok||data.ok===false){toast('⚠ '+(data.error||'删除失败'));return;}
       await syncRoomState();
-    }catch(error){toast('⚠ 删除请求未送达');await syncRoomState();}
+    }catch(error){toast('⚠ 删除结果未确认，请重新同步后核对');await syncRoomState();}
     finally{const pendingId=playerDeletePending;playerDeletePending=null;if(selectedId===pendingId)openDetail(pendingId);}
   }
   function playerMountCandidates(rider){
@@ -1437,7 +1658,7 @@ function showMapReaction(a){if(!currentMap||!a||a.mapId!==currentMap.id||!MAP_RE
       const latest=encounter(),action={op:'mountToken',mapId:currentMap.id,tokenId:rider.id,mountId:mount.id,playMode:latest.playMode==='turn'?'turn':'free'};if(action.playMode==='turn')action.turnSerial=Number(latest.turnSerial)||1;
       const result=await requestAction(action),data=result.data||{};if(!result.ok||data.ok===false){toast('⚠ '+(data.error||'上骑失败'));await syncRoomState();return;}
       await syncRoomState();
-    }catch(error){toast('⚠ 上骑请求未送达');await syncRoomState();}
+    }catch(error){toast('⚠ 上骑结果未确认，请重新同步后核对');await syncRoomState();}
     finally{playerMountPending=null;if(selectedId)openDetail(selectedId);}
   }
   async function dismountOwnedRider(riderId){
@@ -1450,7 +1671,7 @@ function showMapReaction(a){if(!currentMap||!a||a.mapId!==currentMap.id||!MAP_RE
       const latest=encounter(),action={op:'dismountToken',mapId:currentMap.id,tokenId:rider.id,playMode:latest.playMode==='turn'?'turn':'free'};if(action.playMode==='turn')action.turnSerial=Number(latest.turnSerial)||1;
       const result=await requestAction(action),data=result.data||{};if(!result.ok||data.ok===false){toast('⚠ '+(data.error||'解除骑乘失败'));await syncRoomState();return;}
       await syncRoomState();
-    }catch(error){toast('⚠ 解除骑乘请求未送达');await syncRoomState();}
+    }catch(error){toast('⚠ 解除骑乘结果未确认，请重新同步后核对');await syncRoomState();}
     finally{playerDismountPending=null;if(selectedId)openDetail(selectedId);}
   }
   function closeDetail() { selectedId=null;cancelSpellAim();closePlayerConditionEditor();closePlayerPortraitManager(); $('#detail').hidden=true; $('#detail-empty').hidden=false;const chain=$('#detail-mounted-chain');chain.hidden=true;chain.innerHTML='';$('#right-panel').classList.remove('mobile-open');requestSpellRangeRender(); }
@@ -1509,9 +1730,28 @@ function showMapReaction(a){if(!currentMap||!a||a.mapId!==currentMap.id||!MAP_RE
   function playerPortraitTool(label,title,action,index,disabled=false) { const button=document.createElement('button');button.type='button';button.textContent=label;button.title=title;button.setAttribute('aria-label',title);button.dataset.playerPortraitAction=action;button.dataset.playerPortraitIndex=String(index);button.disabled=disabled;return button; }
   function updatePlayerPortraitScrollButtons() { const strip=$('#player-portrait-strip'),left=$('#player-portrait-scroll-left'),right=$('#player-portrait-scroll-right'),max=Math.max(0,strip.scrollWidth-strip.clientWidth);left.disabled=strip.scrollLeft<=2;right.disabled=strip.scrollLeft>=max-2; }
   function renderPlayerPortraitManager(focusIndex=null) {
-    const modal=$('#player-portrait-manager-modal');if(modal.hidden)return;const t=playerPortraitManagerToken();if(!t||!ownedToken(t)){closePlayerPortraitManager();return;}const variants=playerPortraitVariants(t),active=currentPortraitVariantIndex(t,variants),strip=$('#player-portrait-strip'),previousScroll=strip.scrollLeft,editable=canActWithToken(t);strip.innerHTML='';$('#player-portrait-manager-title').textContent=(t.name||'棋子')+' · 不同形态';$('#player-portrait-manager-summary').textContent=variants.length?variants.length+' 个形态 · 点击切换，使用箭头排序':'还没有保存形态，可把当前立绘保存为第一个形态。';$('#player-portrait-save-collection').hidden=!t.ownedPieceId;$('#player-portrait-save-current').disabled=!editable||!portraitIdentity(t)||variants.length>=24;
-    if(!variants.length){const empty=document.createElement('div');empty.className='player-portrait-empty';empty.textContent=portraitIdentity(t)?'当前立绘尚未保存为形态。':'当前棋子没有可保存的立绘。';strip.appendChild(empty);}else variants.forEach((variant,index)=>{const card=document.createElement('article'),open=document.createElement('button'),image=document.createElement('img'),name=document.createElement('span'),stateLabel=document.createElement('span'),tools=document.createElement('div');card.className='player-portrait-card'+(index===active?' active':'');card.dataset.playerPortraitIndex=String(index);open.type='button';open.className='player-portrait-open';open.dataset.playerPortraitSelect=String(index);open.disabled=!editable;image.className='player-portrait-thumb';loadPlayerPortraitThumb(image,variant);name.className='player-portrait-name';name.textContent=variant.name;stateLabel.className='player-portrait-state';stateLabel.textContent=index===active?'当前形态':'形态 '+(index+1);open.append(image,name,stateLabel);tools.className='player-portrait-tools';tools.append(playerPortraitTool('←','向前移动 '+variant.name,'left',index,!editable||index===0),playerPortraitTool('✎','重命名 '+variant.name,'rename',index,!editable),playerPortraitTool('×','删除 '+variant.name,'delete',index,!editable),playerPortraitTool('→','向后移动 '+variant.name,'right',index,!editable||index===variants.length-1));card.append(open,tools);strip.appendChild(card);});
+    const modal=$('#player-portrait-manager-modal');if(modal.hidden)return;const t=playerPortraitManagerToken();if(!t||!ownedToken(t)){closePlayerPortraitManager();return;}const variants=playerPortraitVariants(t),active=currentPortraitVariantIndex(t,variants),strip=$('#player-portrait-strip'),previousScroll=strip.scrollLeft,editable=canActWithToken(t);strip.innerHTML='';ensurePlayerPortraitViewButton(t,editable);$('#player-portrait-manager-title').textContent=(t.name||'棋子')+' · 不同形态';$('#player-portrait-manager-summary').textContent=variants.length?variants.length+' 个形态 · 点击切换，使用箭头排序':'还没有保存形态，可把当前立绘保存为第一个形态。';$('#player-portrait-save-collection').hidden=!t.ownedPieceId;$('#player-portrait-save-current').disabled=!editable||!portraitIdentity(t)||variants.length>=24;
+    if(!variants.length){const empty=document.createElement('div');empty.className='player-portrait-empty';empty.textContent=portraitIdentity(t)?'当前立绘尚未保存为形态。':'当前棋子没有可保存的立绘。';strip.appendChild(empty);}else variants.forEach((variant,index)=>{const card=document.createElement('article'),open=document.createElement('button'),image=document.createElement('img'),name=document.createElement('span'),stateLabel=document.createElement('span'),tools=document.createElement('div');card.className='player-portrait-card'+(index===active?' active':'');card.dataset.playerPortraitIndex=String(index);open.type='button';open.className='player-portrait-open';open.dataset.playerPortraitSelect=String(index);open.disabled=!editable;image.className='player-portrait-thumb';loadPlayerPortraitThumb(image,variant);name.className='player-portrait-name';name.textContent=variant.name;stateLabel.className='player-portrait-state';stateLabel.textContent=index===active?'当前形态':'形态 '+(index+1);open.append(image,name,stateLabel);tools.className='player-portrait-tools';tools.append(playerPortraitTool('←','向前移动 '+variant.name,'left',index,!editable||index===0),playerPortraitTool('✎','重命名 '+variant.name,'rename',index,!editable),playerPortraitTool('▣','调整 '+variant.name+' 的显示范围','view',index,!editable),playerPortraitTool('×','删除 '+variant.name,'delete',index,!editable),playerPortraitTool('→','向后移动 '+variant.name,'right',index,!editable||index===variants.length-1));card.append(open,tools);strip.appendChild(card);});
     requestAnimationFrame(()=>{if(Number.isInteger(focusIndex))strip.querySelector('[data-player-portrait-index="'+focusIndex+'"]')?.scrollIntoView({block:'nearest',inline:'center'});else strip.scrollLeft=previousScroll;updatePlayerPortraitScrollButtons();});
+  }
+  async function editPlayerTokenPortraitView(index=null){
+    const t=playerPortraitManagerToken();if(!t||!canActWithToken(t))return;
+    const initialVariants=playerPortraitVariants(t),source=Number.isInteger(index)?initialVariants[index]:t,identity=portraitIdentity(source);if(!source||!identity)return;
+    const sourceView=SundollPortraitView.normalize(source.portraitView);
+    const nextView=await SundollPortraitView.edit({src:originalPortraitUrl(source),view:source.portraitView,legacyScale:source.iconImgPath?(String(source.iconImgPath).includes('/零式-')?1.192:1.163):1,title:(t.name||'棋子')+' · '+(source.name||'当前立绘')+' · 显示范围'});
+    if(!nextView||tokenById(t.id)!==t||!canActWithToken(t))return;
+    if(!Number.isInteger(index)&&(portraitIdentity(t)!==identity||!SundollPortraitView.sameView(t.portraitView,sourceView)))return;
+    const variants=playerPortraitVariants(t),current=currentPortraitVariantIndex(t,variants),target=Number.isInteger(index)?index:current,beforeView=globalThis.SundollPortraitView?.normalize(t.portraitView)||null,beforeVariants=playerPortraitVariants(t),patch={},before={};
+    if(Number.isInteger(index)&&(portraitIdentity(variants[index])!==identity||!SundollPortraitView.sameView(variants[index]?.portraitView,sourceView)))return;
+    if(target>=0&&variants[target]){variants[target]={...variants[target],portraitView:nextView};t.portraitVariants=normalizePlayerPortraitVariants(variants);patch.portraitVariants=t.portraitVariants;before.portraitVariants=beforeVariants;}
+    if(portraitIdentity(t)===identity&&(Number.isInteger(index)?current===target:SundollPortraitView.sameView(t.portraitView,sourceView))){t.portraitView=nextView;patch.portraitView=nextView;before.portraitView=beforeView;}
+    if(!Object.keys(patch).length)return;
+    sendPatch(t.id,patch,before);renderTokens(currentMap);openDetail(t.id);renderPlayerPortraitManager(target);toast('已调整显示范围');
+  }
+  function ensurePlayerPortraitViewButton(t,editable){
+    const actions=$('#player-portrait-manager-modal .player-portrait-manager-actions');if(!actions)return;
+    let button=$('#player-portrait-view-edit');if(!button){button=document.createElement('button');button.id='player-portrait-view-edit';button.type='button';button.textContent='调整当前显示范围';button.onclick=()=>editPlayerTokenPortraitView().catch(error=>toast(error.message||'调整失败'));actions.insertBefore(button,$('#player-portrait-save-current'));}
+    button.disabled=!editable||!portraitIdentity(t);
   }
   function openPlayerPortraitManager() { const t=tokenById(selectedId);if(!t||!ownedToken(t))return;playerPortraitManagerTokenId=t.id;$('#player-portrait-manager-modal').hidden=false;renderPlayerPortraitManager(currentPortraitVariantIndex(t)); }
   function closePlayerPortraitManager() { playerPortraitManagerTokenId=null;$('#player-portrait-manager-modal').hidden=true; }
@@ -1522,7 +1762,13 @@ function showMapReaction(a){if(!currentMap||!a||a.mapId!==currentMap.id||!MAP_RE
     catch(error){toast(error.message||'保存形态失败');} finally{control.disabled=false;}
   };
   function commitPlayerPortraitVariants(t,variants,focusIndex=null) { const before=playerPortraitVariants(t);t.portraitVariants=normalizePlayerPortraitVariants(variants);renderPlayerPortraitManager(focusIndex);openDetail(t.id);sendPatch(t.id,{portraitVariants:t.portraitVariants},{portraitVariants:before}); }
-  function savePlayerCurrentPortraitVariant() { const t=playerPortraitManagerToken();if(!t||!canActWithToken(t)||!portraitIdentity(t))return;const variants=playerPortraitVariants(t),name=prompt('给这个形态命名','形态 '+(variants.length+1));if(name===null||!name.trim())return;const snapshot={name:name.trim().slice(0,24),iconImg:t.iconImg||null,iconImgHd:t.iconImgHd||null,iconImgPath:t.iconImgPath||null,iconImgId:t.iconImgId||null},identity=portraitIdentity(snapshot),existing=variants.findIndex(v=>portraitIdentity(v)===identity);let index=existing;if(existing>=0)variants[existing]=snapshot;else{variants.push(snapshot);index=variants.length-1;}commitPlayerPortraitVariants(t,variants,index);toast(existing>=0?'已更新这个形态的名称':'已保存当前立绘为形态'); }
+  function savePlayerCurrentPortraitVariant() {
+    const t=playerPortraitManagerToken();if(!t||!canActWithToken(t)||!portraitIdentity(t))return;
+    const variants=playerPortraitVariants(t),name=prompt('给这个形态命名','形态 '+(variants.length+1));if(name===null||!name.trim())return;
+    const snapshot={name:name.trim().slice(0,24),iconImg:t.iconImg||null,iconImgHd:t.iconImgHd||null,iconImgPath:t.iconImgPath||null,iconImgId:t.iconImgId||null,...(globalThis.SundollPortraitView?.normalize(t.portraitView)?{portraitView:SundollPortraitView.normalize(t.portraitView)}:{})},identity=portraitIdentity(snapshot),existing=variants.findIndex(v=>portraitIdentity(v)===identity&&SundollPortraitView.sameView(v.portraitView,snapshot.portraitView));
+    let index=existing;if(existing>=0)variants[existing]=snapshot;else{variants.push(snapshot);index=variants.length-1;}
+    commitPlayerPortraitVariants(t,variants,index);toast(existing>=0?'已更新这个形态的名称':'已保存当前立绘为形态');
+  }
   function renamePlayerPortraitVariant(index) { const t=playerPortraitManagerToken(),variants=playerPortraitVariants(t),variant=variants[index];if(!t||!variant||!canActWithToken(t))return;const name=prompt('修改形态名称',variant.name);if(name===null||!name.trim())return;variant.name=name.trim().slice(0,24);commitPlayerPortraitVariants(t,variants,index); }
   function movePlayerPortraitVariant(index,step) { const t=playerPortraitManagerToken(),variants=playerPortraitVariants(t),target=index+step;if(!t||!variants[index]||target<0||target>=variants.length||!canActWithToken(t))return;[variants[index],variants[target]]=[variants[target],variants[index]];commitPlayerPortraitVariants(t,variants,target); }
   function deletePlayerPortraitVariant(index) { const t=playerPortraitManagerToken(),variants=playerPortraitVariants(t),variant=variants[index];if(!t||!variant||!canActWithToken(t)||!confirm('删除形态「'+variant.name+'」？'))return;variants.splice(index,1);commitPlayerPortraitVariants(t,variants,variants.length?Math.min(index,variants.length-1):null);toast('已删除形态「'+variant.name+'」'); }
@@ -1644,7 +1890,7 @@ function showMapReaction(a){if(!currentMap||!a||a.mapId!==currentMap.id||!MAP_RE
   function d20CriticalOutcome(parsed,chosen,rollMode,pick,dicePayload){if(!parsed||parsed.n!==1||parsed.sides!==20)return{natural:null,critical:null};const natural=rollMode?Number(dicePayload[pick]):Number(chosen[0]);return{natural,critical:natural===20?'success':natural===1?'fail':null};}
   let playerDiceLoad=null;
   function loadPlayerScript(src) {
-    return new Promise((resolve,reject)=>{const script=document.createElement('script');script.src=src;script.onload=()=>resolve();script.onerror=()=>{script.remove();reject(new Error('骰子动画加载失败'));};document.head.appendChild(script);});
+    return SundollClientRuntime.loadScript(src,{env:globalThis});
   }
   function ensurePlayerDice() {
     if(window.playDieAnimation&&window.SundollDiceSkins)return Promise.resolve();
@@ -1673,7 +1919,7 @@ function showMapReaction(a){if(!currentMap||!a||a.mapId!==currentMap.id||!MAP_RE
     if(a?._sessionId && a._sessionId!==state?._sessionId)return;
     if (!a) return;
     if(a.characterUpdates)for(const update of a.characterUpdates)applyAction(update);
-    if(a.op==='characterState'){for(const m of state?.maps||[])for(const t of m.tokens||[])if(t.ownedPieceId===a.characterId&&t.ownerPlayerId===a.ownerPlayerId&&(t.characterRevision||0)<a.patch.characterRevision){Object.assign(t,a.patch);const form=Number.isInteger(a.patch.portraitVariant)?normalizePlayerPortraitVariants(t.portraitVariants)[a.patch.portraitVariant]:null;if(form)for(const key of ['iconImgPath','iconImg','iconImgHd','iconImgId'])t[key]=form[key]||null;SundollDownedPortrait.sync(t);}if(currentMap)renderTokens(currentMap);if(selectedId)openDetail(selectedId);return;}
+    if(a.op==='characterState'){for(const m of state?.maps||[])for(const t of m.tokens||[])if(t.ownedPieceId===a.characterId&&t.ownerPlayerId===a.ownerPlayerId&&(t.characterRevision||0)<a.patch.characterRevision){Object.assign(t,a.patch);const form=Number.isInteger(a.patch.portraitVariant)?normalizePlayerPortraitVariants(t.portraitVariants)[a.patch.portraitVariant]:null;if(form)applyPlayerTokenPortrait(t,form);SundollDownedPortrait.sync(t);}if(currentMap)renderTokens(currentMap);if(selectedId)openDetail(selectedId);return;}
     if(a.op==='journalEdit'){if(state&&state.campaignId===a.campaignId){const journal=CampaignJournal.normalize(a.journal,state.campaignId);if((state.journal?.revision||0)<journal.revision)state.journal=journal;CampaignJournal.refresh();}return;}
     if(a.op==='danmaku'){danmaku.receive(a);return;}
     if(a.op==='restTransition'){playRestTransition(a);return;}
@@ -1776,12 +2022,14 @@ function showMapReaction(a){if(!currentMap||!a||a.mapId!==currentMap.id||!MAP_RE
       const patch=a.patch||{};
       const portraitVariantsChanged=Array.isArray(patch.portraitVariants);if(portraitVariantsChanged)t.portraitVariants=normalizePlayerPortraitVariants(patch.portraitVariants);
       const portraitChanged=Number.isInteger(patch.portraitVariant)&&!!t.portraitVariants?.[patch.portraitVariant];
-      if(portraitChanged){const v=t.portraitVariants[patch.portraitVariant];for(const k of ['iconImgPath','iconImg','iconImgHd','iconImgId'])t[k]=v[k]||null;t.portraitVariant=patch.portraitVariant;}
+      if(portraitChanged){const v=t.portraitVariants[patch.portraitVariant];applyPlayerTokenPortrait(t,v);t.portraitVariant=patch.portraitVariant;}
       else if(Object.prototype.hasOwnProperty.call(patch,'portraitVariant'))delete t.portraitVariant;
       const conditionsChanged=Array.isArray(patch.conditions);['hp','hpMax','tempHp','tempHpMax','ac'].forEach(k=>{if(k in patch)t[k]=patch[k];});if('spellRange' in patch)t.spellRange=normalizeSpellRange(patch.spellRange);if(conditionsChanged)t.conditions=patch.conditions.slice(0,MAX_TOKEN_CONDITIONS).map(normalizePlayerCondition);
+      const portraitViewChanged=Object.prototype.hasOwnProperty.call(patch,'portraitView');
+      if(portraitViewChanged){const view=globalThis.SundollPortraitView?.normalize(patch.portraitView);if(view)t.portraitView=view;else delete t.portraitView;}
       if('portraitBeforeDowned' in patch)t.portraitBeforeDowned=patch.portraitBeforeDowned||null;
       const automaticPortraitChanged=SundollDownedPortrait.sync(t);
-      if(m===currentMap){if(conditionsChanged||portraitChanged||portraitVariantsChanged||automaticPortraitChanged)renderTokens(currentMap);else renderNamesLayer(currentMap);requestSpellRangeRender();}
+      if(m===currentMap){if(conditionsChanged||portraitChanged||portraitVariantsChanged||portraitViewChanged||automaticPortraitChanged)renderTokens(currentMap);else renderNamesLayer(currentMap);requestSpellRangeRender();}
       const selected=currentMap&&selectedId&&(currentMap.tokens||[]).find(token=>token.id===selectedId);if(selected&&tokenControlGroup(selected).has(t.id))openDetail(selected.id);refreshTokenPeek(t);
       refreshTokenInvestigation(t);if(playerPortraitManagerTokenId===t.id)renderPlayerPortraitManager();
     }
@@ -1866,7 +2114,7 @@ function showMapReaction(a){if(!currentMap||!a||a.mapId!==currentMap.id||!MAP_RE
   $('#player-place-token').addEventListener('click',placePlayerDraftToken);
   $('#player-token-image-pick').addEventListener('click',()=>$('#player-token-image').click());
   $('#player-token-image').addEventListener('change',event=>{const file=event.target.files&&event.target.files[0];event.target.value='';choosePlayerDraftPortrait(file);});
-  $('#player-token-image-clear').addEventListener('click',()=>{playerDraftPortrait='';renderPlayerDraftPortrait();toast('已移除自带图片');});
+  $('#player-token-image-clear').addEventListener('click',()=>{playerDraftPortrait='';playerDraftPortraitView={scale:1,offsetX:0,offsetY:0};renderPlayerDraftPortrait();toast('已移除自带图片');});
   $('#player-delete-token').addEventListener('click',deleteOwnedTemporaryToken);
   $('#player-token-name').addEventListener('keydown',event=>{if(event.key==='Enter')placePlayerDraftToken();});
   $('#player-token-icon').addEventListener('keydown',event=>{if(event.key==='Enter')placePlayerDraftToken();});
@@ -1879,7 +2127,7 @@ function showMapReaction(a){if(!currentMap||!a||a.mapId!==currentMap.id||!MAP_RE
   $('#player-portrait-manager-modal').addEventListener('click',event=>{if(event.target===$('#player-portrait-manager-modal'))closePlayerPortraitManager();});
   $('#player-portrait-strip').addEventListener('scroll',updatePlayerPortraitScrollButtons,{passive:true});
   $('#player-portrait-scroll-left').addEventListener('click',()=>$('#player-portrait-strip').scrollBy({left:-330,behavior:'smooth'}));$('#player-portrait-scroll-right').addEventListener('click',()=>$('#player-portrait-strip').scrollBy({left:330,behavior:'smooth'}));
-  $('#player-portrait-strip').addEventListener('click',event=>{const action=event.target.closest('[data-player-portrait-action]');if(action){const index=Number(action.dataset.playerPortraitIndex),kind=action.dataset.playerPortraitAction;if(kind==='left')movePlayerPortraitVariant(index,-1);if(kind==='right')movePlayerPortraitVariant(index,1);if(kind==='rename')renamePlayerPortraitVariant(index);if(kind==='delete')deletePlayerPortraitVariant(index);return;}const select=event.target.closest('[data-player-portrait-select]');if(select){const t=playerPortraitManagerToken(),index=Number(select.dataset.playerPortraitSelect);if(t&&canActWithToken(t)&&playerPortraitVariants(t)[index])sendPatch(t.id,{portraitVariant:index,portraitVariantSource:playerPortraitVariants(t)[index]},{});}});
+  $('#player-portrait-strip').addEventListener('click',event=>{const action=event.target.closest('[data-player-portrait-action]');if(action){const index=Number(action.dataset.playerPortraitIndex),kind=action.dataset.playerPortraitAction;if(kind==='left')movePlayerPortraitVariant(index,-1);if(kind==='right')movePlayerPortraitVariant(index,1);if(kind==='rename')renamePlayerPortraitVariant(index);if(kind==='view')editPlayerTokenPortraitView(index).catch(error=>toast(error.message||'调整失败'));if(kind==='delete')deletePlayerPortraitVariant(index);return;}const select=event.target.closest('[data-player-portrait-select]');if(select){const t=playerPortraitManagerToken(),index=Number(select.dataset.playerPortraitSelect);if(t&&canActWithToken(t)&&playerPortraitVariants(t)[index])sendPatch(t.id,{portraitVariant:index,portraitVariantSource:playerPortraitVariants(t)[index]},{});}});
   document.querySelectorAll('[data-player-detail-tab]').forEach(button=>button.addEventListener('click',()=>activatePlayerDetailTab(button.dataset.playerDetailTab)));
   $('#hp').addEventListener('input',()=>updateOwned('hp',clamp(parseInt($('#hp').value,10)||0,0,99999)));
   $('#hp-max').addEventListener('input',()=>updateOwned('hpMax',clamp(parseInt($('#hp-max').value,10)||1,1,99999)));
@@ -1893,7 +2141,11 @@ function showMapReaction(a){if(!currentMap||!a||a.mapId!==currentMap.id||!MAP_RE
   document.querySelectorAll('[data-dice-visibility]').forEach(button=>button.onclick=()=>setDiceVisibility(button.dataset.diceVisibility));
   document.querySelectorAll('[data-die]').forEach(b=>b.onclick=()=>roll(b.dataset.die)); $('#dice-adv').onclick=()=>roll('d20',1); $('#dice-dis').onclick=()=>roll('d20',-1); $('#dice-roll').onclick=()=>roll($('#dice-expr').value); $('#dice-expr').addEventListener('keydown',e=>{if(e.key==='Enter')roll($('#dice-expr').value);});
   $('#flow-toggle').onclick=()=>{const bar=$('#flowbar');bar.dataset.collapsed=bar.dataset.collapsed==='false'?'true':'false';renderFlow(state);};
-  document.querySelectorAll('[data-flow-panel]').forEach(tab=>tab.onclick=()=>{flowPanel=tab.dataset.flowPanel==='time'?'time':'initiative';renderFlow(state);});
+  $('#flow-open-initiative').onclick=openPlayerInitiativeManager;
+  $('#player-initiative-manager-close').onclick=closePlayerInitiativeManager;
+  $('#player-initiative-manager-done').onclick=closePlayerInitiativeManager;
+  $('#player-initiative-manager-modal').addEventListener('click',event=>{if(event.target===$('#player-initiative-manager-modal'))closePlayerInitiativeManager();});
+  document.addEventListener('keydown',event=>{if(event.key==='Escape'&&!$('#player-initiative-manager-modal').hidden){event.preventDefault();closePlayerInitiativeManager();}});
   function bindToolButton(id,fn){const el=$(id);if(el)el.onclick=fn;}
   bindToolButton('#player-map-browser-close',closePlayerMapBrowser);
   $('#player-map-browser-modal').addEventListener('click',event=>{if(event.target===$('#player-map-browser-modal'))closePlayerMapBrowser();});
@@ -1916,7 +2168,7 @@ function showMapReaction(a){if(!currentMap||!a||a.mapId!==currentMap.id||!MAP_RE
   document.querySelectorAll('[data-doodle-color]').forEach(button=>button.addEventListener('click',()=>{doodleColor=button.dataset.doodleColor;document.querySelectorAll('[data-doodle-color]').forEach(item=>item.classList.toggle('active',item===button));}));
   $('#player-doodle-width').addEventListener('change',event=>{doodleWidth=parseInt(event.target.value,10)||6;});
   $('#player-doodle-undo').addEventListener('click',undoSharedDoodle);$('#player-doodle-clear').addEventListener('click',clearSharedDoodles);
-  bindToolButton('#btn-ready',()=>{presenceStatus=presenceStatus==='ready'?'online':'ready';sendPresence(presenceStatus);updateToolButtons();}); bindToolButton('#dock-ready',()=>$('#btn-ready').click());
+  bindToolButton('#dock-ready',()=>{presenceStatus=presenceStatus==='ready'?'online':'ready';sendPresence(presenceStatus);updateToolButtons();});
   bindToolButton('#turn-path-undo',()=>runTurnPathAction('turnPathUndo'));bindToolButton('#turn-path-reset',()=>runTurnPathAction('turnPathReset'));
   bindToolButton('#end-turn',async()=>{
     if(endTurnPending)return;
@@ -1925,19 +2177,32 @@ function showMapReaction(a){if(!currentMap||!a||a.mapId!==currentMap.id||!MAP_RE
     if(await dispatchPendingPatch()===false){endTurnPending=false;updateEndTurnUi();return;}
     e=encounter();current=currentTurnToken();if(e.playMode!=='turn'||!current||!canActWithToken(current)){endTurnPending=false;updateEndTurnUi();toast('⚠ 回合已经变化，请重新操作');return;}
     try{const r=await requestAction({op:'endTurn',turnSerial:Number(e.turnSerial)||1});if(!r.ok||r.data?.ok===false)toast('⚠ '+(r.data?.error||'结束回合失败'));await syncRoomState();}
-    catch(error){toast('⚠ 结束回合未送达');await syncRoomState();}
+    catch(error){toast('⚠ 结束回合结果未确认，请重新同步后核对');await syncRoomState();}
     finally{endTurnPending=false;updateEndTurnUi();}
   });
-  bindToolButton('#btn-left-panel',()=>$('#left-panel').classList.toggle('mobile-open'));
+  function setPlayerToolsOpen(open,restoreFocus=false){
+    $('#left-panel').classList.toggle('mobile-open',open);
+    $('#btn-left-panel').setAttribute('aria-expanded',String(open));
+    if(restoreFocus)$('#btn-left-panel').focus();
+  }
+  bindToolButton('#btn-left-panel',()=>setPlayerToolsOpen(!$('#left-panel').classList.contains('mobile-open')));
+  bindToolButton('#player-tools-close',()=>setPlayerToolsOpen(false,true));
   bindToolButton('#btn-join',leaveSession);
   $('#player-name').addEventListener('change',savePlayerName);
   $('#player-name').addEventListener('blur',savePlayerName);
   $('#player-name').addEventListener('keydown',event=>{if(event.isComposing)return;if(event.key==='Enter'){event.preventDefault();savePlayerName();$('#player-name').blur();}else if(event.key==='Escape'){$('#player-name').value=myName;$('#player-name').blur();}});
   $('#join-mode-login').addEventListener('click',()=>setJoinMode(false));
   $('#join-mode-register').addEventListener('click',()=>setJoinMode(true));
-  $('#join-form').addEventListener('submit',async e=>{e.preventDefault();if(joinPending)return;joinPending=true;const err=$('#join-error');err.dataset.state='';err.textContent='正在加入…';setJoinHomeBusy(true);try{await joinSession($('#join-name').value,$('#join-room').value,!!sessionToken);connectStream();}catch(error){err.textContent=error.message||'无法加入房间';setJoinHomeStatus('加入失败','error');}finally{joinPending=false;setJoinHomeBusy(false);}});
+  $('#join-form').addEventListener('submit',async e=>{e.preventDefault();if(joinPending)return;joinPending=true;const err=$('#join-error');err.dataset.state='';err.textContent='正在加入…';setJoinHomeBusy(true);try{await joinSession($('#join-name').value);}catch(error){err.textContent=error.message||'无法加入房间';setJoinHomeStatus('加入失败','error');}finally{joinPending=false;setJoinHomeBusy(false);}});
   $('#join-refresh').addEventListener('click',async()=>{const err=$('#join-error');err.textContent='正在刷新…';setJoinHomeBusy(true);try{await refreshPlayerHome();err.dataset.state='ok';err.textContent='房间状态已更新';}catch(error){setJoinHomeStatus('服务器未连接','error');err.dataset.state='';err.textContent=error.message||'刷新失败';}finally{setJoinHomeBusy(false);}});
-  window.addEventListener('keydown',event=>{if(event.key!=='Escape')return;if(!$('#player-map-browser-modal').hidden){closePlayerMapBrowser();return;}if(!$('#player-portrait-manager-modal').hidden){closePlayerPortraitManager();return;}hideTokenContextMenu();hideTokenInvestigation();if(pendingMapReaction||!$('#reaction-palette').hidden){cancelMapReaction();toast('已取消地图表情');}if(spellAimTokenId){cancelSpellAim();toast('已取消锥形瞄准');}});
+  window.addEventListener('keydown',event=>{if(event.key!=='Escape')return;if(!$('#player-map-browser-modal').hidden){closePlayerMapBrowser();return;}if(!$('#player-portrait-manager-modal').hidden){closePlayerPortraitManager();return;}if($('#left-panel').classList.contains('mobile-open')){setPlayerToolsOpen(false,true);}hideTokenContextMenu();hideTokenInvestigation();if(pendingMapReaction||!$('#reaction-palette').hidden){cancelMapReaction();toast('已取消地图表情');}if(spellAimTokenId){cancelSpellAim();toast('已取消锥形瞄准');}});
+  document.querySelectorAll('#player-workspace-tabs,.player-detail-tabs').forEach(tablist=>tablist.addEventListener('keydown',event=>{
+    if(!['ArrowLeft','ArrowRight','Home','End'].includes(event.key))return;
+    const tabs=Array.from(tablist.querySelectorAll('[role="tab"]')),index=tabs.indexOf(event.target);
+    if(index<0)return;
+    const next=event.key==='Home'?0:event.key==='End'?tabs.length-1:(index+(event.key==='ArrowRight'?1:-1)+tabs.length)%tabs.length;
+    event.preventDefault();tabs[next].click();tabs[next].focus();
+  }));
   initPlayerWorkspaceTabs();activatePlayerDetailTab('status',false);populatePlayerConditionSelect();updateToolButtons();
   for(const event of ['pointerenter','focusin'])document.querySelector('.dice-grid')?.addEventListener(event,()=>ensurePlayerDice().catch(()=>{}),{once:true});
   window.addEventListener('resize',()=>{hideTokenContextMenu();hideTokenInvestigation();fit();});
@@ -1950,41 +2215,59 @@ function showMapReaction(a){if(!currentMap||!a||a.mapId!==currentMap.id||!MAP_RE
   function applyPlayerWebRtcSignal(event){return playerMusic.signal(event);}
   function sendPlayerWebRtcSignal(signal){return playerMusic.send(signal);}
   function closePlayerLiveAudio(){playerMusic.reset();}
+  let musicSyncPending=false;
   async function syncMusicState(){
+    if(!sessionToken||musicSyncPending)return;
+    musicSyncPending=true;
     const token=sessionToken;
-    try{const response=await fetch('/api/music-state',{cache:'no-store'}),data=await response.json();
+    const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),6000);
+    try{const response=await fetch('/api/music-state',{cache:'no-store',signal:controller.signal}),data=await response.json();
       if(token!==sessionToken)return;
       if(Number(data.serverNow))flowClockAnchor={localNow:performance.now(),serverNow:Number(data.serverNow)};
       if(response.ok&&data.bgm)applyBgm(data.bgm);
-    }catch(_){}
+    }catch(_){}finally{clearTimeout(timeout);musicSyncPending=false;}
   }
-  async function syncRoomState(){try{const res=await fetch('/api/state',{cache:'no-store'});if(!res.ok)return;render(await res.json());}catch(e){/* SSE 会继续自动重试 */}}
+  function pollMusicState(){if(streamES&&sessionToken)syncMusicState();}
+  async function syncRoomState(context=playerPatchContext()){
+    const current=()=>JSON.stringify(context)===JSON.stringify(playerPatchContext());
+    if(!current())return false;
+    try{
+      const {response,data}=await SundollClientRuntime.requestJson('/api/state',{cache:'no-store'},{timeoutMs:8000,message:'服务器状态读取超时'});
+      if(!response.ok||!current()||!Array.isArray(data?.maps))return false;
+      if(context.campaignId&&data.campaignId!==context.campaignId)return false;
+      if(context.serverSessionId&&data._sessionId!==context.serverSessionId)return false;
+      render(data);return true;
+    }catch(error){return false;}
+  }
+  const playerSyncDiagnostics=SundollClientRuntime.createDiagnostics({notify:()=>{setConnection('同步异常',false);toast('地图同步遇到问题，请刷新或重新连接');}});
+  window.SundollSyncDiagnostics=playerSyncDiagnostics;
   function connectStream(){
     if(streamES){try{streamES.close();}catch(e){}}
     const source=new EventSource('/api/events');streamES=source;let initialStateTimer=null;
     source.onopen=()=>{
       if(streamES!==source)return;
-      setConnection('已连接',true);sendPresence(presenceStatus);sendPlayerWebRtcSignal({type:'ready'}).catch(()=>{});
+      setConnection('已连接',true);sendPresence(presenceStatus);syncMusicState();sendPlayerWebRtcSignal({type:'ready'}).catch(()=>{});
       clearTimeout(initialStateTimer);
       // SSE supplies the snapshot. Use HTTP only if that first snapshot is absent.
       initialStateTimer=setTimeout(()=>{if(streamES===source){syncRoomState();syncMusicState();}},8000);
     };
     source.onerror=()=>{clearTimeout(initialStateTimer);if(streamES===source)setConnection('重连中…',false);};
-    source.onmessage=e=>{if(streamES!==source)return;try{
+    source.onmessage=e=>{if(streamES!==source)return;let eventType='unknown';try{
       const ev=JSON.parse(e.data),seq=Number(e.lastEventId)||Number(ev.seq)||0,instant=ev.type==='action'&&ev.action&&['roll','bgm','announce','mapReaction','restTransition','danmaku'].includes(ev.action.op);
+      eventType=ev.type;
+      if(ev.type==='backpackChanged'){PlayerBackpack.changed();return;}
       if(ev.type==='readingInvite'){PlayerBackpack.receiveReadingInvite(ev);return;}
       if(ev.type==='sessionRevoked'){handleSessionRevoked(ev);return;}
       if(ev.type==='webrtcSignal'){applyPlayerWebRtcSignal(ev);return;}
-      if(ev.type==='state'){clearTimeout(initialStateTimer);render(ev.state);return;}
+      if(ev.type==='state'){clearTimeout(initialStateTimer);render(ev.state);setConnection('已连接',true);return;}
       if(ev.type==='action'&&((ev.action?.campaignId!=null&&ev.action.campaignId!==state?.campaignId)||(ev.action?._sessionId&&ev.action._sessionId!==state?._sessionId)))return;
       if(!instant&&seq&&seq<=streamAppliedSeq&&ev.type==='action')return;
       if(seq&&!instant)streamAppliedSeq=Math.max(streamAppliedSeq,seq);
       if(ev.type==='presence')renderPlayers(ev.players);
       else if(ev.type==='action'){if(ev.action&&ev.action.op==='bgm')applyBgm(ev.action);else applyAction(ev.action);}
-    }catch(err){}};
+    }catch(err){playerSyncDiagnostics.report('stream-processing',err,eventType);}};
   }
 
-  initJoinHomeThemePicker();
   window.journalBridge={
     isDM:false,
     actorName:()=>myName||'玩家',
@@ -2003,6 +2286,9 @@ function showMapReaction(a){if(!currentMap||!a||a.mapId!==currentMap.id||!MAP_RE
   }};
   bootstrapSession();
   presenceTimer=setInterval(()=>sendPresence(presenceStatus),15000);
+  // Public tunnels can keep SSE open while delaying its messages. Reconcile
+  // music independently so a missed play/pause/stop never leaves it stale.
+  setInterval(pollMusicState,3000);
   flowTimer=setInterval(()=>{if(state?.encounter?.worldTime?.runningSince)refreshPlayerClock();},1000);
   document.addEventListener('visibilitychange',()=>{
     if(document.hidden){clearTimeout(mapPreloadTimer);mapPreloadTimer=null;if(mapPreloadController)mapPreloadController.abort();}
@@ -2026,4 +2312,4 @@ function showMapReaction(a){if(!currentMap||!a||a.mapId!==currentMap.id||!MAP_RE
       await requestAction({op:'roll',rid,expr:step.label,detail,total:step.total,sides:step.sides,dice:step.dice,extraDice:step.extraDice,mode:step.mode,pick:step.pick,skin,checkType:'sleight',rollSequence:true,visibility:'public'}).then(r=>{if(!r.ok||r.data?.ok===false)toast('检定已保存，公开骰点暂未送达');}).catch(()=>toast('检定已保存，公开骰点暂未送达'));
     }
   }
-  MapItems.configure({host:false,playCheck:playLockCheck,map:()=>currentMap,campaign:()=>state?.campaignId,world:()=>world,board:()=>document.getElementById('board'),zoom:()=>view.scale,session:()=>sessionToken,toast});
+  MapItems.configure({host:false,playCheck:playLockCheck,map:()=>currentMap,campaign:()=>state?.campaignId,packageContextRevision:()=>state?.packageContextRevision||'',world:()=>world,board:()=>document.getElementById('board'),zoom:()=>view.scale,session:()=>sessionToken,toast});

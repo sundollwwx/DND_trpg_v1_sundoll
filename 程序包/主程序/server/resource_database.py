@@ -11,6 +11,13 @@ from .module_store import ModuleStore, RevisionConflict
 
 
 class ResourceDatabase:
+    def __new__(cls, save_root):
+        from .account_characters import context
+        if context(save_root):
+            from .global_resources import GlobalResources
+            return GlobalResources(save_root)
+        return super().__new__(cls)
+
     def __init__(self, save_root):
         self.store = ModuleStore(save_root)
 
@@ -40,6 +47,38 @@ class ResourceDatabase:
                 if row['kind'] == 'runtime-character': data['characters']['@global'][row['id']] = value
                 elif row['kind'] == 'runtime-backpack': data['backpacks'][row['id']] = value
                 else: data['mapItems'][row['id']] = value
+            return data
+        finally:
+            db.close()
+
+    def read_for_backpack(self, player_id, character_ids=(), all_characters=False):
+        """One request snapshot: the recipient's bag and relevant characters.
+
+        Map loot and other players' inventories are not needed to display a bag.
+        Keep the global resource revision so any lazy character reconciliation
+        still uses the same compare-and-swap protection as a full resource read.
+        """
+        db = self.store.connect()
+        try:
+            db.execute('BEGIN')
+            meta = self.store.document(db, 'runtime-meta', 'resources')
+            if not meta: raise ValueError('模块化资源尚未迁移')
+            data = dict(version=1, revision=meta['revision'], globalCharacters=True,
+                        backpacks={}, characters={'@global': {}}, mapItems={})
+            bag = self.store.document(db, 'runtime-backpack', player_id)
+            if bag: data['backpacks'][player_id] = bag['data']
+            def collect(rows):
+                for row in rows:
+                    data['characters']['@global'][row['id']] = json.loads(row['payload'])
+            if all_characters:
+                collect(db.execute("SELECT id,payload FROM documents WHERE kind='runtime-character'"))
+            else:
+                collect(db.execute("SELECT id,payload FROM documents WHERE kind='runtime-character' AND owner=?", (player_id,)))
+                identities = list(set(character_ids))
+                for offset in range(0, len(identities), 400):
+                    group = identities[offset:offset + 400]
+                    collect(db.execute("SELECT id,payload FROM documents WHERE kind='runtime-character' AND id IN (" +
+                                       ','.join('?' for _ in group) + ')', group))
             return data
         finally:
             db.close()

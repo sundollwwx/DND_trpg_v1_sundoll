@@ -1,8 +1,8 @@
 """Authentication boundary: providers return stable player identities.
 
-HTTP never accepts an arbitrary provider switch. The server selects its provider;
-email_password is reserved and fails closed until explicitly implemented.
-Legacy credentials remain an internal migration adapter, disabled in production.
+HTTP never accepts an arbitrary provider switch. This module implements only
+name authentication; verified email identities use email_accounts/account_http.
+When email mode is enabled, HTTP rejects the name and legacy credential paths.
 """
 import json
 import unicodedata

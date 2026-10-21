@@ -88,7 +88,18 @@ class Workspace:
         return self.checked(self.save.joinpath(*parts))
 
     def module_path(self, kind, identity, owner, data, db):
-        if kind in ('runtime-character', 'runtime-backpack', 'player-library','archived-player'):
+        if kind == 'support-file':
+            parts = str(data.get('moduleDirectory', '')).split('/')
+            family = '战役包' if owner.startswith('campaign:') else '通用包' if owner.startswith('general:') else ''
+            if len(parts) != 2 or parts[0] != family or not parts[1] or parts[1] in ('.', '..') or '\\' in parts[1]:
+                raise ValueError('随包资料归属无效')
+            return self.checked(self.root.joinpath(*parts))
+        if kind == 'daily-life-module': return self.general / '日常小事'
+        if kind == 'content-selection': return self.campaign(identity)
+        if kind == 'content-package':
+            if owner.startswith('campaign:'): return self.campaign(owner[9:])
+            if owner.startswith('general:'): return self.general / key(owner[8:])
+        if kind in ('runtime-character', 'runtime-backpack', 'player-library','archived-player','player-content-dependencies'):
             pid = owner or identity
             archived = db.execute("SELECT 1 FROM documents WHERE kind='archived-player' AND id=?",(pid,)).fetchone()
             return self.players / '已删除' / key(pid) if archived else self.player(pid)
@@ -175,6 +186,9 @@ def project(store, db):
                         family = directory.relative_to(workspace.root).parts[0]
                         atomic_json(manifest_path,dict(format='sundoll-workspace-module',version=4,
                             family=family,id=directory.name,portable=False))
+                    if kind == 'daily-life-module':
+                        from .daily_life import publish_bundle
+                        publish_bundle(workspace, directory, value, atomic_json)
                     relative = (directory / '记录' / (hashlib.sha256((kind+':'+identity).encode()).hexdigest()+'.json')).relative_to(workspace.root).as_posix()
                     digests = set()
                     def visit(node):
@@ -281,6 +295,13 @@ def write_catalog(save_root, kind, data, db=None):
                     cid = next((i for i,n in workspace.config.get('campaignNames',{}).items() if n and n in full_category), '')
             private_collection = kind == 'template' and str(entry.get('category','')).startswith('城主/')
             owner = 'campaign:'+cid if cid else 'general:'+key('私人收藏' if private_collection else entry.get('moduleId') or '本地通用')
+            if kind == 'item-template' and not entry.get('contentPackageId'):
+                from .content_packages import ContentPackages
+                entry['contentPackageId'] = ContentPackages(save_root).origin_for_template(entry)['sourcePackageId']
+            if entry.get('contentPackageId'):
+                package = store.document(db, 'content-package', entry['contentPackageId'])
+                if package and package['data'].get('localOwner', '').startswith(('general:', 'campaign:')):
+                    owner = package['data']['localOwner']
             old = store.document(db,kind,entry['id'])
             if old and old['data'] == entry and old['owner'] == owner: continue
             if old and old['owner'] != owner:

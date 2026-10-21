@@ -12,6 +12,7 @@ import shutil
 import sqlite3
 import time
 import zipfile
+from contextlib import closing
 from .workspace import Workspace, atomic_json
 from .module_store import ModuleStore
 from .save_storage import SAVE_WRITE_LOCK, recover_campaign_projection
@@ -56,7 +57,7 @@ class Backups:
         return (not p.is_absolute() and '\\' not in name and not any(x in ('','.','..') for x in name.split('/'))
                 and not any(x in SKIP for x in p.parts)
                 and any(name.startswith(t+'/') for t in TOP)
-                and not name.endswith(('-wal','-shm')))
+                and not name.endswith(('-wal','-shm','-journal')))
 
     def create(self, name='手动备份'):
         with SAVE_WRITE_LOCK, profiles.LOCK:
@@ -79,9 +80,14 @@ class Backups:
                         self.workspace.checked(path)
                         if not path.is_file() or not self.allowed(rel) or path==dbfile: continue
                         target=temp/'数据'/rel;target.parent.mkdir(parents=True,exist_ok=True)
-                        shutil.copy2(path,target)
+                        if rel == '运行数据/认证/邮箱账号.sqlite3':
+                            with closing(sqlite3.connect(str(path))) as src, closing(sqlite3.connect(str(target))) as dst:
+                                src.backup(dst)
+                        else:
+                            shutil.copy2(path,target)
                 target=temp/'数据'/dbfile.relative_to(self.root);target.parent.mkdir(parents=True,exist_ok=True)
-                with sqlite3.connect(str(dbfile)) as src, sqlite3.connect(str(target)) as dst: src.backup(dst)
+                with closing(sqlite3.connect(str(dbfile))) as src, closing(sqlite3.connect(str(target))) as dst:
+                    src.backup(dst)
                 files=[]
                 for path in sorted((temp/'数据').rglob('*')):
                     if path.is_file(): files.append(dict(path=path.relative_to(temp/'数据').as_posix(),size=path.stat().st_size,sha256=ModuleStore.hash_file(path)))
@@ -116,7 +122,7 @@ class Backups:
         if actual!=names: raise ValueError('备份文件清单不完整')
         config=json.loads((folder/'数据'/marker).read_text('utf-8'))
         if config.get('format')!=4 or config.get('workspace')!='../..': raise ValueError('备份工作区配置无效')
-        with sqlite3.connect((folder/'数据'/dbrel).as_uri()+'?mode=ro&immutable=1',uri=True) as db:
+        with closing(sqlite3.connect((folder/'数据'/dbrel).as_uri()+'?mode=ro&immutable=1',uri=True)) as db:
             if db.execute('PRAGMA integrity_check').fetchone()[0]!='ok': raise ValueError('备份数据库损坏')
             # Every registered original must be recoverable from the snapshot.
             for digest, in db.execute('SELECT id FROM assets'):
@@ -126,29 +132,31 @@ class Backups:
         return m
 
     def export(self, identity, destination):
-        folder=self.path(identity);self.validate(folder)
-        with zipfile.ZipFile(destination,'w',zipfile.ZIP_DEFLATED) as out:
-            out.write(folder/'备份清单.json','备份清单.json')
-            for path in (folder/'数据').rglob('*'):
-                if path.is_file(): out.write(path,path.relative_to(folder).as_posix())
+        with SAVE_WRITE_LOCK, profiles.LOCK:
+            folder=self.path(identity);self.validate(folder)
+            with zipfile.ZipFile(destination,'w',zipfile.ZIP_DEFLATED) as out:
+                out.write(folder/'备份清单.json','备份清单.json')
+                for path in (folder/'数据').rglob('*'):
+                    if path.is_file(): out.write(path,path.relative_to(folder).as_posix())
 
     def import_archive(self, source):
-        identity='b'+secrets.token_hex(16);folder=self.path(identity);temp=folder.with_name('.'+identity+'.tmp')
-        temp.mkdir(parents=True)
-        try:
-            with zipfile.ZipFile(source) as archive:
-                entries=archive.infolist();names=[e.filename for e in entries]
-                if len(names)!=len(set(names)) or len(names)>100001 or sum(e.file_size for e in entries)>MAX_BYTES: raise ValueError('备份容量超限或含有重复路径')
-                for e in entries:
-                    if e.flag_bits&1 or (e.external_attr>>16)&0o170000==0o120000: raise ValueError('备份不能包含加密文件或链接')
-                    if e.filename!='备份清单.json' and not (e.filename.startswith('数据/') and self.allowed(e.filename[3:])): raise ValueError('备份路径无效')
-                    target=temp/e.filename;target.parent.mkdir(parents=True,exist_ok=True)
-                    with archive.open(e) as src,target.open('wb') as dst: shutil.copyfileobj(src,dst)
-            m=self.validate(temp);m['id']=identity;m['name']='导入 · '+str(m.get('name','备份'))[:110]
-            atomic_json(temp/'备份清单.json',m);temp.replace(folder)
-            return dict(id=identity,name=m['name'])
-        finally:
-            if temp.exists(): shutil.rmtree(temp)
+        with SAVE_WRITE_LOCK, profiles.LOCK:
+            identity='b'+secrets.token_hex(16);folder=self.path(identity);temp=folder.with_name('.'+identity+'.tmp')
+            temp.mkdir(parents=True)
+            try:
+                with zipfile.ZipFile(source) as archive:
+                    entries=archive.infolist();names=[e.filename for e in entries]
+                    if len(names)!=len(set(names)) or len(names)>100001 or sum(e.file_size for e in entries)>MAX_BYTES: raise ValueError('备份容量超限或含有重复路径')
+                    for e in entries:
+                        if e.flag_bits&1 or (e.external_attr>>16)&0o170000==0o120000: raise ValueError('备份不能包含加密文件或链接')
+                        if e.filename!='备份清单.json' and not (e.filename.startswith('数据/') and self.allowed(e.filename[3:])): raise ValueError('备份路径无效')
+                        target=temp/e.filename;target.parent.mkdir(parents=True,exist_ok=True)
+                        with archive.open(e) as src,target.open('wb') as dst: shutil.copyfileobj(src,dst)
+                m=self.validate(temp);m['id']=identity;m['name']='导入 · '+str(m.get('name','备份'))[:110]
+                atomic_json(temp/'备份清单.json',m);temp.replace(folder)
+                return dict(id=identity,name=m['name'])
+            finally:
+                if temp.exists(): shutil.rmtree(temp)
 
     def stage_restore(self, identity):
         with SAVE_WRITE_LOCK,profiles.LOCK:

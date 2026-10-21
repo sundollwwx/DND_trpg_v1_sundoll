@@ -1,0 +1,59 @@
+[
+  {
+    "date": "2026-10-05",
+    "title": "在酒馆传声留下你的想法吧！",
+    "id": "tavern-whispers",
+    "body": []
+  },
+  {
+    "date": "2026-10-05",
+    "title": "传奇画像功能上线，快来试试吧",
+    "id": "legendary-portrait",
+    "body": [
+      "为磨练各大冒险者们的解密探险之能力，酒馆现推出传奇画像拼图游戏，在冒险者们等候取餐期间可以尝试游玩，目前，游玩成功者可以瞥见传奇法师忒修斯的美貌神颜，快去试试吧！"
+    ],
+    "background": "assets/legendary-news-background.png"
+  },
+  {
+    "date": "2026-10-04",
+    "title": "风骸岛完结啦",
+    "id": "windwreck-finale",
+    "body": []
+  },
+  {
+    "date": "2026-10-04",
+    "title": "开启你的命运之骰吧！",
+    "id": "dice-of-fate",
+    "body": []
+  },
+  {
+    "date": "2026-10-04",
+    "title": "桑哆尔之歌 · 主站焕新",
+    "id": "homepage-renewal",
+    "body": []
+  },
+  {
+    "date": "2026-09-28",
+    "title": "传奇法师再次远航",
+    "id": "wizard-departure",
+    "body": []
+  },
+  {
+    "date": "2026-09-27",
+    "title": "传奇法师回归小队！",
+    "id": "wizard-return",
+    "body": []
+  },
+  {
+    "date": "2026-09-06",
+    "title": "四人小队启程风骸岛",
+    "id": "windwreck-departure",
+    "body": []
+  },
+  {
+    "date": "2026-08-08",
+    "title": "桑哆尔之歌酒馆试营业",
+    "id": "tavern-opening",
+    "body": []
+  }
+]

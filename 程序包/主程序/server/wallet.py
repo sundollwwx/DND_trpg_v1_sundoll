@@ -63,15 +63,19 @@ def coins_for(wallet):
     return change(wallet['balanceCp'], ('gp','sp','cp'))
 
 
+def wallet_request_signature(command, campaign, host=False):
+    fields = ('op', 'revision', 'characterId', 'recipientId', 'action', 'amount', 'currency', 'note')
+    signed = {k: command.get(k) for k in fields}
+    signed.update(host=host, campaign=campaign)
+    return hashlib.sha256(json.dumps(signed, sort_keys=True).encode()).hexdigest()
+
+
 def apply_wallet(store, pid, campaign, command, host, state, bag):
     error = store.error
     rid = command.get('requestId')
     if not isinstance(rid, str) or not re.fullmatch(r'[A-Za-z0-9_-]{16,96}', rid):
         raise error('操作编号无效')
-    fields = ('op', 'revision', 'characterId', 'recipientId', 'action', 'amount', 'currency', 'note')
-    signed = {k: command.get(k) for k in fields}
-    signed.update(host=host, campaign=campaign)
-    signature = hashlib.sha256(json.dumps(signed, sort_keys=True).encode()).hexdigest()
+    signature = wallet_request_signature(command, campaign, host)
     receipt = bag['receipts'].get(rid)
     if receipt:
         if receipt['signature'] != signature: raise error('操作编号冲突', 409)

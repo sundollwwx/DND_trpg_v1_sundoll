@@ -23,6 +23,12 @@ window.CampaignJournal = (() => {
 
   function cleanText(value) { return String(value ?? '').slice(0, MAX_TOTAL_TEXT); }
 
+  function worldSecondsValue(value) {
+    if (value === null || value === undefined || typeof value === 'boolean'
+      || (typeof value === 'string' && !value.trim())) return null;
+    return Number.isFinite(Number(value)) ? Math.max(0, Math.floor(Number(value))) : null;
+  }
+
   function entryIdFor(value, index, seen) {
     let id = String(value?.id || '');
     if (!ENTRY_ID.test(id) || seen.has(id)) id = `legacy-${index + 1}`;
@@ -42,10 +48,10 @@ window.CampaignJournal = (() => {
       text: cleanText(entry.text),
       author,
       createdAt: Math.max(0, Math.floor(Number(entry.createdAt ?? entry.at) || 0)),
-      createdWorldSeconds: Number.isFinite(Number(entry.createdWorldSeconds ?? entry.worldSeconds)) ? Math.max(0, Math.floor(Number(entry.createdWorldSeconds ?? entry.worldSeconds))) : null,
+      createdWorldSeconds: worldSecondsValue(Object.hasOwn(entry, 'createdWorldSeconds') ? entry.createdWorldSeconds : entry.worldSeconds),
       updatedBy,
       updatedAt: Math.max(0, Math.floor(Number(entry.updatedAt ?? entry.at) || 0)),
-      updatedWorldSeconds: Number.isFinite(Number(entry.updatedWorldSeconds ?? entry.worldSeconds)) ? Math.max(0, Math.floor(Number(entry.updatedWorldSeconds ?? entry.worldSeconds))) : null,
+      updatedWorldSeconds: worldSecondsValue(Object.hasOwn(entry, 'updatedWorldSeconds') ? entry.updatedWorldSeconds : entry.worldSeconds),
       legacy,
     };
   }
@@ -78,7 +84,7 @@ window.CampaignJournal = (() => {
       // 保留旧字段，确保旧版存档及恢复工具仍能读取正文。
       text: entries.map(entry => entry.text).join('\f'),
       author: cleanTitle(source.author || '', ''),
-      worldSeconds: Number.isFinite(Number(source.worldSeconds)) ? Math.max(0, Math.floor(Number(source.worldSeconds))) : null,
+      worldSeconds: worldSecondsValue(source.worldSeconds),
       history: Array.isArray(source.history) ? source.history.filter(item => item && typeof item === 'object').slice(-50) : [],
     };
   }

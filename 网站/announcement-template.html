@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="account-api" content="https://pl.sundollworld.com">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="{{DESCRIPTION}}">
+  <meta name="theme-color" content="#101719">
+  <title>{{TITLE}} · 费伦日报 · 桑哆尔之歌</title>
+  <link rel="icon" href="/assets/sundoll-logo.png">
+  <link rel="stylesheet" href="/style.css">
+  <script src="/site-account.js" defer></script>
+</head>
+<body class="news-page{{PAGE_CLASS}}">
+  <a class="skip-link" href="#main">跳到正文</a>
+  <header class="site-header">
+    <div class="header-inner wrap">
+      <a class="brand" href="/" aria-label="桑哆尔之歌首页"><img src="/assets/sundoll-logo.png" alt="" width="36" height="36"><span class="brand-name">桑哆尔之歌<span class="brand-english">THE SONG OF SUNDOLL</span></span></a>
+      <div class="header-actions"><nav class="site-nav" aria-label="主站导航"><a href="/">首页</a><a href="/about.html">关于</a></nav>
+        <div class="header-user-controls">
+          <a class="account-signin" data-sundoll-entry="account" data-site-account-signedout href="https://pl.sundollworld.com/account" aria-label="登录或注册账号"><svg class="account-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="8" r="3.5"></circle><path d="M5 20v-1.5a7 7 0 0 1 14 0V20"></path></svg><span data-site-account-link-label>登录 / 注册</span></a>
+          <details class="account-menu" data-site-account-menu hidden>
+            <summary class="account-trigger" aria-label="账号菜单"><span class="account-avatar" data-site-account-initial aria-hidden="true"></span><span class="account-display-name" data-site-account-name></span><svg class="account-chevron" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="m4 6 4 4 4-4"></path></svg></summary>
+            <div class="account-popover">
+              <div class="account-popover-identity"><span class="account-popover-kicker">我的账号</span><strong data-site-account-name></strong></div>
+              <a class="account-popover-link" data-sundoll-entry="account" href="https://pl.sundollworld.com/account#dashboard"><svg class="account-menu-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m3 11 9-8 9 8M5 10v10h5v-6h4v6h5V10"></path></svg><span data-site-account-link-label>我的主页</span><span class="account-link-arrow" aria-hidden="true">→</span></a>
+              <button class="account-logout" data-site-account-logout type="button"><svg class="account-menu-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M10 4H5v16h5M10 12h11m-4-4 4 4-4 4"></path></svg><span data-site-account-logout-label>退出登录</span></button>
+            </div>
+          </details>
+        </div>
+      </div>
+    </div>
+  </header>
+  <main id="main" class="news-main">
+    {{BACKGROUND}}
+    <article class="news-article wrap">
+      <header class="news-heading"><a class="news-back" href="/#announcements"><span aria-hidden="true">←</span> 返回费伦日报</a><h1>{{TITLE}}</h1></header>
+      <div class="news-body">{{BODY}}</div>
+    </article>
+  </main>
+  <footer class="site-footer wrap"><span class="footer-brand">THE SONG OF SUNDOLL</span><a href="/#announcements">费伦日报 <span aria-hidden="true">↗</span></a></footer>
+</body>
+</html>

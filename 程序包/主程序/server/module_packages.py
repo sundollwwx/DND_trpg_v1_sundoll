@@ -16,6 +16,7 @@ import time
 from urllib.parse import unquote, urlparse
 import zipfile
 from .module_store import ModuleStore, ASSET_URL, DIGEST, encode, RevisionConflict
+from .content_packages import ContentPackages, local_package_id, package_metadata
 
 KINDS = ('general', 'campaign-content', 'campaign-progress', 'player')
 MAX_PACKAGE_BYTES = 2 * 1024 ** 3
@@ -86,6 +87,27 @@ class ModulePackages:
         if kind not in KINDS: raise ValueError('模块种类无效')
         module_id = module_id or 'mod-' + secrets.token_hex(16)
         if not re.fullmatch(r'[A-Za-z0-9_-]{1,96}', module_id): raise ValueError('模块编号无效')
+        payload = copy.deepcopy(payload)
+        if kind != 'player':
+            primary, packages = self.content_graph(dict(moduleId=module_id, kind=kind, name=str(name)[:120]), payload)
+            payload['contentPackage'] = primary
+            known = {p['id']:p for p in packages}
+            for field in ('templates', 'items'):
+                for entry in payload.get(field, []):
+                    scope = entry.get('scope', primary['scope'])
+                    identity = entry.get('contentPackageId') or primary['id']
+                    if not entry.get('contentPackageId') and scope == 'general' and primary['scope'] == 'campaign':
+                        identity = next((p['id'] for p in packages if p['scope']=='general'),
+                            local_package_id('legacy-dependency:' + module_id + ':general:'))
+                    if identity not in known:
+                        known[identity] = package_metadata(dict(id=identity, name=entry.get('campaignName') or name,
+                            scope=scope, sourceCampaignId=entry.get('campaignId', '')))
+                    entry['contentPackageId'] = identity
+                    entry.setdefault('contentEntryId', entry['id'])
+                    if field == 'items':
+                        entry['scope'] = known[identity]['scope']
+                        entry['campaignId'] = known[identity]['sourceCampaignId']
+            payload['contentPackages'] = sorted(known.values(), key=lambda p:p['id'])
         payload = self.portable(payload, 'module:' + module_id)
         body = encode(payload).encode()
         assets = []
@@ -95,8 +117,9 @@ class ModulePackages:
             path, mime, size = asset
             if self.store.hash_file(path) != digest: raise ValueError('模块原图校验失败')
             assets.append({'id': digest, 'mime': mime, 'size': size})
-        manifest = dict(format='sundoll-module', schemaVersion=3, moduleId=module_id, kind=kind,
+        manifest = dict(format='sundoll-module', schemaVersion=4, moduleId=module_id, kind=kind,
                         name=str(name)[:120], createdAt=int(time.time()*1000), dataHash=hashlib.sha256(body).hexdigest(), assets=assets)
+        if kind != 'player': manifest['contentPackageId'] = payload['contentPackage']['id']
         self.validate_payload(kind, payload)
         destination = Path(destination)
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -113,24 +136,102 @@ class ModulePackages:
         return manifest
 
     @staticmethod
+    def content_graph(manifest, payload):
+        scope = 'general' if manifest['kind'] == 'general' else 'campaign'
+        primary = package_metadata(payload.get('contentPackage') or dict(
+            id=local_package_id('archive:' + manifest['moduleId']), name=manifest.get('name') or manifest['moduleId'],
+            scope=scope, sourceCampaignId=payload.get('state', {}).get('campaignId', '') if scope == 'campaign' else ''))
+        if primary['scope'] != scope: raise ValueError('模块类型与内容包归属不一致')
+        raw = payload.get('contentPackages', [primary])
+        if 'contentPackage' not in payload and 'contentPackages' not in payload:
+            for item in payload.get('items', []):
+                item_scope = item.get('scope', scope)
+                if item_scope == 'general' and scope == 'campaign':
+                    dependency = dict(id=local_package_id('legacy-dependency:' + manifest['moduleId'] + ':general:'),
+                        name=(manifest.get('name') or manifest['moduleId'])[:110]+' · 通用内容', scope='general', sourceCampaignId='')
+                    if dependency not in raw: raw.append(dependency)
+        if not isinstance(raw, list) or len(raw)>256: raise ValueError('内容包依赖清单无效')
+        packages = [package_metadata(p) for p in raw]
+        if len({p['id'] for p in packages}) != len(packages): raise ValueError('内容包依赖重复')
+        if scope == 'general' and any(p['scope'] != 'general' for p in packages):
+            raise ValueError('通用内容包不能包含战役专属定义')
+        if primary not in packages: raise ValueError('内容包清单缺少自身身份')
+        return primary, packages
+
+    @staticmethod
     def validate_payload(kind, payload):
         if not isinstance(payload, dict) or strip_secrets(payload) != payload:
             raise ValueError('模块包含无效或认证资料')
-        allowed = {'general': {'templates','items'}, 'campaign-content': {'state','templates','items','documents','music','mapItems'},
-                   'campaign-progress': {'state','templates','items','documents','music','mapItems','resourceSnapshot'},
-                   'player': {'profile','library','characters','backpack','resourceSnapshot'}}[kind]
+        allowed = {'general': {'templates','items','contentPackage','contentPackages','dailyLife'}, 'campaign-content': {'state','templates','items','documents','music','mapItems','contentPackage','contentPackages','contentSelection'},
+                   'campaign-progress': {'state','templates','items','documents','music','mapItems','resourceSnapshot','contentPackage','contentPackages','contentSelection'},
+                   'player': {'profile','library','characters','backpack','resourceSnapshot','contentDependencies'}}[kind]
         if set(payload) - allowed: raise ValueError('模块含有不属于此类型的数据')
+        if 'dailyLife' in payload:
+            from .daily_life import validate_bundle
+            validate_bundle(payload['dailyLife'])
+        if kind != 'player':
+            for item in payload.get('items', []):
+                if item.get('sourceScope')=='personal' or any(item.get(k) for k in ('ownerCharacterId','ownerPlayerId','sourcePlayerId','sourceCharacterId','boundCharacterId')):
+                    raise ValueError('角色专属物品应保留在玩家包，不能作为共享模板导出')
+        if kind == 'general':
+            for template in payload.get('templates', []):
+                if any(template.get(key) for key in ('ownedPieceId','characterId','ownerPlayerId','campaignId')):
+                    raise ValueError('通用内容包不能包含真实玩家身份或战役专属模板')
+        if kind != 'player' and 'contentPackage' in payload:
+            primary, packages = ModulePackages.content_graph(dict(moduleId='validation', kind=kind), payload)
+            known = {p['id']:p for p in packages}
+            for entry in payload.get('items', []) + payload.get('templates', []):
+                if entry.get('contentPackageId') not in known: raise ValueError('模板缺少内容包来源')
+                if entry.get('scope') and entry['scope'] != known[entry['contentPackageId']]['scope']:
+                    raise ValueError('物品归属与内容包不一致')
+            selection = payload.get('contentSelection')
+            if selection is not None and (not isinstance(selection, dict) or
+                    selection.get('sourcePackageId') != primary['id'] or
+                    not isinstance(selection.get('enabledPackageIds'), list) or len(selection['enabledPackageIds'])>256 or
+                    any(not re.fullmatch(r'[A-Za-z0-9_-]{1,96}', str(v)) for v in selection['enabledPackageIds'])):
+                raise ValueError('战役内容包启用清单无效')
         snapshot = payload.get('resourceSnapshot')
-        if snapshot is not None and (not isinstance(snapshot, dict) or set(snapshot) != {'authority','lootHash'} or
-                not DIGEST.fullmatch(str(snapshot.get('authority'))) or not DIGEST.fullmatch(str(snapshot.get('lootHash')))):
+        if snapshot is not None and (not isinstance(snapshot, dict) or set(snapshot) not in (
+                    {'authority','lootHash'}, {'authority','lootHash','inventoryHash'}) or
+                not DIGEST.fullmatch(str(snapshot.get('authority'))) or not DIGEST.fullmatch(str(snapshot.get('lootHash'))) or
+                ('inventoryHash' in snapshot and not DIGEST.fullmatch(str(snapshot['inventoryHash'])))):
             raise ValueError('模块资源版本信息无效')
         if kind.startswith('campaign'):
             state = payload.get('state')
             if not isinstance(state, dict) or not isinstance(state.get('maps'), list): raise ValueError('战役地图数据无效')
+            map_ids, token_ids = set(), set()
+            for entry in state['maps']:
+                mid = entry.get('id') if isinstance(entry, dict) else None
+                if not isinstance(mid, str) or not mid or len(mid) > 128: raise ValueError('战役地图身份无效')
+                if mid in map_ids: raise ValueError('战役地图身份重复')
+                map_ids.add(mid)
+                if not isinstance(entry.get('tokens', []), list): raise ValueError('战役棋子数据无效')
+                for token in entry.get('tokens', []):
+                    tid = token.get('id') if isinstance(token, dict) else None
+                    if not isinstance(tid, str) or not tid or len(tid) > 128: raise ValueError('战役棋子身份无效')
+                    if tid in token_ids: raise ValueError('战役棋子身份重复')
+                    token_ids.add(tid)
             if kind == 'campaign-content':
-                if state.get('parkedOwnedPieces') or any(t.get('ownedPieceId') or t.get('ownerPlayerId') for m in state['maps'] for t in m.get('tokens', [])):
+                off_map = state.get('travelBasketTokens', [])
+                if (state.get('parkedOwnedPieces') or
+                        any(t.get('ownedPieceId') or t.get('ownerPlayerId') for m in state['maps'] for t in m.get('tokens', [])) or
+                        any(isinstance(t, dict) and (t.get('ownedPieceId') or t.get('ownerPlayerId')) for t in off_map)):
                     raise ValueError('战役内容包不能包含真实玩家身份')
+                for group in payload.get('mapItems', {}).values():
+                    for marker in group.get('markers', []):
+                        if any(i.get('sourceScope')=='personal' or i.get('boundCharacterId') for i in marker.get('items', [])):
+                            raise ValueError('角色专属物品应随玩家包导出，不能混入战役内容包')
         if kind == 'player':
+            dependencies = payload.get('contentDependencies', [])
+            if not isinstance(dependencies, list) or len(dependencies)>512 or len({p.get('id') for p in dependencies if isinstance(p,dict)}) != len(dependencies):
+                raise ValueError('玩家包的内容来源清单无效')
+            for dependency in dependencies:
+                if not isinstance(dependency, dict) or dependency.get('scope') not in ('general','campaign','personal'):
+                    raise ValueError('玩家包的内容来源分类无效')
+                if dependency['scope']=='personal':
+                    if not re.fullmatch(r'[A-Za-z0-9_-]{1,96}', str(dependency.get('id'))) or not re.fullmatch(r'p[0-9a-f]{32}', str(dependency.get('sourcePlayerId'))):
+                        raise ValueError('角色专属内容的来源无效')
+                else: package_metadata(dependency)
             profile = payload.get('profile', {})
             pid = profile.get('playerId')
             if set(profile) - {'playerId','name','enabled','revision'} or not re.fullmatch(r'p[0-9a-f]{32}', str(pid)):
@@ -163,13 +264,16 @@ class ModulePackages:
                 if key not in names or archive.getinfo(key).file_size > 16*1024*1024:
                     raise ValueError('模块清单缺失或过大')
             manifest = json.loads(archive.read('manifest.json'))
-            if manifest.get('format') != 'sundoll-module' or manifest.get('schemaVersion') != 3 or manifest.get('kind') not in KINDS:
+            if manifest.get('format') != 'sundoll-module' or manifest.get('schemaVersion') not in (3,4) or manifest.get('kind') not in KINDS:
                 raise ValueError('模块格式版本不兼容')
             if not re.fullmatch(r'[A-Za-z0-9_-]{1,96}', str(manifest.get('moduleId'))): raise ValueError('模块编号无效')
             body = archive.read('data.json')
             if hashlib.sha256(body).hexdigest() != manifest.get('dataHash'): raise ValueError('模块数据校验失败')
             payload = json.loads(body)
             self.validate_payload(manifest['kind'], payload)
+            if manifest['schemaVersion'] == 4 and manifest['kind'] != 'player':
+                if manifest.get('contentPackageId') != payload.get('contentPackage', {}).get('id'):
+                    raise ValueError('内容包身份与清单不一致')
             assets = manifest.get('assets')
             if not isinstance(assets, list): raise ValueError('模块资源清单无效')
             expected = {'manifest.json','data.json'}
@@ -212,6 +316,10 @@ class ModulePackages:
             self.store.write_document(db, 'installed-module', identity, '', {'manifest': manifest}, old['revision'] if old else 0)
             content = self.store.document(db, 'module-content', identity)
             self.store.write_document(db, 'module-content', identity, '', payload, content['revision'] if content else 0)
+            if manifest['kind'] != 'player':
+                _, packages = self.content_graph(manifest, payload)
+                content = ContentPackages(self.save_root)
+                for package in packages: content.register(package, db, module_id=identity)
         return dict(manifest, alreadyInstalled=False, updated=bool(old))
 
     def catalog(self):

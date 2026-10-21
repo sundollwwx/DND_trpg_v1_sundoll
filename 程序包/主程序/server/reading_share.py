@@ -15,7 +15,7 @@ class ReadingShares:
         self.entries = {k: v for k, v in self.entries.items()
                         if v['expires'] > now and v['campaign'] == campaign}
 
-    def invite(self, campaign, sender, name, item, recipients):
+    def invite(self, campaign, sender, name, item, recipients, source=None, context_revision=None):
         self.prune(campaign)
         if (item.get('category') != 'document' or item.get('documentType') not in ('letter', 'book')
                 or not item.get('body', '').strip() or item.get('quantity', 0) <= 0):
@@ -31,16 +31,21 @@ class ReadingShares:
         now = self.clock()
         self.entries[identity] = dict(campaign=campaign, sender=sender, created=now,
             expires=now+120, recipients=recipients,
+            source=copy.deepcopy(source), itemId=item.get('id'), contextRevision=context_revision,
             item={k: copy.deepcopy(item[k]) for k in ('name', 'category', 'documentType', 'body')})
         return dict(type='readingInvite', shareId=identity, campaignId=campaign,
                     senderId=sender, senderName=name, name=item['name'],
                     documentType=item['documentType'], recipients=sorted(recipients), expiresAt=int((now+120)*1000))
 
-    def accept(self, campaign, identity, player):
+    def accept(self, campaign, identity, player, available=None, context_revision=None):
         self.prune(campaign)
         entry = self.entries.get(identity)
         if not entry:
             raise self.error('这次阅读共享已过期，请让对方重新共享', 410)
         if player not in entry['recipients']:
             raise self.error('你不在这次阅读共享的接收名单中', 403)
+        if ((entry.get('contextRevision') is not None and entry['contextRevision'] != context_revision)
+                or (available is not None and not available(entry))):
+            self.entries.pop(identity, None)
+            raise self.error('这件文书或战役启用的内容包已变化，请重新共享', 410)
         return copy.deepcopy(entry['item'])

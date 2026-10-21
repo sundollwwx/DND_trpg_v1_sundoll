@@ -6,7 +6,7 @@ import math
 import re
 import secrets
 from .resources import ResourceStore
-from .inventory import InventoryStore
+from .inventory import InventoryStore, ORIGIN_FIELDS
 
 
 def public_check(check):
@@ -28,6 +28,8 @@ def validate_map_items(data):
                 if not isinstance(marker['id'], str) or marker['id'] in seen: raise ValueError()
                 seen.add(marker['id'])
                 if type(marker.get('locked', False)) is not bool or marker.get('lockType','normal') not in ('normal','arcane') or type(marker.get('lockDC',15)) is not int or not 1<=marker.get('lockDC',15)<=40 or not isinstance(marker.get('lockAttempts',{}),dict): raise ValueError()
+                if type(marker.get('positionLocked', False)) is not bool: raise ValueError()
+                if type(marker.get('pickupAllowed', True)) is not bool: raise ValueError()
                 if type(marker.get('revision', 0)) is not int or marker.get('revision', 0) < 0: raise ValueError()
                 if marker['kind'] not in ('item', 'container') or type(marker['visible']) is not bool or not isinstance(marker['name'], str): raise ValueError()
                 for key in ('x', 'y', 'size'):
@@ -47,7 +49,7 @@ class StagedGrant(ResourceStore):
     def save(self, data):
         pass  # MapItems saves this staged ledger exactly once, with the map debit.
 
-    def grant_definition(self, command):
+    def grant_definition(self, command, campaign=None, pid=None):
         return copy.deepcopy(self.definition)
 
 
@@ -59,6 +61,7 @@ class MapItems:
 
     def apply(self, command, state, host=False, player=None):
         with self.impl.LOCK:
+            self.resources._packages = None
             campaign, map_id = command.get('campaignId'), command.get('mapId')
             # Hosts also prepare maps before starting a player broadcast. Never use
             # client-supplied metadata to authorize a player request.
@@ -81,15 +84,19 @@ class MapItems:
             if not host and op != 'get':
                 if not player or not player.get('playerId'): raise self.error('玩家会话已失效', 401)
                 if op in ('take', 'pickLock', 'inspireLock', 'finishLock') and not player.get('persistent'): raise self.error('请使用玩家档案登录后进行检定或领取物品', 403)
-                allowed = {'op','campaignId','mapId','markerId','markerRevision','requestId','revision','sessionToken'} | ({'x','y'} if op == 'move' else {'modifier','mode','guidance','inspirationDie'} if op == 'pickLock' else {'checkId','inspirationDie'} if op=='inspireLock' else {'checkId'} if op=='finishLock' else {'itemId','quantity','characterId'})
+                allowed = {'op','campaignId','mapId','markerId','markerRevision','requestId','revision','sessionToken','packageContextRevision'} | ({'x','y'} if op == 'move' else {'modifier','mode','guidance','inspirationDie'} if op == 'pickLock' else {'checkId','inspirationDie'} if op=='inspireLock' else {'checkId'} if op=='finishLock' else {'itemId','quantity','characterId'})
                 if set(command) - allowed: raise self.error('玩家只能移动或领取已展示物品', 403)
             data = self.resources.ledger()
             group = data.setdefault('mapItems', {}).setdefault(campaign, {}).setdefault(map_id, dict(revision=0, markers=[], receipts={}))
             def result():
                 markers = copy.deepcopy(group['markers'])
+                markers = [v for v in markers if not v.get('containerItem') or self.resources.item_available(v['containerItem'], campaign)]
                 for v in markers:
+                    v['items'] = [i for i in v['items'] if self.resources.item_available(i, campaign)]
                     v.setdefault('revision', 0)
                     v.setdefault('locked', False)
+                    v.setdefault('positionLocked', False)
+                    v.setdefault('pickupAllowed', True)
                     v.setdefault('lockType', 'normal')
                     attempts=v.pop('lockAttempts', {})
                     if not host:
@@ -100,13 +107,15 @@ class MapItems:
                     markers = [v for v in markers if v['visible']]
                     for v in markers:
                         for item in v['items'] + ([v['containerItem']] if v.get('containerItem') else []):
-                            item.pop('sourceTemplateId', None)
-                            item.pop('sourceTemplateVersion', None)
-                response=dict(revision=group['revision'] if host else 0, markers=markers)
+                            for field in ORIGIN_FIELDS: item.pop(field, None)
+                markers = [v for v in markers if v['kind'] == 'container' or v['items']]
+                response=dict(revision=group['revision'] if host else 0, markers=markers,
+                              packageContextRevision=self.resources.packages.context(campaign)['revision'])
                 if data.get('globalCharacters'):
                     eligible = {p['playerId']: p for p in self.profiles.players() if p.get('enabled') is not False} if host else {}
                     response['recipients'] = [dict(id=c['id'], name=c['name'], playerId=c['ownerPlayerId'],
-                        playerName=eligible.get(c['ownerPlayerId'], {}).get('name', ''), hpMax=c['base']['hpMax'], ac=c['base']['ac'])
+                        playerName=eligible.get(c['ownerPlayerId'], {}).get('name', ''),
+                        collectionRole=self.profiles.piece_roles(self.profiles.library(c['ownerPlayerId'])).get(c['id'], 'character'))
                         for c in data['characters'].get('@global', {}).values()
                         if (c['ownerPlayerId'] in eligible if host else c['ownerPlayerId'] == (player or {}).get('playerId'))
                         and self.profiles.owns(c['ownerPlayerId'], c['id'])]
@@ -115,7 +124,7 @@ class MapItems:
                     response['check']=public_check(group.get('lockChecks',{}).get(receipt))
                 return response
             if op == 'get': return result()
-            if op not in ('place', 'container', 'add', 'update', 'remove', 'grant', 'unpack', 'move', 'take', 'deleteContent', 'pickLock', 'inspireLock', 'finishLock'):
+            if op not in ('place', 'container', 'add', 'update', 'remove', 'grant', 'unpack', 'move', 'take', 'editContent', 'deleteContent', 'pickLock', 'inspireLock', 'finishLock'):
                 raise self.error('物品操作无效')
             rid = command.get('requestId')
             if not isinstance(rid, str) or not re.fullmatch(r'[A-Za-z0-9_-]{16,96}', rid): raise self.error('操作编号无效')
@@ -127,12 +136,18 @@ class MapItems:
             if previous:
                 if previous != signature: raise self.error('操作编号重复，请刷新', 409)
                 return result()
+            self.resources.check_package_context(command, campaign)
             if host and op != 'move' and (type(command.get('revision')) is not int or command['revision'] != group['revision']):
                 raise self.error('地图物品已更新，请刷新后核对', 409)
             marker = next((v for v in group['markers'] if v['id'] == command.get('markerId')), None)
             if op not in ('place', 'container') and marker is None: raise self.error('物品已移除，请刷新', 409)
             if not host:
                 if not marker or not marker['visible']: raise self.error('物品不可用，请刷新地图', 403)
+            if marker is not None:
+                if marker.get('containerItem'):
+                    self.resources.require_item_available(marker['containerItem'], campaign)
+                if marker['kind'] == 'item' and marker['items'] and not any(self.resources.item_available(i, campaign) for i in marker['items']):
+                    raise self.error('物品所属内容包未在当前战役启用', 409)
             if not host or op == 'move':
                 if type(command.get('markerRevision')) is not int or command['markerRevision'] != marker.get('revision', 0):
                     raise self.error('物品已更新，请核对最新状态后重试', 409)
@@ -142,6 +157,16 @@ class MapItems:
                 marker = dict(id='loot-'+secrets.token_hex(16), kind='container' if op == 'container' else 'item',
                               name='宝箱', x=0, y=0, size=.75 if op == 'container' else .5, visible=False, items=[])
                 group['markers'].append(marker)
+            if op in ('move', 'update') and marker.get('positionLocked') and (op == 'move' or 'x' in command or 'y' in command):
+                raise self.error('物品位置已固定，请由主控解除固定后再移动', 403)
+            if 'positionLocked' in command:
+                if not host or op not in ('place', 'container', 'update'): raise self.error('只有主控可以设置固定位置', 403)
+                if type(command['positionLocked']) is not bool: raise self.error('固定位置状态无效')
+                marker['positionLocked'] = command['positionLocked']
+            if 'pickupAllowed' in command:
+                if not host or op not in ('place', 'container', 'update'): raise self.error('只有主控可以设置拾取权限', 403)
+                if type(command['pickupAllowed']) is not bool: raise self.error('拾取权限无效')
+                marker['pickupAllowed'] = command['pickupAllowed']
             if op in ('place', 'container', 'update', 'move'):
                 for key in ('x', 'y', 'size'):
                     if key not in command: continue
@@ -216,12 +241,16 @@ class MapItems:
                     group.setdefault('lockChecks',{})[receipt_id]=copy.deepcopy(check)
                     if check['success']: marker['locked']=False
             if op=='take' and marker.get('locked'): raise self.error('宝箱尚未解锁',403)
+            if op=='take' and marker.get('pickupAllowed', True) is False: raise self.error('这件物品只能查看',403)
             if op in ('place', 'add'):
                 if op == 'add' and marker['kind'] != 'container': raise self.error('只能向容器添加物品')
                 if len(marker['items']) >= 100: raise self.error('容器最多装 100 种物品')
                 quantity = command.get('quantity')
                 if type(quantity) is not int or not 1 <= quantity <= 999: raise self.error('数量应为 1–999')
-                definition = self.resources.grant_definition(command)
+                definition = self.resources.grant_definition(command, campaign)
+                if op == 'place':
+                    for field, default in (('positionLocked', False), ('pickupAllowed', True)):
+                        if field not in command: marker[field] = definition.get('mapDefaults', {}).get(field, default)
                 if definition['category'] == 'container':
                     if op == 'add': raise self.error('请将容器单独放到地图上，再向里面装入物品')
                     if quantity != 1: raise self.error('宝箱请一次放置一个，每个宝箱分别保存内容')
@@ -229,20 +258,45 @@ class MapItems:
                 else:
                     marker['items'].append(dict(definition, id='content-'+secrets.token_hex(16), quantity=quantity))
                 if op == 'place': marker['name'] = definition['name']
+            if op == 'editContent':
+                from .inventory import item_definition
+                if command.get('itemId') == '@container':
+                    if marker['kind'] != 'container': raise self.error('这不是容器')
+                    item = marker.setdefault('containerItem', {})
+                else:
+                    item = next((v for v in marker['items'] if v['id'] == command.get('itemId')), None)
+                if item is None: raise self.error('物品已取走，请刷新', 409)
+                if item: self.resources.require_item_available(item, campaign)
+                definition = (item_definition(command.get('item'), self.error) if item else
+                              self.resources.grant_definition(dict(item=command.get('item')), campaign))
+                if (definition['category'] == 'container') != (command.get('itemId') == '@container'):
+                    raise self.error('请保留容器与箱内物品的类型')
+                if command.get('itemId') != '@container':
+                    quantity = command.get('quantity', item['quantity'])
+                    if type(quantity) is not int or not 1 <= quantity <= 999: raise self.error('数量应为 1–999')
+                    item['quantity'] = quantity
+                for field in ('ruleId', 'ruleVersion', 'body', 'documentType', 'valueCp', 'valueCurrency', 'weightLb', 'mapDefaults'):
+                    if field not in definition: item.pop(field, None)
+                item.update(definition)
+                if marker['kind'] == 'item' or command.get('itemId') == '@container': marker['name'] = item['name']
             if op == 'unpack':
                 if marker['kind'] != 'container': raise self.error('只能从容器中取出物品')
                 item = next((v for v in marker['items'] if v['id'] == command.get('itemId')), None)
                 if not item: raise self.error('物品已取走，请刷新', 409)
+                self.resources.require_item_available(item, campaign)
                 if len(group['markers']) >= 300: raise self.error('地图物品标记已满，请先整理')
                 item = copy.deepcopy(item)
+                defaults = item.get('mapDefaults', {})
                 group['markers'].append(dict(id='loot-'+secrets.token_hex(16), kind='item', name=item['name'],
                     x=min(float(m.get('mapW') or 10000), marker['x']+float(m.get('gridSize') or 50)), y=marker['y'],
-                    size=.5, visible=marker['visible'], items=[item]))
+                    size=.5, visible=marker['visible'], positionLocked=defaults.get('positionLocked', False),
+                    pickupAllowed=defaults.get('pickupAllowed', True), items=[item]))
                 marker['items'] = [v for v in marker['items'] if v['id'] != item['id']]
             if op == 'deleteContent':
                 if marker['kind'] != 'container': raise self.error('请在宝箱中选择要删除的物品')
                 item = next((v for v in marker['items'] if v['id'] == command.get('itemId')), None)
                 if not item: raise self.error('物品已被取走，请刷新', 409)
+                self.resources.require_item_available(item, campaign)
                 marker['items'].remove(item)
             if op == 'remove': group['markers'].remove(marker)
             if op in ('grant', 'take'):
@@ -250,6 +304,7 @@ class MapItems:
                 quantity = command.get('quantity')
                 if not item or type(quantity) is not int or not 1 <= quantity <= item['quantity']:
                     raise self.error('剩余数量不足，请刷新', 409)
+                self.resources.require_item_available(item, campaign)
                 pid = command.get('playerId') if host else player['playerId']
                 profile = self.profiles.read(pid)
                 if profile.get('enabled') is False: raise self.error('玩家档案已停用', 403)

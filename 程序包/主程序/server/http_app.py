@@ -1,10 +1,9 @@
-import shutil
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-桑哆尔之歌 · 简易联机服务器（零依赖，Python 3.7+）
-用法：在项目根目录运行  python3 程序包/应用/start_server.py [端口]
-      或运行  python3 程序包/应用/start_server.py --port 8092 --bind 0.0.0.0
+桑哆尔之歌 · 联机服务器（Python 3.9+，仅使用标准库）
+用法：在项目根目录运行  python3 程序包/主程序/start_server.py [端口]
+      或运行  python3 程序包/主程序/start_server.py --port 8092 --bind 0.0.0.0
 默认端口 8090。启动后：
   主机（你）：浏览器打开 http://localhost:8090/主控台/主控台.html 或本地双击主控台，
               在「📡 联机 → 开启玩家模式」开启推送。
@@ -12,11 +11,12 @@ import shutil
 """
 import os, sys, json, time, socket, threading, re, base64, hashlib, math, random, secrets, shutil, copy, zipfile
 import xml.etree.ElementTree as ET
-from urllib.parse import urlparse, parse_qs, unquote_to_bytes, quote
+from urllib.parse import urlparse, parse_qs, unquote_to_bytes, unquote, quote
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from http.cookies import SimpleCookie
 import tempfile
 import sqlite3
+import logging
 from collections import deque
 from contextlib import nullcontext
 from pathlib import Path
@@ -47,12 +47,18 @@ ROOT = os.path.dirname(BASE)
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 from server.static_policy import static_file_allowed
+from server.http_errors import database_error_boundary
+from server.backpack_service import prepare_backpack_request
+from server.module_staging import ModuleStaging
 from server.runtime_config import protocol_version
 from server import paths
+from server.web_entrances import WebEntrances
+WEB_ENTRANCES = WebEntrances.load(Path(paths.local_save_root()).parent)
 from server.inventory import CATALOG as ITEM_CATALOG
 from server.resources import ResourceStore, projection as character_projection
 from server.item_library import ItemLibrary
 from server.map_items import MapItems
+from server.content_packages import ContentPackages
 from server.domain.values import (
     finite_number,
     finite_int,
@@ -82,13 +88,6 @@ from server.domain.weather import (
     WORLD_WEEKS_PER_YEAR,
     WEATHER_ROLLOVER_SECONDS,
     MAX_WEATHER_CATCHUP_DAYS,
-    WEATHER_KEYS,
-    WIND_KEYS,
-    WEATHER_TEMPERATURE_DELTAS,
-    WEATHER_MARKOV_TRANSITIONS,
-    WIND_MARKOV_TRANSITIONS,
-    WEATHER_WIND_WEIGHTS,
-    CLIMATE_PROFILES,
     weather_day_index,
     weather_season,
     normalize_weather,
@@ -98,6 +97,7 @@ from server.domain.weather import (
     generate_climate_weather,
     refresh_scheduled_weather,
 )
+from server.weather_service import refresh_encounter_weather, CLIMATE_UNAVAILABLE_MESSAGE
 from server.documents import (
     DOCUMENT_EXTS,
     MAX_DOCUMENT_LIBRARY_FILES,
@@ -137,7 +137,6 @@ from server.music_catalog import (
 
 STATE = None
 CLIENTS = []          # SSEClient instances; only connection threads write sockets.
-LOCK = threading.Lock()
 RECENT_ACTIONS = []   # 玩家动作（带自增 seq），用于主机合并
 NEXT_SEQ = 1
 MAX_RECENT = 500
@@ -145,7 +144,7 @@ MAX_BODY = 12 * 1024 * 1024
 MAP_ASSET_MIMES = {'image/png', 'image/jpeg', 'image/webp', 'image/gif'}
 from server.token_sizes import size_fields, can_ride, mount_anchor, sync_riders, snapped_point
 
-PATCH_FIELDS = {'portraitVariant', 'portraitVariants', 'hp', 'hpMax', 'tempHp', 'tempHpMax', 'ac', 'spellRange', 'conditions'}
+PATCH_FIELDS = {'portraitVariant', 'portraitVariants', 'portraitView', 'hp', 'hpMax', 'tempHp', 'tempHpMax', 'ac', 'spellRange', 'conditions'}
 MAX_TOKEN_CONDITIONS = 20
 CONDITION_ID_RE = re.compile(r'^[A-Za-z0-9_.:-]{1,96}$')
 CONDITION_KEY_RE = re.compile(r'^[A-Za-z0-9_-]{1,32}$')
@@ -197,6 +196,49 @@ from server import player_profiles as profiles
 LOCK = profiles.LOCK
 def profile_store():
     return profiles.Store(LOCAL_SAVE_ROOT, ROOT, ASSET_ROOT)
+
+
+def migration_snapshot(runtime=None, overview_data=None):
+    """Report committed migration state without exposing gameplay or credentials."""
+    from server.module_runtime import ModuleRuntime
+    from server.module_management import overview
+    from server.workspace import cache_root
+    from server.save_storage import SAVE_WRITE_LOCK
+    runtime = runtime or ModuleRuntime(LOCAL_SAVE_ROOT, ROOT)
+    with SAVE_WRITE_LOCK, profiles.LOCK:
+        data = overview_data if overview_data is not None else overview(runtime)
+        store = profiles.Store(runtime.root, runtime.app, cache_root(runtime.root, runtime.app))
+        catalog = {entry['moduleId']:entry for entry in data['modules']}
+        current_campaigns = {entry['id'] for entry in data['campaigns']}
+        current_profiles = store.players()
+        current_players = {entry['playerId'] for entry in current_profiles}
+        progress_campaigns, imported_players, applied = set(), set(), set()
+        database = runtime.store.connect()
+        try:
+            for row in database.execute("SELECT kind,id,owner,payload FROM documents WHERE kind IN ('module-launch','player-import')"):
+                receipt = json.loads(row['payload'])
+                if row['kind'] == 'module-launch':
+                    identity = receipt.get('moduleId')
+                    if receipt.get('campaignId') not in current_campaigns: continue
+                    if catalog.get(identity, {}).get('kind') == 'campaign-progress':
+                        progress_campaigns.add(receipt['campaignId'])
+                else:
+                    identity = row['id']
+                    if row['owner'] not in current_players or not receipt.get('published'): continue
+                    imported_players.add(row['owner'])
+                if catalog.get(identity, {}).get('dataHash') == receipt.get('dataHash'):
+                    applied.add(identity)
+        finally: database.close()
+        return dict(
+            campaigns=[dict(id=entry['id'],name=entry['name'],savedAt=entry.get('savedAt',0),
+                            importedProgress=entry['id'] in progress_campaigns) for entry in data['campaigns']],
+            profiles=[dict({key:entry[key] for key in ('playerId','name','enabled','accountId') if key in entry},
+                           imported=entry['playerId'] in imported_players) for entry in current_profiles],
+            sources=[dict(moduleId=entry['moduleId'],name=entry['name'],kind=entry['kind'],
+                          state='ready' if entry['moduleId'] in applied else 'pending')
+                     for entry in data['modules'] if entry.get('kind') in ('campaign-progress','player')
+                     and not entry.get('archived')])
+
 from server.reading_share import ReadingShares
 READING_SHARES = ReadingShares(profiles.ProfileError)
 LOCAL_SAVE_HEADER = 'X-Sundoll-Local-Save'
@@ -220,13 +262,24 @@ SESSION_ID = secrets.token_hex(8)
 ROOM_CODE = secrets.token_hex(3).upper()
 SERVER_PROTOCOL_VERSION = protocol_version()
 PUBLIC_BASE_URL = ''
+from server.music_relay import MusicRelay
+MUSIC_RELAY = MusicRelay()
 STATE_REVISION = 0
 SESSIONS = {}         # {sessionToken: {playerId, name, status, lastSeen}}
-ACTION_IDS = {}       # {actionId: seq}，防止网络重试重复执行
+ACTION_IDS = {}       # {serialized [playerId, actionId]: seq}
 MAX_ACTION_IDS = 2000
 ACTION_RATE = {}      # {sessionToken: [最近请求时间戳]}
 LOGIN_ATTEMPTS = {}
 REGISTRATION_ATTEMPTS = {}
+
+def player_action_key(player, action_id):
+    return json.dumps([player, action_id], ensure_ascii=False, separators=(',', ':'))
+
+def remember_action_id(player, action_id, seq):
+    """Called under LOCK; isolate acknowledgments and bound all action types."""
+    ACTION_IDS[player_action_key(player, action_id)] = seq
+    while len(ACTION_IDS) > MAX_ACTION_IDS:
+        ACTION_IDS.pop(next(iter(ACTION_IDS)))
 
 def allow_registration_attempt(peer, now=None):
     now = time.monotonic() if now is None else now
@@ -281,6 +334,8 @@ def is_local_request(handler):
 
 
 def host_request_allowed(handler):
+    if WEB_ENTRANCES.role(handler) == 'dm':
+        return WEB_ENTRANCES.authorized(handler)
     if not is_local_request(handler):
         return False
     try:
@@ -322,7 +377,9 @@ def normalize_public_base_url(value):
 
 
 def local_save_request_allowed(handler):
-    """本机页面专用：Tunnel、局域网玩家和跨站网页都不能调用磁盘存档桥。"""
+    """The local host or an authenticated, same-origin DM may use the save bridge."""
+    if WEB_ENTRANCES.role(handler) == 'dm':
+        return handler.headers.get(LOCAL_SAVE_HEADER) == '1' and WEB_ENTRANCES.authorized(handler)
     if handler.headers.get(LOCAL_SAVE_HEADER) != '1' or not is_local_request(handler):
         return False
     host_header = str(handler.headers.get('Host') or '')
@@ -361,8 +418,8 @@ def ensure_local_save_structure(root=None):
 def local_save_target(rel_path, operation, root=None):
     return save_storage.local_save_target(rel_path, operation, root or LOCAL_SAVE_ROOT)
 
-def perform_local_save_operation(data, root=None):
-    return save_storage.perform_local_save_operation(data, root or LOCAL_SAVE_ROOT)
+def perform_local_save_operation(data, root=None, runtime_receipt=None):
+    return save_storage.perform_local_save_operation(data, root or LOCAL_SAVE_ROOT, runtime_receipt)
 
 
 def consume_action_slot(session_token):
@@ -466,6 +523,24 @@ def portrait_asset_identity(source):
     return ''
 
 
+def portrait_before_image(source):
+    """Compact cross-client memory for a form; never used for image authorization."""
+    if not isinstance(source, dict): return ''
+    if source.get('iconImgPath'):
+        return 'iconImgPath:' + str(source['iconImgPath']).replace('\\', '/')
+    if source.get('iconImgId'):
+        return 'iconImgId:' + str(source['iconImgId'])
+    for field in ('iconImg', 'iconImgHd'):
+        value = source.get(field)
+        if not value: continue
+        encoded = str(value).encode('utf-16-le', errors='surrogatepass')
+        digest = 14695981039346656037
+        for byte in encoded:
+            digest = ((digest ^ byte) * 1099511628211) & 0xffffffffffffffff
+        return field + ':fnv64:' + format(digest, '016x')
+    return ''
+
+
 def sync_downed_portrait(token):
     """Keep a player's downed portrait tied to zero HP, remembering the prior image."""
     if not isinstance(token, dict) or not (token.get('ownedPieceId') or token.get('type') == 'pc'):
@@ -481,16 +556,32 @@ def sync_downed_portrait(token):
     if not down_identity:
         return False
     current = portrait_asset_identity(token)
+    current_index = profiles.portrait_variant_index(token, forms, portrait_asset_identity)
+    at_down = current_index == down if current_index is not None else profiles.portrait_matches(token, forms[down], portrait_asset_identity)
     if int(finite_number(token.get('hp')) or 0) == 0:
-        if current == down_identity:
+        if at_down:
             return False
         if current:
-            token['portraitBeforeDowned'] = current
+            view = profiles.normalize_portrait_view(token.get('portraitView'))
+            remembered = portrait_before_image(token)
+            token['portraitBeforeDowned'] = json.dumps({'image': remembered, 'portraitView': view}, ensure_ascii=False, separators=(',', ':')) if view is not None else remembered
         target = down
-    elif current == down_identity:
+    elif at_down:
         previous = token.get('portraitBeforeDowned')
+        previous_view = None
+        has_previous_view = False
+        if isinstance(previous, str) and previous.startswith('{'):
+            try:
+                saved = json.loads(previous)
+                previous = saved.get('image')
+                previous_view = profiles.normalize_portrait_view(saved.get('portraitView'))
+                has_previous_view = True
+            except (ValueError, TypeError, AttributeError, profiles.ProfileError):
+                previous = None
         target = next((i for i, form in enumerate(forms)
-                       if i != down and portrait_asset_identity(form) == previous and previous), None)
+                       if i != down and previous and (previous in (portrait_before_image(form), portrait_asset_identity(form))
+                           or any(form.get(field) and previous == field + ':' + str(form[field]) for field in ('iconImg', 'iconImgHd', 'iconImgId')))
+                       and (not has_previous_view or profiles.normalize_portrait_view(form.get('portraitView')) == previous_view)), None)
         if target is None:
             target = next((i for i, form in enumerate(forms)
                            if i != down and portrait_asset_identity(form)), None)
@@ -502,6 +593,7 @@ def sync_downed_portrait(token):
         return False
     for field in ('iconImgPath', 'iconImg', 'iconImgHd', 'iconImgId'):
         token[field] = forms[target].get(field) or None
+    profiles.copy_portrait_view(token, forms[target])
     token['portraitVariant'] = target
     return True
 
@@ -517,19 +609,14 @@ def sync_all_downed_portraits(state):
 
 
 def normalize_player_portrait_variants(raw, token):
-    """玩家只能重命名、排序、删除已有形态，或保存棋子当前正在使用的立绘。"""
+    """Players may edit framing for known art without adding arbitrary image paths."""
     if not isinstance(raw, list) or not isinstance(token, dict):
         return None
     allowed = {}
     for source in list(token.get('portraitVariants') or []) + [token]:
         identity = portrait_asset_identity(source)
-        if identity and identity not in allowed:
-            allowed[identity] = {
-                'iconImg': source.get('iconImg') or None,
-                'iconImgHd': source.get('iconImgHd') or None,
-                'iconImgPath': source.get('iconImgPath') or None,
-                'iconImgId': source.get('iconImgId') or None,
-            }
+        if identity:
+            allowed.setdefault(identity, []).append(source)
     result = []
     used = set()
     for item in raw[:24]:
@@ -537,12 +624,21 @@ def normalize_player_portrait_variants(raw, token):
             continue
         name = str(item.get('name') or '').strip()[:24]
         identity = portrait_asset_identity(item)
-        if not name or not identity or identity not in allowed or identity in used:
+        if not name or not identity or identity not in allowed:
             continue
-        variant = {'name': name}
-        variant.update(allowed[identity])
+        try:
+            original = profiles.matching_portrait_source(item, allowed[identity], portrait_asset_identity)
+            variant = {'name': name, **{field: original.get(field) or None for field in ('iconImg', 'iconImgHd', 'iconImgPath', 'iconImgId')},
+                       'initiativePortrait': copy.deepcopy(original.get('initiativePortrait'))}
+            profiles.copy_portrait_view(variant, original)
+            if 'portraitView' in item:
+                profiles.copy_portrait_view(variant, item)
+        except profiles.ProfileError:
+            return None
+        key = (identity, json.dumps(variant.get('portraitView'), sort_keys=True))
+        if key in used: continue
         result.append(variant)
-        used.add(identity)
+        used.add(key)
     return result
 
 
@@ -811,34 +907,54 @@ def module_support_roots(folder):
     return [str(p) for p in Workspace(LOCAL_SAVE_ROOT).support_roots(folder)]
 
 
-def refresh_music_library(campaign_id='', campaign_name=''):
-    catalog = music_library_catalog(MUSIC_LIBRARY_ROOT, campaign_id, campaign_name)
-    index = catalog.pop('_index')
-    for support_root in module_support_roots('音乐'):
-        extra = music_library_catalog(support_root, campaign_id, campaign_name)
-        catalog['tracks'].extend(extra['tracks'])
-        index.update(extra['_index'])
+def _refresh_media_library(catalog_factory, base_root, folder, field, shared_index, campaign_id, campaign_name):
+    from server.catalog_paths import merge_catalog_indexes, support_module_identity
+    catalog = catalog_factory(base_root, campaign_id, campaign_name)
+    catalogs = [catalog]
+    warnings = []
+    warning_count = 0
+    for support_root in module_support_roots(folder):
+        try:
+            extra = catalog_factory(support_root, campaign_id, campaign_name,
+                module_identity=support_module_identity(LOCAL_SAVE_ROOT, support_root))
+        except (OSError, ValueError):
+            # One damaged module must not hide healthy sources. Keep complete
+            # diagnostics in server logs and only a bounded label in the reply.
+            logging.getLogger('server.media_library').exception('Cannot read %s source %s', folder, support_root)
+            warning_count += 1
+            if len(warnings) < 20:
+                warnings.append(dict(code='media_source_unavailable',
+                    module=Path(support_root).parent.parent.name[:120], library=folder,
+                    message='此模块的%s暂时无法读取，已继续加载其他来源。' % folder))
+            continue
+        catalogs.append(extra)
+        catalog[field].extend(extra[field])
+    index = merge_catalog_indexes(catalogs)
+    catalog.pop('_index', None)
+    catalog.pop('_aliases', None)
+    if warnings:
+        catalog['warnings'] = warnings
+        catalog['warningCount'] = warning_count
     with LOCK:
-        MUSIC_LIBRARY_INDEX.clear()
-        MUSIC_LIBRARY_INDEX.update(index)
+        shared_index.clear()
+        shared_index.update(index)
     return catalog
+
+
+def refresh_music_library(campaign_id='', campaign_name=''):
+    return _refresh_media_library(music_library_catalog, MUSIC_LIBRARY_ROOT, '音乐', 'tracks',
+                                 MUSIC_LIBRARY_INDEX, campaign_id, campaign_name)
 
 
 def refresh_document_library(campaign_id='', campaign_name=''):
-    catalog = document_library_catalog(DOCUMENT_LIBRARY_ROOT, campaign_id, campaign_name)
-    index = catalog.pop('_index')
-    for support_root in module_support_roots('文档'):
-        extra = document_library_catalog(support_root, campaign_id, campaign_name)
-        catalog['documents'].extend(extra['documents'])
-        index.update(extra['_index'])
-    with LOCK:
-        DOCUMENT_LIBRARY_INDEX.clear()
-        DOCUMENT_LIBRARY_INDEX.update(index)
-    return catalog
+    return _refresh_media_library(document_library_catalog, DOCUMENT_LIBRARY_ROOT, '文档', 'documents',
+                                 DOCUMENT_LIBRARY_INDEX, campaign_id, campaign_name)
 
 
 def document_request_allowed(handler):
-    """战役文档只对同源的本机主控台开放，反向隧道和跨站页面均拒绝。"""
+    """Campaign documents require the local host or an authenticated DM."""
+    if WEB_ENTRANCES.role(handler) == 'dm':
+        return WEB_ENTRANCES.authorized(handler)
     if not is_local_request(handler):
         return False
     host_header = str(handler.headers.get('Host') or '').strip()
@@ -959,7 +1075,16 @@ def cache_stream_media(state):
                     continue
                 t['iconImg'] = cache_data_url(t.get('iconImg'))
                 t['iconImgHd'] = cache_data_url(t.get('iconImgHd'))
+                for source in [t] + list(t.get('portraitVariants') or []):
+                    portrait = source.get('initiativePortrait') if isinstance(source, dict) else None
+                    if isinstance(portrait, dict):
+                        for field in ('iconImgPath', 'iconImg', 'iconImgHd'):
+                            if field in portrait: portrait[field] = cache_data_url(portrait[field])
     if isinstance(state, dict):
+        encounter = state.get('encounter')
+        if isinstance(encounter, dict):
+            encounter['allowInitiativeSwap'] = initiative_swap_allowed(encounter)
+            encounter['entries'] = normalize_initiative_entry_orders(encounter.get('entries'))
         state['_campaignCoverUrl'] = campaign_cover_asset_url(state)
     return state
 
@@ -1191,18 +1316,48 @@ def reconcile_mounted_initiative_entries(state):
 
 
 def initiative_effective_order(encounter, entry):
-    """为旧存档中缺失或重复的 order 提供稳定、可验证的当前位置。"""
+    """旧存档任意 order 缺失或重复时，统一使用各项的当前位置。"""
     entries = encounter.get('entries', []) or []
     try:
         index = entries.index(entry)
     except ValueError:
         return 0
-    raw = finite_number(entry.get('order')) if isinstance(entry, dict) else None
-    if raw is None:
-        return index
-    duplicates = sum(1 for item in entries
-                     if isinstance(item, dict) and finite_number(item.get('order')) == raw)
-    return index if duplicates > 1 else raw
+    orders = [initiative_order_value(item.get('order')) if isinstance(item, dict) else None for item in entries]
+    return index if None in orders or len(set(orders)) != len(orders) else orders[index]
+
+
+def initiative_swap_allowed(encounter):
+    # Same-initiative order is exclusively controlled by the DM, including legacy saves.
+    return False
+
+
+def initiative_order_value(raw):
+    return None if isinstance(raw, bool) else finite_number(raw)
+
+
+def normalize_initiative_entry_orders(raw):
+    entries = [entry for entry in raw if isinstance(entry, dict)] if isinstance(raw, list) else []
+    orders = [initiative_order_value(entry.get('order')) for entry in entries]
+    repair = None in orders or len(set(orders)) != len(orders)
+    return [dict(entry, order=index if repair else orders[index]) for index, entry in enumerate(entries)]
+
+
+def initiative_entry_is_visible(state, entry):
+    map_obj, token = find_token(state, entry.get('tokenId') if isinstance(entry, dict) else None)
+    if not map_obj or not token or token.get('hiddenFromPlayers') or map_obj.get('playerAccessible') is False:
+        return False
+    cover = map_obj.get('gridCover')
+    if isinstance(cover, dict):
+        grid = max(1, finite_number(map_obj.get('gridSize')) or 50)
+        x, y = finite_number(token.get('x')), finite_number(token.get('y'))
+        if x is None or y is None:
+            return False
+        col = math.floor((x - (finite_number(map_obj.get('gridOffsetX')) or 0)) / grid)
+        row = math.floor((y - (finite_number(map_obj.get('gridOffsetY')) or 0)) / grid)
+        cells = cover.get('cells') if isinstance(cover.get('cells'), dict) else {}
+        if bool(cover.get('all')) != bool(cells.get(f'{col},{row}')):
+            return False
+    return True
 
 
 def normalize_player_initiative_action(state, requested, player):
@@ -1210,14 +1365,16 @@ def normalize_player_initiative_action(state, requested, player):
     encounter = encounter_state(state)
     if encounter.get('playMode') != 'prepare':
         return None, '只能在战斗准备阶段调整先攻', 409
+    if not initiative_swap_allowed(encounter):
+        return None, '同先攻顺序由 DM 决定', 403
     requested_serial = finite_number(requested.get('turnSerial'))
     current_serial = encounter_turn_serial(state)
-    if requested_serial is None or int(requested_serial) != current_serial:
+    if requested_serial is None or requested_serial != current_serial:
         return None, '先攻顺序已经变化，请重新操作', 409
     entry_id = str(requested.get('entryId') or '').strip()
     source = initiative_entry(encounter, entry_id)
     source_token = initiative_entry_token(state, source)
-    if not source or not source_token:
+    if not source or not source_token or not initiative_entry_is_visible(state, source):
         return None, '先攻项没有关联可操作的棋子', 404
     if not can_control(state, source_token, player):
         return None, '只能调整自己角色的先攻', 403
@@ -1229,7 +1386,7 @@ def normalize_player_initiative_action(state, requested, player):
         target_id = str(requested.get('targetEntryId') or '').strip()
         target = initiative_entry(encounter, target_id)
         target_token = initiative_entry_token(state, target)
-        if not target or not target_token:
+        if not target or not target_token or not initiative_entry_is_visible(state, target):
             return None, '目标先攻项不存在', 404
         entries = encounter.get('entries', []) or []
         source_index = next((index for index, item in enumerate(entries) if item is source), -1)
@@ -1488,6 +1645,10 @@ def normalize_player_spawn_action(state, requested, player, player_id=''):
         'playerCreated': True,
         'createdByPlayer': actor,
     }
+    try:
+        profiles.copy_portrait_view(token, draft)
+    except profiles.ProfileError as error:
+        return None, str(error), 400
     point = clamp_token_point(map_obj, token, {'x': requested.get('x'), 'y': requested.get('y')})
     if point is None:
         return None, '放置位置无效', 400
@@ -1524,6 +1685,7 @@ def character_updates(state, public=False):
             if not oid or oid in seen or not t.get('characterRevision') or (public and t.get('hiddenFromPlayers')): continue
             seen.add(oid)
             patch = {k: t[k] for k in ('name','hp','hpMax','tempHp','tempHpMax','ac','level','characterRevision','conditions','spellSlots','resourceSlots') if k in t}
+            patch['portraitView'] = copy.deepcopy(t.get('portraitView'))
             if any(isinstance(form, dict) and str(form.get('name') or '').strip().startswith('倒地')
                    for form in t.get('portraitVariants') or []):
                 patch.update(portraitVariant=t.get('portraitVariant'), portraitBeforeDowned=t.get('portraitBeforeDowned'))
@@ -1534,6 +1696,7 @@ def character_updates(state, public=False):
             if oid and oid not in seen and t.get('characterRevision'):
                 seen.add(oid)
                 patch = {k:t[k] for k in ('name','hp','hpMax','tempHp','tempHpMax','ac','level','characterRevision','conditions','spellSlots','resourceSlots') if k in t}
+                patch['portraitView'] = copy.deepcopy(t.get('portraitView'))
                 if any(isinstance(form, dict) and str(form.get('name') or '').strip().startswith('倒地')
                        for form in t.get('portraitVariants') or []):
                     patch.update(portraitVariant=t.get('portraitVariant'), portraitBeforeDowned=t.get('portraitBeforeDowned'))
@@ -1551,7 +1714,7 @@ def sync_changed_owned_tokens(previous, updated):
     ids = {t.get('ownedPieceId') for m in updated.get('maps', []) for t in m.get('tokens', []) if t.get('ownedPieceId')}
     ids.update(e.get('token', {}).get('ownedPieceId') for e in updated.get('_ownedPieceLocations', []))
     ids.update((updated.get('parkedOwnedPieces') or {}).keys())
-    watched = ('name','hp','hpMax','tempHp','tempHpMax','ac','size','sizeCategory','publicNote','spellRange','conditions','portraitVariants','portraitVariant','iconImgPath','iconImgHd','iconImg')
+    watched = ('name','hp','hpMax','tempHp','tempHpMax','ac','size','sizeCategory','publicNote','spellRange','conditions','portraitView','portraitVariants','portraitVariant','iconImgPath','iconImgHd','iconImg','initiativePortrait')
     for oid in ids:
         before = owned_piece_locations(previous, oid); after = owned_piece_locations(updated, oid)
         parked = (updated.get('parkedOwnedPieces') or {}).get(oid)
@@ -1625,18 +1788,25 @@ def normalize_player_owned_release_action(state, requested, player_id, display_n
     canonical = ResourceStore(profile_store(), profiles).character(state.get('campaignId'), owned_piece_id)
     if canonical and canonical['ownerPlayerId'] == player_id and (piece.get('characterId') or token.get('characterRevision') != canonical['revision']): token.update(character_projection(canonical))
     forms = copy.deepcopy(token.get('portraitVariants') or [])
-    seen = {portrait_asset_identity(v) for v in forms}
     for variant in piece.get('portraitVariants') or []:
         identity = portrait_asset_identity(variant)
-        if identity and identity not in seen and len(forms) < 24:
-            forms.append(copy.deepcopy(variant)); seen.add(identity)
+        existing = next((form for form in forms if profiles.portrait_matches(form, variant, portrait_asset_identity)), None)
+        if identity and existing is None and len(forms) < 24:
+            forms.append(copy.deepcopy(variant))
+        elif existing is not None:
+            if 'initiativePortrait' in variant:
+                existing['initiativePortrait'] = copy.deepcopy(variant['initiativePortrait'])
     token.pop('campaignStates', None)
     token.pop('mapSyncStates', None)
     token['portraitVariants'] = forms
+    if 'initiativePortrait' in piece:
+        token['initiativePortrait'] = copy.deepcopy(piece['initiativePortrait'])
     token['sourcePresetId'] = piece.get('sourcePresetId') or token.get('sourcePresetId', '')
-    selected_form = next((i for i,v in enumerate(forms) if portrait_asset_identity(v) == portrait_asset_identity(token)), None)
+    selected_form = profiles.portrait_variant_index(token, forms, portrait_asset_identity)
     if selected_form is None: token.pop('portraitVariant', None)
-    else: token['portraitVariant'] = selected_form
+    else:
+        token['portraitVariant'] = selected_form
+        profiles.copy_portrait_view(token, forms[selected_form])
     token['ownerPlayerId'] = player_id
     token['owner'] = str(display_name or '玩家')[:24]
     token['ownedPieceId'] = owned_piece_id
@@ -2209,40 +2379,48 @@ def apply_action(state, action):
     if op in INITIATIVE_ACTIONS:
         encounter = encounter_state(state)
         source = initiative_entry(encounter, action.get('entryId'))
-        if encounter.get('playMode') != 'prepare' or not source:
+        if encounter.get('playMode') != 'prepare' or not initiative_swap_allowed(encounter) or not source:
             return False
         serial_number = finite_number(action.get('turnSerial'))
         next_serial_number = finite_number(action.get('nextTurnSerial'))
-        if serial_number is None or next_serial_number is None:
+        if (serial_number is None or next_serial_number is None or serial_number < 1
+                or serial_number != int(serial_number) or next_serial_number != serial_number + 1):
             return False
-        serial = max(1, int(serial_number))
-        next_serial = max(serial + 1, int(next_serial_number))
+        serial = int(serial_number)
+        next_serial = int(next_serial_number)
         current_serial = encounter_turn_serial(state)
+        actor = str(action.get('actor') or '').strip()
+        source_token = initiative_entry_token(state, source)
+        target = initiative_entry(encounter, action.get('targetEntryId'))
+        target_token = initiative_entry_token(state, target)
+        if (not actor or not source_token or not can_control(state, source_token, actor)
+                or not initiative_entry_is_visible(state, source)
+                or not target or not target_token or not initiative_entry_is_visible(state, target)
+                or not turn_controllers(state, target_token)):
+            return False
+        if int(finite_number(source.get('value')) or 0) != int(finite_number(target.get('value')) or 0):
+            return False
         if current_serial == next_serial:
-            target = initiative_entry(encounter, action.get('targetEntryId'))
             return bool(target and finite_number(source.get('order')) == finite_number(action.get('entryOrder'))
                         and finite_number(target.get('order')) == finite_number(action.get('targetOrder')))
         if current_serial != serial:
             return False
-        actor = str(action.get('actor') or '').strip()
-        source_token = initiative_entry_token(state, source)
-        if actor and (not source_token or not can_control(state, source_token, actor)):
+        entries = encounter.get('entries', []) or []
+        if abs(entries.index(source) - entries.index(target)) != 1:
             return False
-        target = initiative_entry(encounter, action.get('targetEntryId'))
-        target_token = initiative_entry_token(state, target)
         source_before = finite_number(action.get('previousEntryOrder'))
         target_before = finite_number(action.get('previousTargetOrder'))
         source_after = finite_number(action.get('entryOrder'))
         target_after = finite_number(action.get('targetOrder'))
-        if not target or not target_token or not turn_controllers(state, target_token):
-            return False
-        if int(finite_number(source.get('value')) or 0) != int(finite_number(target.get('value')) or 0):
-            return False
         if None in (source_before, target_before, source_after, target_after):
+            return False
+        if source_after != target_before or target_after != source_before:
             return False
         if (initiative_effective_order(encounter, source) != source_before
                 or initiative_effective_order(encounter, target) != target_before):
             return False
+        for entry, normalized in zip(entries, normalize_initiative_entry_orders(entries)):
+            entry['order'] = normalized['order']
         source['order'] = source_after
         target['order'] = target_after
         sort_initiative_entries(encounter)
@@ -2267,17 +2445,16 @@ def apply_action(state, action):
         encounter['turnPath'] = empty_turn_path()
         world = encounter.setdefault('worldTime', {})
         old_total = max(0, int(finite_number(world.get('totalSeconds')) or 0))
-        encounter['weather'] = normalize_weather(encounter.get('weather'), old_total)
         requested_total = finite_number(action.get('worldTimeSeconds'))
         world['totalSeconds'] = max(0, int(requested_total if requested_total is not None else old_total))
         world['runningSince'] = None
-        if isinstance(action.get('weather'), dict):
-            encounter['weather'] = normalize_weather(action['weather'], world['totalSeconds'])
+        # End-turn clients cannot replace the authoritative weather state.
+        refresh_encounter_weather(encounter, world['totalSeconds'], LOCAL_SAVE_ROOT,
+                                  previous_total_seconds=old_total)
+        if isinstance(encounter.get('weather'), dict):
             action['weather'] = dict(encounter['weather'])
         else:
-            generated_weather = refresh_scheduled_weather(encounter, world['totalSeconds'])
-            if generated_weather:
-                action['weather'] = dict(generated_weather)
+            action.pop('weather', None)
         return True
     if op in DOODLE_ACTIONS:
         return apply_doodle_action(state, action)
@@ -2305,28 +2482,52 @@ def apply_action(state, action):
         patch = action.get('patch')
         if not isinstance(patch, dict) or not patch:
             return False
+        variant_source = patch.get('portraitVariantSource')
+        if isinstance(variant_source, dict) and 'portraitView' in variant_source:
+            try:
+                profiles.normalize_portrait_view(variant_source['portraitView'])
+            except profiles.ProfileError:
+                return False
+        requested_portrait_view = 'portraitView' in patch
+        if requested_portrait_view:
+            if not portrait_asset_identity(t):
+                return False
+            try:
+                patch['portraitView'] = profiles.normalize_portrait_view(patch['portraitView'])
+            except profiles.ProfileError:
+                return False
+        variants = None
+        if 'portraitVariants' in patch:
+            variants = normalize_player_portrait_variants(patch['portraitVariants'], t)
+            if variants is None:
+                return False
         accepted = False
         variants_patch_accepted = False
         if 'portraitVariants' in patch:
             current_portrait = portrait_asset_identity(t)
-            variants = normalize_player_portrait_variants(patch.get('portraitVariants'), t)
             if variants is not None:
+                previous_forms = t.get('portraitVariants') or []
+                previous_index = profiles.portrait_variant_index(t, previous_forms, portrait_asset_identity)
+                previous_form = previous_forms[previous_index] if previous_index is not None else None
+                selected_index = profiles.portrait_variant_index(t, variants, portrait_asset_identity)
+                if selected_index is None and previous_form is not None:
+                    selected_index = next((index for index, variant in enumerate(variants)
+                                           if portrait_asset_identity(variant) == current_portrait and variant.get('name') == previous_form.get('name')), None)
                 t['portraitVariants'] = variants
                 patch['portraitVariants'] = [dict(variant) for variant in variants]
-                selected_index = next((index for index, variant in enumerate(variants)
-                                       if portrait_asset_identity(variant) == current_portrait), None)
                 if selected_index is None:
                     t.pop('portraitVariant', None)
                     patch['portraitVariant'] = None
                 else:
                     t['portraitVariant'] = selected_index
                     patch['portraitVariant'] = selected_index
+                    profiles.copy_portrait_view(t, variants[selected_index])
                 accepted = True
                 variants_patch_accepted = True
         for k, v in list(patch.items()):
             if k not in PATCH_FIELDS:
                 continue
-            if k == 'portraitVariants':
+            if k in ('portraitVariants', 'portraitView'):
                 continue
             if k == 'portraitVariant':
                 if v is None:
@@ -2336,8 +2537,14 @@ def apply_action(state, action):
                     continue
                 variants = t.get('portraitVariants') or []
                 if 'portraitVariantSource' in patch:
-                    requested_identity = portrait_asset_identity(patch['portraitVariantSource'])
-                    match = next((i for i,form in enumerate(variants) if requested_identity and portrait_asset_identity(form) == requested_identity), None)
+                    requested_source = patch['portraitVariantSource']
+                    requested_identity = portrait_asset_identity(requested_source)
+                    if isinstance(requested_source, dict) and 'portraitView' in requested_source:
+                        match = profiles.portrait_variant_index(requested_source, variants, portrait_asset_identity)
+                    elif type(v) is int and 0 <= v < len(variants) and portrait_asset_identity(variants[v]) == requested_identity:
+                        match = v
+                    else:
+                        match = next((i for i,form in enumerate(variants) if requested_identity and portrait_asset_identity(form) == requested_identity), None)
                     if match is None: continue
                     v = match
                     patch['portraitVariant'] = v
@@ -2348,6 +2555,7 @@ def apply_action(state, action):
                     continue
                 for field in ('iconImgPath', 'iconImg', 'iconImgHd', 'iconImgId'):
                     t[field] = variant.get(field) or None
+                profiles.copy_portrait_view(t, variant)
                 t[k] = v
                 accepted = True
             elif k in ('hp', 'tempHp', 'tempHpMax'):
@@ -2379,9 +2587,20 @@ def apply_action(state, action):
                     # 广播经过服务器校验的版本，避免客户端把额外字段带给主控台。
                     patch[k] = [dict(condition) for condition in public_conditions]
                     accepted = True
+        if requested_portrait_view:
+            selected_index = profiles.portrait_variant_index(t, t.get('portraitVariants') or [], portrait_asset_identity)
+            profiles.copy_portrait_view(t, patch)
+            if selected_index is not None:
+                profiles.copy_portrait_view(t['portraitVariants'][selected_index], patch)
+            if t.get('portraitVariants'):
+                patch['portraitVariants'] = copy.deepcopy(t['portraitVariants'])
+            accepted = True
+        if accepted and (requested_portrait_view or variants_patch_accepted or 'portraitVariant' in patch):
+            patch['portraitView'] = copy.deepcopy(t.get('portraitView'))
         if accepted and sync_downed_portrait(t):
             patch['portraitVariant'] = t['portraitVariant']
             patch['portraitBeforeDowned'] = t.get('portraitBeforeDowned')
+            patch['portraitView'] = copy.deepcopy(t.get('portraitView'))
         return accepted
     if op in TURN_PATH_ACTIONS:
         t = movement_anchor(m, t)
@@ -2541,13 +2760,26 @@ def state_snapshot(now=None):
     """返回带联机元数据的快照；调用方须在 LOCK 内调用。"""
     if STATE is None:
         return None
-    snapshot = {k: v for k, v in STATE.items() if k not in ('_ownedPieceLocations', 'parkedOwnedPieces', 'travelBasketTokens')}
-    snapshot['maps'] = [dict(m, tokens=[dict(t, conditions=[c for c in t.get('conditions', []) if isinstance(c, dict) and c.get('visibility') != 'gm']) for t in m.get('tokens', [])]) for m in STATE.get('maps', [])]
+    snapshot = {k: v for k, v in STATE.items() if k not in ('_ownedPieceLocations', 'parkedOwnedPieces', 'travelBasketTokens', '_formalSourceHash')}
+    if isinstance(STATE.get('encounter'), dict):
+        snapshot['encounter'] = dict(STATE['encounter'],
+                                     allowInitiativeSwap=initiative_swap_allowed(STATE['encounter']),
+                                     entries=normalize_initiative_entry_orders(STATE['encounter'].get('entries')))
+    snapshot['maps'] = [dict(m, tokens=[dict(
+        {k: v for k, v in t.items() if k not in ('gmNote', 'legacyGmNote', 'legacyGmNotes', 'legacyGmNoteHistory')},
+        conditions=[c for c in t.get('conditions', []) if isinstance(c, dict) and c.get('visibility') != 'gm'])
+        for t in m.get('tokens', [])]) for m in STATE.get('maps', [])]
     snapshot['_sessionId'] = SESSION_ID
     snapshot['_roomCode'] = ROOM_CODE
     snapshot['_stateRevision'] = STATE_REVISION
     snapshot['_serverNow'] = int(now or time.time() * 1000)
     snapshot['_bgm'] = dict(BGM_STATE)
+    # The browser receives only an invalidation token, never another campaign's
+    # content names or enable list. The authoritative policy stays on the server.
+    snapshot.pop('enabledPackageIds', None)
+    snapshot.pop('packageContext', None)
+    snapshot['packageContextRevision'] = ContentPackages(LOCAL_SAVE_ROOT).context(
+        STATE.get('campaignId'))['revision']
     return snapshot
 
 
@@ -2575,6 +2807,33 @@ def module_asset_is_public(url, state):
                 continue
             if normalized_media_url(url) in [normalized_media_url(token.get(k)) for k in ('iconImg','iconImgHd','iconImgPath')]:
                 return True
+            for source in [token] + list(token.get('portraitVariants') or []):
+                portrait = source.get('initiativePortrait') if isinstance(source, dict) else None
+                if isinstance(portrait, dict) and normalized_media_url(url) in [normalized_media_url(portrait.get(k)) for k in ('iconImg','iconImgHd','iconImgPath')]:
+                    return True
+    return False
+
+
+def map_item_media_is_public(url, state):
+    """Expose artwork only for loot that the current player map projection reveals."""
+    if not isinstance(state, dict) or not state.get('campaignId'): return False
+    target = normalized_media_url(url)
+    if not target.startswith('/api/module-assets/'): return False
+    with profiles.LOCK:
+        ledger = ResourceStore(profile_store(), profiles).ledger()
+        policy = ContentPackages(LOCAL_SAVE_ROOT)
+        groups = ledger.get('mapItems', {}).get(state['campaignId'], {})
+        for map_data in state.get('maps', []):
+            if map_data.get('playerAccessible') is not True and map_data.get('id') != state.get('activeMapId'):
+                continue
+            for marker in groups.get(map_data.get('id'), {}).get('markers', []):
+                if marker.get('visible') is not True: continue
+                if marker.get('containerItem') and not policy.is_available(marker['containerItem'], state['campaignId']):
+                    continue
+                items = [] if marker.get('locked') else marker.get('items', [])
+                if marker.get('containerItem'): items = items + [marker['containerItem']]
+                if any(policy.is_available(item, state['campaignId']) and normalized_media_url(item.get('image')) == target for item in items):
+                    return True
     return False
 
 
@@ -2592,6 +2851,7 @@ def owned_media_urls(value):
 def private_media_allowed(handler, url):
     if host_request_allowed(handler) or module_asset_is_public(url, STATE): return True
     try:
+        if map_item_media_is_public(url, STATE): return True
         cookie = SimpleCookie(str(handler.headers.get('Cookie') or ''))
         token = cookie.get('sundoll-media-session')
         session = touch_session(token.value if token else '')
@@ -2599,7 +2859,8 @@ def private_media_allowed(handler, url):
         store = profile_store()
         pid = session['playerId']
         if normalized_media_url(url) in owned_media_urls(store.library(pid)): return True
-        return normalized_media_url(url) in owned_media_urls(ResourceStore(store, profiles).read(pid))
+        return normalized_media_url(url) in owned_media_urls(
+            ResourceStore(store, profiles).view(pid, (STATE or {}).get('campaignId')))
     except (ValueError, OSError, sqlite3.Error, profiles.ProfileError):
         return False
 
@@ -2611,6 +2872,9 @@ def public_player_session(session):
 def touch_session(token, status=None):
     session = SESSIONS.get(str(token or ''))
     if not session:
+        return None
+    if AUTH_METHOD == 'email_password' and (not session.get('_accountSession') or not account_store().session(digest=session['_accountSession'])):
+        SESSIONS.pop(str(token), None)
         return None
     if (int(time.time()*1000) - int(session.get('lastSeen', 0)) > 24*60*60*1000
             or (session.get('persistent') and not profile_store().session_valid(session.get('playerId'), session.get('_authVersion')))):
@@ -2767,11 +3031,106 @@ def broadcast(data, event_id=None):
                 CLIENTS.remove(client)
 
 from server.authentication import authenticate, DEFAULT_METHOD
-AUTH_METHOD = DEFAULT_METHOD
+from server.email_accounts import AccountStore, read_settings
+from server.account_http import handle as handle_account_http
+from server.site_identity import handle as handle_site_identity_http
+from server.room_gateway import handle as handle_room_http
+from server.ui_assets import handle as handle_ui_assets_http
+ACCOUNT_SETTINGS = read_settings(profile_store().auth_root)
+from server.storage_mode import account_rooms_only, validate_startup
+ACCOUNT_ROOMS_ONLY = account_rooms_only(LOCAL_SAVE_ROOT)
+AUTH_METHOD = 'email_password' if ACCOUNT_SETTINGS.get('enabled') else DEFAULT_METHOD
+_ACCOUNT_STORE = None
+
+def account_store():
+    global _ACCOUNT_STORE
+    root = profile_store().auth_root
+    if _ACCOUNT_STORE is None or _ACCOUNT_STORE.root != root or _ACCOUNT_STORE.settings is not ACCOUNT_SETTINGS:
+        from server.workspace_backup import epoch
+        _ACCOUNT_STORE = AccountStore(root, ACCOUNT_SETTINGS, epoch=lambda: epoch(LOCAL_SAVE_ROOT))
+    return _ACCOUNT_STORE
+
+class _AccountContext:
+    def __getattr__(self, name):
+        if name not in globals(): raise AttributeError(name)
+        return globals()[name]
+
+ACCOUNT_CONTEXT = _AccountContext()
 
 class Handler(SimpleHTTPRequestHandler):
     def __init__(self, *a, **kw):
         super().__init__(*a, directory=ROOT, **kw)
+
+    def _redirect(self, url):
+        self.send_response(302)
+        self.send_header('Location', quote(url, safe='/:?=&%#'))
+        self.send_header('Cache-Control', 'no-store')
+        self.send_header('Content-Length', '0')
+        self.end_headers()
+
+    def _entrance_page(self, filename):
+        from html import escape
+        text = (Path(ROOT) / 'web' / filename).read_text('utf-8')
+        for key, value in WEB_ENTRANCES.page_values(self, ACCOUNT_SETTINGS).items():
+            text = text.replace('{{' + key + '}}', escape(str(value), quote=True))
+        body = text.encode('utf-8')
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/html; charset=utf-8')
+        self.send_header('Content-Length', str(len(body)))
+        self.send_header('Cache-Control', 'no-store')
+        self.send_header('Referrer-Policy', 'no-referrer')
+        self.send_header('Content-Security-Policy', "default-src 'self'; style-src 'self'; img-src 'self'; script-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
+        self.end_headers()
+        if self.command != 'HEAD': self.wfile.write(body)
+
+    def _dm_gate(self):
+        if ACCOUNT_ROOMS_ONLY: return False
+        if WEB_ENTRANCES.role(self) != 'dm': return False
+        path = unquote(urlparse(self.path).path)
+        if path in ('/', '/index.html') and self.command in ('GET', 'HEAD') and ACCOUNT_SETTINGS.get('enabled') and ACCOUNT_SETTINGS.get('roomsEnabled'):
+            self._redirect(WEB_ENTRANCES.page_values(self, ACCOUNT_SETTINGS)['accountUrl'])
+            return True
+        if path in ('/', '/index.html', '/login') and self.command in ('GET', 'HEAD'):
+            if WEB_ENTRANCES.authorized(self): self._redirect('/主控台/主控台.html')
+            else: self._entrance_page('dm-login.html')
+            return True
+        if path in ('/shared/design-system.css', '/web/entry.css', '/web/dm-login.js', '/asset/界面/品牌/桑哆尔之歌-logo.png') and self.command in ('GET', 'HEAD'):
+            return False
+        if not WEB_ENTRANCES.authorized(self):
+            if path.endswith('.html') and self.command in ('GET', 'HEAD'):
+                self._redirect('/login')
+            else:
+                self._send_document_json({'ok': False, 'error': '请先登录 DM 端'}, 401, self.command == 'HEAD')
+            return True
+        return False
+
+    def _dm_auth_post(self):
+        if WEB_ENTRANCES.role(self) != 'dm':
+            self.close_connection = True; self.send_error(404); return
+        if not WEB_ENTRANCES.same_origin(self):
+            self.close_connection = True
+            self._send_document_json({'ok': False, 'error': '请从 DM 登录页面提交'}, 403); return
+        path = urlparse(self.path).path
+        token = ''
+        if path == '/api/dm/login':
+            try: data = self._read_json_body(4096)
+            except (ValueError, OverflowError, UnicodeError):
+                self.close_connection = True
+                self._send_document_json({'ok': False, 'error': '登录信息无效'}, 400); return
+            code, token, error = WEB_ENTRANCES.login(self, data.get('password') if isinstance(data, dict) else None)
+            if code != 200:
+                self._send_document_json({'ok': False, 'error': error}, code); return
+        else:
+            # Logout does not consume a body or modify any campaign data.
+            self.close_connection = True
+            WEB_ENTRANCES.logout(self)
+        self.send_response(200)
+        body = b'{"ok":true}'
+        self.send_header('Content-Type', 'application/json')
+        self.send_header('Content-Length', str(len(body)))
+        self.send_header('Cache-Control', 'no-store, private')
+        self.send_header('Set-Cookie', WEB_ENTRANCES.cookie(token))
+        self.end_headers(); self.wfile.write(body)
 
     def send_head(self):
         translated = self.translate_path(self.path)
@@ -2782,8 +3141,28 @@ class Handler(SimpleHTTPRequestHandler):
         if relative.startswith(('asset/地图/', 'asset/棋子库/')) and not host_request_allowed(self):
             if not private_media_allowed(self, '/' + relative):
                 self.send_error(404); return None
+        if getattr(ACCOUNT_CONTEXT, 'ROOM_RUNTIME', False) and relative.endswith('.html'):
+            account_id = str(getattr(self, '_room_access', {}).get('accountId') or '')
+            if not re.fullmatch(r'a[0-9a-f]{32}', account_id):
+                self.send_error(401); return None
+            meta = '<meta name="sundoll-account-id" content="' + account_id + '">'
+            if relative == '主控台/主控台.html' and host_request_allowed(self):
+                from server.initiative_portrait_defaults import bootstrap_markup
+                meta += bootstrap_markup(LOCAL_SAVE_ROOT)
+            import io
+            text = Path(translated).read_text('utf-8')
+            text = re.sub(r'<head(\s[^>]*)?>', lambda match: match.group(0) + meta, text, count=1, flags=re.I)
+            body = text.encode('utf-8')
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/html; charset=utf-8')
+            self.send_header('Content-Length', str(len(body)))
+            self.send_header('Cache-Control', 'no-store, private')
+            self.send_header('Vary', 'Cookie')
+            self.end_headers()
+            return io.BytesIO(body)
         return super().send_head()
 
+    @database_error_boundary
     def handle_player_profiles(self):
         global NEXT_SEQ, STATE_REVISION
         binding_event = None
@@ -2803,7 +3182,7 @@ class Handler(SimpleHTTPRequestHandler):
             if op in ('list','create','createWithCode','credential','setCredential','syncForms','reset','grant','delete') and not host:
                 raise profiles.ProfileError('仅主控台可以执行此操作', 403)
             with profiles.LOCK:
-                if AUTH_METHOD == 'name' and op in ('credential','setCredential','createWithCode','reset'):
+                if AUTH_METHOD in ('name', 'email_password') and op in ('credential','setCredential','createWithCode','reset'):
                     raise profiles.ProfileError('登录码功能已关闭，请使用玩家名字登录', 410)
                 if not host and not store.session_valid(pid, session.get('_authVersion')):
                     raise profiles.ProfileError('会话已失效，请重新加入', 401)
@@ -2811,7 +3190,7 @@ class Handler(SimpleHTTPRequestHandler):
                 elif op in ('create','createWithCode'):
                     if op == 'createWithCode' and not data.get('loginCode'): raise profiles.ProfileError('请填写登录码')
                     result = store.create(data.get('name'), data.get('loginCode'))
-                    if AUTH_METHOD == 'name': result.pop('credential', None)
+                    if AUTH_METHOD in ('name', 'email_password'): result.pop('credential', None)
                 elif op == 'syncForms': result = {'library': store.sync_forms(pid, data.get('ownedPieceId'))}
                 elif op == 'credential': result = {'credential': store.credential(pid)}
                 elif op in ('reset', 'setCredential'):
@@ -2858,7 +3237,9 @@ class Handler(SimpleHTTPRequestHandler):
                                     deployments[oid] = {'status': 'stored' if not locations else 'conflict',
                                                         'inBasket': bool(not locations and isinstance(parked, dict) and parked.get('ownerPlayerId') == pid and parked.get('travelBasketStored') is True)}
                         lib = copy.deepcopy(lib)
+                        roles = store.piece_roles(lib)
                         for piece in lib['pieces']:
+                            piece['collectionRole'] = roles[piece['ownedPieceId']]
                             piece.pop('mapSyncStates', None)
                             if not host and 'conditions' in piece:
                                 piece['conditions'] = [c for c in piece['conditions'] if isinstance(c, dict) and c.get('visibility') != 'gm']
@@ -2892,7 +3273,8 @@ class Handler(SimpleHTTPRequestHandler):
                             seq = NEXT_SEQ; NEXT_SEQ += 1; STATE_REVISION += 1
                             STATE['_stateRevision'] = STATE_REVISION; STATE['_streamSeq'] = seq
                             action = {'op': 'bindOwnedPiece', 'tokenId': token['id'], 'ownership': ownership,
-                                      'actor': pid, 'seq': seq, 'campaignId': STATE.get('campaignId'), '_sessionId': SESSION_ID}
+                                      'actor': pid, 'seq': seq, 'campaignId': STATE.get('campaignId'), '_sessionId': SESSION_ID,
+                                      '_stateRevision': STATE_REVISION}
                             RECENT_ACTIONS.append(action)
                             if len(RECENT_ACTIONS) > MAX_RECENT: del RECENT_ACTIONS[:-MAX_RECENT]
                             binding_event = {'type': 'action', 'seq': seq, 'revision': STATE_REVISION, 'action': action}
@@ -2907,6 +3289,7 @@ class Handler(SimpleHTTPRequestHandler):
         except OSError:
             self._send_document_json({'ok': False, 'error': '写入未完成，请保留编辑内容后重试'}, 500)
 
+    @database_error_boundary
     def handle_map_items(self):
         try:
             data = self._read_json_body(512 * 1024)
@@ -2916,7 +3299,14 @@ class Handler(SimpleHTTPRequestHandler):
                 session = touch_session(data.get('sessionToken')) if not host else None
                 if not host and not session:
                     raise profiles.ProfileError('请先进入玩家地图', 401)
-                result = MapItems(profile_store(), profiles).apply(data, STATE, host, player=session)
+                loot = MapItems(profile_store(), profiles)
+                receiving = data.get('op') in ('grant', 'take')
+                before_bags = {pid: bag['revision'] for pid, bag in loot.resources.ledger()['backpacks'].items()} if receiving else None
+                result = loot.apply(data, STATE, host, player=session)
+                if receiving:
+                    after_bags = {pid: bag['revision'] for pid, bag in loot.resources.ledger()['backpacks'].items()}
+                    # SSE is shared by the room; private contents stay behind the backpack API.
+                    if before_bags != after_bags: broadcast({'type': 'backpackChanged'})
             self._send_document_json(dict(ok=True, **result))
         except profiles.ProfileError as error:
             self._send_document_json({'ok': False, 'error': str(error)}, error.status)
@@ -2925,6 +3315,7 @@ class Handler(SimpleHTTPRequestHandler):
         except OSError:
             self._send_document_json({'ok': False, 'error': '写入结果待核对，请重试原操作'}, 500)
 
+    @database_error_boundary
     def handle_item_library(self):
         try:
             if not (host_request_allowed(self) and self.headers.get(LOCAL_SAVE_HEADER) == '1'):
@@ -2932,6 +3323,13 @@ class Handler(SimpleHTTPRequestHandler):
             data = self._read_json_body(512 * 1024)
             if not isinstance(data, dict): raise profiles.ProfileError('请求无效')
             result = ItemLibrary(profile_store(), profiles).apply(data)
+            campaign = data.get('campaignId') or (STATE or {}).get('campaignId')
+            policy = ContentPackages(LOCAL_SAVE_ROOT)
+            result['packageContext'] = policy.context(campaign)
+            for template in result.get('library', {}).get('templates', []):
+                origin = policy.origin_for_template(template)
+                template['availableInCampaign'] = policy.is_available(origin, campaign)
+                template['availabilityReason'] = '' if template['availableInCampaign'] else '此物品的来源包未在当前战役启用'
             self._send_document_json(dict(ok=True, **result))
         except profiles.ProfileError as error:
             self._send_document_json({'ok': False, 'error': str(error)}, error.status)
@@ -2940,37 +3338,47 @@ class Handler(SimpleHTTPRequestHandler):
         except OSError:
             self._send_document_json({'ok': False, 'error': '物品库写入未完成，请重试原操作'}, 500)
 
+    @database_error_boundary
     def handle_reading_share(self):
         try:
             data = self._read_json_body(8192)
             if not isinstance(data, dict): raise profiles.ProfileError('共享请求无效')
-            with LOCK:
+            with profiles.LOCK, LOCK:
                 session = touch_session(data.get('sessionToken'))
                 if not session: raise profiles.ProfileError('请先加入房间', 401)
                 campaign = (STATE or {}).get('campaignId')
                 if not campaign or data.get('campaignId') != campaign:
                     raise profiles.ProfileError('战役已切换，请重新打开阅读页面', 409)
+                context = ContentPackages(LOCAL_SAVE_ROOT).context(campaign)
+                if 'packageContextRevision' in data and data['packageContextRevision'] != context['revision']:
+                    raise profiles.ProfileError('战役启用的内容包已变化，请重新打开阅读页面', 409)
                 pid = session['playerId']
-                if data.get('op') == 'invite':
-                    if not session.get('persistent'): raise profiles.ProfileError('请使用玩家档案共享物品', 403)
-                    if data.get('source') is not None:
-                        source = data['source']
+                def held_document(sender, item_id, source):
+                    if source is not None:
                         if not isinstance(source, dict): raise profiles.ProfileError('共享来源无效')
-                        visible = MapItems(profile_store(), profiles).apply(dict(op='get', campaignId=campaign, mapId=source.get('mapId')), STATE, False, player=session)
+                        visible = MapItems(profile_store(), profiles).apply(
+                            dict(op='get', campaignId=campaign, mapId=source.get('mapId')),
+                            STATE, False, player=dict(playerId=sender, persistent=True))
                         marker = next((m for m in visible['markers'] if m['id'] == source.get('markerId')), {})
                         items = marker.get('items', [])
                     else:
-                        items = ResourceStore(profile_store(), profiles).read(pid, campaign)['items']
-                    item = next((i for i in items if i['id'] == data.get('itemId')), None)
+                        items = ResourceStore(profile_store(), profiles).view(sender, campaign)['items']
+                    return next((i for i in items if i['id'] == item_id and i.get('quantity', 0) > 0), None)
+                if data.get('op') == 'invite':
+                    if not session.get('persistent'): raise profiles.ProfileError('请使用玩家档案共享物品', 403)
+                    item = held_document(pid, data.get('itemId'), data.get('source'))
                     if not item: raise profiles.ProfileError('这件文书已不可访问，请重新打开', 404)
                     recipients = [p['playerId'] for p in online_players() if p['online']]
-                    invitation = READING_SHARES.invite(campaign, pid, session['name'], item, recipients)
+                    invitation = READING_SHARES.invite(campaign, pid, session['name'], item, recipients,
+                        source=data.get('source'), context_revision=context['revision'])
                     result = dict(recipientCount=len(invitation['recipients']))
                 elif data.get('op') == 'accept':
                     invitation = None
                     identity = data.get('shareId')
                     if not isinstance(identity, str): raise profiles.ProfileError('共享编号无效')
-                    result = dict(item=READING_SHARES.accept(campaign, identity, pid))
+                    result = dict(item=READING_SHARES.accept(campaign, identity, pid,
+                        available=lambda entry: bool(held_document(entry['sender'], entry.get('itemId'), entry.get('source'))),
+                        context_revision=context['revision']))
                 else: raise profiles.ProfileError('共享操作无效')
             if invitation: broadcast(invitation)
             self._send_document_json(dict(ok=True, **result))
@@ -2981,9 +3389,11 @@ class Handler(SimpleHTTPRequestHandler):
         except OSError:
             self._send_document_json({'ok':False,'error':'读取共享内容失败，请稍后重试'},500)
 
+    @database_error_boundary
     def handle_backpack(self):
         global NEXT_SEQ, STATE_REVISION
         events = []
+        backpack_changed = False
         try:
             data = self._read_json_body(512 * 1024)
             if not isinstance(data, dict): raise profiles.ProfileError('请求无效')
@@ -2996,40 +3406,17 @@ class Handler(SimpleHTTPRequestHandler):
                 pid = str(data.get('playerId') or (session or {}).get('playerId') or '')
                 if not host and pid != session['playerId']:
                     raise profiles.ProfileError('不能访问其他玩家的背包', 403)
-                campaign = data.get('campaignId')
-                if campaign is not None and (not isinstance(campaign, str) or len(campaign) > 128):
-                    raise profiles.ProfileError('请求格式无效', 400)
-                inventory = ResourceStore(store, profiles)
-                needs_campaign = data.get('op') in ('heal', 'undo') or (data.get('op') == 'assign' and not inventory.database.active())
-                if needs_campaign and campaign != (STATE or {}).get('campaignId'):
-                    raise profiles.ProfileError('战役已切换，请重新打开背包', 409)
-                before = character_updates(STATE, public=True)
-                inventory.reconcile(STATE, pid)
-                sync_all_downed_portraits(STATE)
-                if data.get('op') == 'get':
-                    backpack = inventory.public(inventory.read(pid, campaign))
-                    result = dict(backpack=backpack, profile=store.read(pid), catalog=[t for t in ItemLibrary(store, profiles).read()['templates'] if not t['archived']] if host else [])
-                else:
-                    backpack, event = inventory.apply(pid, campaign, data, host, state=STATE)
-                    result = dict(backpack=backpack, event=inventory.clean_event(event))
-                # Reconcile again after commit. A lost reply is recovered from the ledger,
-                # not by re-rolling or replaying old HP over later combat changes.
-                inventory.reconcile(STATE, pid)
-                sync_all_downed_portraits(STATE)
-                result.update(characters=inventory.characters(pid, STATE, host), campaignId=(STATE or {}).get('campaignId'))
-                result['walletSupported'] = True
-                result['walletCoinsSupported'] = True
-                result['transferQuantitySupported'] = True
-                result['recipients'] = [dict(id=c['id'], name=c['name'], ownerPlayerId=c['ownerPlayerId'], playerName=store.read(c['ownerPlayerId'])['name']) for c in result['characters']]
-                if not host: result['backpack'].pop('removedItems', None)
-                for action in character_updates(STATE, public=True):
-                    if action in before: continue
+                result, backpack_changed, updates = prepare_backpack_request(
+                    store, profiles, pid, data, STATE, host,
+                    character_updates, sync_all_downed_portraits)
+                for action in updates:
                     seq = NEXT_SEQ; NEXT_SEQ += 1; STATE_REVISION += 1
-                    action.update(campaignId=STATE.get('campaignId'), _sessionId=SESSION_ID, seq=seq)
+                    action.update(campaignId=STATE.get('campaignId'), _sessionId=SESSION_ID, seq=seq, _stateRevision=STATE_REVISION)
                     RECENT_ACTIONS.append(action)
                     if len(RECENT_ACTIONS) > MAX_RECENT: del RECENT_ACTIONS[:-MAX_RECENT]
                     STATE['_streamSeq'] = seq; STATE['_stateRevision'] = STATE_REVISION
                     events.append(dict(type='action', seq=seq, revision=STATE_REVISION, action=action))
+                if backpack_changed: broadcast({'type': 'backpackChanged'})
             for event in events: broadcast(event, event['seq'])
             self._send_document_json(dict(ok=True, **result))
         except profiles.ProfileError as error:
@@ -3040,11 +3427,19 @@ class Handler(SimpleHTTPRequestHandler):
             self._send_document_json({'ok': False, 'error': '背包写入未完成，请重试原操作'}, 500)
 
     def end_headers(self):
+        public_ui = getattr(self, '_public_ui_response', False) is True
+        self._public_ui_response = False
+        if WEB_ENTRANCES.role(self) == 'dm' and not public_ui:
+            self.send_header('Cache-Control', 'no-store, private')
+            self.send_header('Vary', 'Cookie')
+            self.send_header('X-Frame-Options', 'DENY')
+            self.send_header('Referrer-Policy', 'same-origin')
         if urlparse(self.path).path.endswith('.html'):
             self.send_header('Cache-Control', 'no-store')
         super().end_headers()
 
     def _cors(self):
+        if WEB_ENTRANCES.role(self) == 'dm': return
         self.send_header('Access-Control-Allow-Origin', '*')
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
         self.send_header('Access-Control-Allow-Headers', 'Content-Type, Range, X-Sundoll-Local-Save, X-Sundoll-Workspace')
@@ -3055,6 +3450,9 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_response(code)
         self.send_header('Content-Type', 'application/json; charset=utf-8')
         self.send_header('Content-Length', str(len(body)))
+        if urlparse(self.path).path == '/api/music-live':
+            self.send_header('Cache-Control', 'no-store, private')
+            self.send_header('Vary', 'X-Sundoll-Session')
         if code == 200 and urlparse(self.path).path == '/api/session' and isinstance(obj, dict):
             session = obj.get('session') if isinstance(obj.get('session'), dict) else obj
             token = session.get('sessionToken')
@@ -3295,6 +3693,7 @@ class Handler(SimpleHTTPRequestHandler):
             pass
 
     def do_OPTIONS(self):
+        if handle_site_identity_http(self, ACCOUNT_CONTEXT): return
         if urlparse(self.path).path.startswith('/api/document'):
             if not document_request_allowed(self):
                 self._send_document_json({'ok': False, 'error': 'document library is host-only'}, 403)
@@ -3310,7 +3709,26 @@ class Handler(SimpleHTTPRequestHandler):
         self._cors()
         self.end_headers()
 
+    def _send_service_identity(self, head_only=False):
+        """Public connection proof contains no original campaign or room data."""
+        self._send_document_json({
+            'ok': True,
+            'protocolVersion': SERVER_PROTOCOL_VERSION,
+            'projectId': paths.project_id(ROOT),
+            'sessionId': SESSION_ID,
+        }, head_only=head_only)
+
+    @database_error_boundary
     def do_HEAD(self):
+        if handle_ui_assets_http(self, ACCOUNT_CONTEXT): return
+        if handle_site_identity_http(self, ACCOUNT_CONTEXT): return
+        if urlparse(self.path).path == '/api/service-info':
+            self._send_service_identity(head_only=True); return
+        if handle_room_http(self, ACCOUNT_CONTEXT): return
+        if handle_account_http(self, ACCOUNT_CONTEXT): return
+        if Handler._dm_gate(self): return
+        if WEB_ENTRANCES.role(self) == 'main' and urlparse(self.path).path in ('/', '/index.html'):
+            self._entrance_page('home.html'); return
         if urlparse(self.path).path.startswith(ASSET_URL):
             self._send_module_asset(head=True)
             return
@@ -3371,8 +3789,70 @@ class Handler(SimpleHTTPRequestHandler):
             with target.open('rb') as handle:
                 shutil.copyfileobj(handle, self.wfile, 256 * 1024)
 
+    def _send_climate_script(self, text):
+        body = text.encode('utf-8')
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/javascript; charset=utf-8')
+        self.send_header('Content-Length', str(len(body)))
+        self.send_header('Cache-Control', 'no-store')
+        self.send_header('X-Content-Type-Options', 'nosniff')
+        self.send_header('Cross-Origin-Resource-Policy', 'same-origin')
+        self.end_headers()
+        self.wfile.write(body)
+
+    @database_error_boundary
     def do_GET(self):
+        if handle_ui_assets_http(self, ACCOUNT_CONTEXT): return
+        if handle_site_identity_http(self, ACCOUNT_CONTEXT): return
+        if urlparse(self.path).path == '/api/service-info':
+            self._send_service_identity(); return
+        if handle_room_http(self, ACCOUNT_CONTEXT): return
+        if handle_account_http(self, ACCOUNT_CONTEXT): return
         path = urlparse(self.path).path
+        if Handler._dm_gate(self): return
+        if WEB_ENTRANCES.role(self) == 'main':
+            if path in ('/', '/index.html'):
+                self._entrance_page('home.html'); return
+            if path == '/%E4%B8%BB%E6%8E%A7%E5%8F%B0/%E7%8E%A9%E5%AE%B6.html' or path == '/主控台/玩家.html':
+                self._redirect(WEB_ENTRANCES.url('player') + '/'); return
+        if path == '/api/dm/session':
+            if WEB_ENTRANCES.role(self) != 'dm': self.send_error(404); return
+            self._send_document_json({'ok': True, 'authenticated': True}); return
+        if path.startswith('/api/daily-life/'):
+            from server.daily_life import load_data, DATA_FILES
+            kind = path[len('/api/daily-life/'):]
+            script = kind == 'climate.js'
+            if script: kind = 'climate'
+            if kind not in DATA_FILES:
+                self._send_document_json({'ok': False, 'error': '未知的日常资料'}, 404); return
+            public = kind in ('menus', 'climate')
+            if not public and not document_request_allowed(self):
+                self._send_document_json({'ok': False, 'error': '日常主持资料仅供本机主控台读取'}, 403); return
+            try:
+                value = load_data(LOCAL_SAVE_ROOT, kind, public=public)
+                if script:
+                    self._send_climate_script('window.SundollClimateConfig = ' + json.dumps(value, ensure_ascii=True, allow_nan=False) + ';\n')
+                else: self._send_document_json(value)
+            except (OSError, ValueError, PermissionError):
+                if script:
+                    availability = {'available': False, 'error': CLIMATE_UNAVAILABLE_MESSAGE}
+                    self._send_climate_script('window.SundollClimateConfig = null;\nwindow.SundollClimateAvailability = ' +
+                        json.dumps(availability, ensure_ascii=True, allow_nan=False) + ';\n')
+                else:
+                    self._send_document_json({'ok': False, 'error': CLIMATE_UNAVAILABLE_MESSAGE}, 503)
+            return
+        if path == '/api/music-live':
+            host = host_request_allowed(self)
+            with LOCK:
+                authorized = host or bool(touch_session(self.headers.get('X-Sundoll-Session', '')))
+            if not authorized:
+                self._send_json({'ok': False, 'error': 'session expired'}, 401); return
+            query = parse_qs(urlparse(self.path).query)
+            try:
+                after = int((query.get('after') or ['-1'])[0])
+            except (ValueError, TypeError):
+                self._send_json({'ok': False, 'error': 'bad cursor'}, 400); return
+            self._send_json(MUSIC_RELAY.read((query.get('id') or [''])[0], after)); return
         if path == '/api/workspace-epoch':
             from server.workspace_backup import epoch
             self._send_json({'ok':True,'epoch':epoch(LOCAL_SAVE_ROOT)}); return
@@ -3380,14 +3860,14 @@ class Handler(SimpleHTTPRequestHandler):
             if not host_request_allowed(self): self.send_error(404); return
             name = path.rsplit('/',1)[-1]
             if not re.fullmatch(r'[0-9a-f]{32}\.(?:sundoll|zip)', name): self.send_error(404); return
-            target = Path(LOCAL_SAVE_ROOT)/'模块存储/导出暂存'/name
-            if not target.is_file() or target.is_symlink(): self.send_error(404); return
-            self.send_response(200)
-            self.send_header('Content-Type','application/zip')
-            self.send_header('Content-Length',str(target.stat().st_size))
-            self.send_header('Content-Disposition','attachment; filename="'+name+'"')
-            self.send_header('Cache-Control','no-store'); self.end_headers()
-            with target.open('rb') as handle: shutil.copyfileobj(handle,self.wfile,256*1024)
+            with ModuleStaging(LOCAL_SAVE_ROOT).lease('export', name) as target:
+                if not target.is_file() or target.is_symlink(): self.send_error(404); return
+                self.send_response(200)
+                self.send_header('Content-Type','application/zip')
+                self.send_header('Content-Length',str(target.stat().st_size))
+                self.send_header('Content-Disposition','attachment; filename="'+name+'"')
+                self.send_header('Cache-Control','no-store'); self.end_headers()
+                with target.open('rb') as handle: shutil.copyfileobj(handle,self.wfile,256*1024)
             return
         if path.startswith(ASSET_URL):
             self._send_module_asset()
@@ -3480,6 +3960,7 @@ class Handler(SimpleHTTPRequestHandler):
                 revision = STATE_REVISION
             self._send_json({'actions': public_event(acts), 'stateRevision': revision})
         elif self.path == '/api/info':
+            host = host_request_allowed(self)
             with LOCK:
                 players = online_players()
                 revision = STATE_REVISION
@@ -3489,29 +3970,36 @@ class Handler(SimpleHTTPRequestHandler):
                 active_map = next((item for item in maps if isinstance(item, dict) and item.get('id') == active_map_id), None)
                 if active_map is None:
                     active_map = next((item for item in maps if isinstance(item, dict)), None)
+                authority = {'published': STATE is not None, 'campaignId': snapshot.get('campaignId') or '',
+                             'formalSourceHash': snapshot.get('_formalSourceHash'),
+                             'stateRevision': revision, 'sessionId': SESSION_ID} if host else None
             self._send_json({
                 'port': PORT,
                 'bind': BIND_HOST,
                 'ips': get_ips(),
                 'name': '桑哆尔之歌联机',
                 'protocolVersion': SERVER_PROTOCOL_VERSION,
-                'authentication': {'method': AUTH_METHOD, 'registration': True},
-                'projectId': hashlib.sha256(os.path.normcase(os.path.realpath(ROOT)).encode('utf-8')).hexdigest(),
+                'authentication': {'method': AUTH_METHOD, 'registration': True, 'loginUrl': '/account' if AUTH_METHOD == 'email_password' else ''},
+                'storageMode': 'account-rooms' if ACCOUNT_ROOMS_ONLY else 'workspace',
+                'projectId': paths.project_id(ROOT),
                 'sessionId': SESSION_ID,
                 'roomCode': ROOM_CODE,
-                'publicBase': PUBLIC_BASE_URL,
+                'publicBase': PUBLIC_BASE_URL or WEB_ENTRANCES.url('player'),
                 'stateRevision': revision,
+                **({'stateAuthority': authority} if host else {}),
                 'playerCount': len([p for p in players if p.get('online')]),
                 'campaignName': snapshot.get('campaignName') or '',
                 'campaignCoverUrl': snapshot.get('_campaignCoverUrl') or campaign_cover_asset_url(snapshot),
                 'bgmState': dict(BGM_STATE),
                 'activeMapName': active_map.get('name') if active_map else '',
                 'mapCount': len(maps),
-                'endpoints': {'host': '/主控台/主控台.html', 'player': '/主控台/玩家.html'},
+                'endpoints': {'host': '/account#dashboard' if ACCOUNT_ROOMS_ONLY else '/主控台/主控台.html',
+                              'player': '/account#dashboard' if ACCOUNT_ROOMS_ONLY else '/主控台/玩家.html',
+                              'serviceInfo': '/api/service-info'},
             })
         elif path == '/api/players':
             with LOCK:
-                response = {'ok': True, 'players': online_players(), 'publicBase': PUBLIC_BASE_URL}
+                response = {'ok': True, 'players': online_players(), 'publicBase': PUBLIC_BASE_URL or WEB_ENTRANCES.url('player')}
             self._send_json(response)
         elif path == '/api/session':
             token = (parse_qs(urlparse(self.path).query).get('token') or [''])[0]
@@ -3530,14 +4018,24 @@ class Handler(SimpleHTTPRequestHandler):
             self._send_json(response)
         elif self.path == '/api/events':
             self.stream_events()
-        elif self.path == '/' or self.path == '/index.html':
+        elif path in ('/', '/index.html'):
+            if host_request_allowed(self) and ACCOUNT_SETTINGS.get('enabled'):
+                self._entrance_page('home.html'); return
+            if not host_request_allowed(self):
+                # Public visitors enter the player page; local host links stay local.
+                self.send_response(302)
+                self.send_header('Location', quote('/主控台/玩家.html', safe='/'))
+                self.send_header('Cache-Control', 'no-store')
+                self.send_header('Content-Length', '0')
+                self.end_headers()
+                return
             self.send_response(200)
             self.send_header('Content-Type', 'text/html; charset=utf-8')
             self._cors()
             self.end_headers()
             host = 'http://localhost:%d/主控台/主控台.html' % PORT
             viewer = 'http://localhost:%d/主控台/玩家.html' % PORT
-            self.wfile.write((
+            self.wfile.write(((
                 '<meta charset="utf-8"><title>桑哆尔之歌联机服务器</title>'
                 '<body style="background:#101218;color:#e8eaf0;font-family:sans-serif;padding:40px">'
                 '<h2>🖥️ 桑哆尔之歌联机服务器已启动（端口 %d）</h2>'
@@ -3545,7 +4043,7 @@ class Handler(SimpleHTTPRequestHandler):
                 '<p>玩家模式：<a href="%s" style="color:#e0b34c">%s</a></p>'
                 '<p>同一 WiFi 下的玩家，把 localhost 换成下面的 IP：<br>%s</p>'
                 '</body>'
-            ) % (PORT, host, host, viewer, viewer, '、'.join(get_ips())))
+            ) % (PORT, host, host, viewer, viewer, '、'.join(get_ips()))).encode('utf-8'))
         elif self._document_static_request(path):
             self.send_error(404, 'File not found')
         else:
@@ -3561,20 +4059,51 @@ class Handler(SimpleHTTPRequestHandler):
         if length > limit:
             raise OverflowError('request body too large')
         body = self.rfile.read(length) if length else b'{}'
-        return json.loads(body.decode('utf-8'))
+        from server.http_json import loads
+        return loads(body.decode('utf-8'))
 
+    @database_error_boundary
     def handle_local_save(self):
+        global STATE_REVISION
         if not local_save_request_allowed(self):
             self._send_json({'ok': False, 'error': 'local save api is host-only'}, 403)
             return
         try:
             data = self._read_json_body(MAX_LOCAL_SAVE_BODY)
             from server.resource_database import ResourceDatabase
-            if (isinstance(data, dict) and data.get('op') not in ('status','read','read-campaign','read-binary','list','campaign-catalog')
-                    and ResourceDatabase(LOCAL_SAVE_ROOT).active() and data.get('protocolVersion') != SERVER_PROTOCOL_VERSION):
-                self._send_json({'ok':False,'error':'程序已经升级，请刷新主控台和棋子库后再保存；旧页面的进度未覆盖正式档案'},409)
-                return
-            result = perform_local_save_operation(data)
+            def protocol_allowed():
+                if (isinstance(data, dict) and data.get('op') not in ('status','read','read-campaign','read-binary','list','campaign-catalog','save-receipt','recovery-list','recovery-read')
+                        and ResourceDatabase(LOCAL_SAVE_ROOT).active() and data.get('protocolVersion') != SERVER_PROTOCOL_VERSION):
+                    self._send_json({'ok':False,'error':'程序已经升级，请刷新主控台和棋子库后再保存；旧页面的进度未覆盖正式档案'},409)
+                    return False
+                return True
+            if isinstance(data, dict) and data.get('op') == 'write-campaign':
+                # A stale DM cannot save a full formal draft while another DM's
+                # newer live state has not reached the formal file yet.
+                with save_storage.SAVE_WRITE_LOCK, profiles.LOCK, LOCK:
+                    if not self._state_publish_guard(data): return
+                    if not protocol_allowed(): return
+                    version = dict(stateRevision=STATE_REVISION + 1, sessionId=SESSION_ID)
+                    result = perform_local_save_operation(data, runtime_receipt=version)
+                    if not result.get('duplicate'):
+                        STATE_REVISION = version['stateRevision']
+                    elif result.get('sessionId') == SESSION_ID and result.get('stateRevision') == STATE_REVISION + 1:
+                        # A prior transaction committed but file publication
+                        # failed before this process could acknowledge runtime.
+                        STATE_REVISION = result['stateRevision']
+                    if STATE is not None: STATE['_stateRevision'] = STATE_REVISION
+                    # Only a committed formal transaction may skip rebinding
+                    # the old live checkpoint; its source hash remains intact.
+                    self._checkpoint_saved = True
+                    result.setdefault('stateRevision', STATE_REVISION)
+                    result.setdefault('sessionId', SESSION_ID)
+                    snapshot = copy.deepcopy(state_snapshot())
+                broadcast({'type': 'state', 'state': snapshot})
+            else:
+                if not protocol_allowed(): return
+                result = perform_local_save_operation(data)
+                if isinstance(data, dict) and data.get('op') == 'save-receipt':
+                    with LOCK: result.update(stateRevision=STATE_REVISION, sessionId=SESSION_ID)
         except SaveConflict as error:
             self._send_json({'ok': False, 'error': str(error)}, 409)
             return
@@ -3582,22 +4111,59 @@ class Handler(SimpleHTTPRequestHandler):
             self._send_json({'ok': False, 'error': 'save too large'}, 413)
             return
         except (ValueError, TypeError, json.JSONDecodeError) as error:
-            self._send_json({'ok': False, 'error': str(error) or 'invalid save request'}, 400)
+            self._send_json({'ok': False, 'error': str(error) or 'invalid save request'}, getattr(error, 'status', 400))
             return
-        except (OSError, sqlite3.Error, profiles.ProfileError) as error:
+        except (OSError, profiles.ProfileError) as error:
             self._send_json({'ok': False, 'error': 'save operation failed: ' + str(error)}, 500)
             return
         self._send_json(result)
 
+    def _state_publish_guard(self, data, required=False):
+        """Validate a full snapshot's baseline under LOCK before any mutation."""
+        guarded = 'expectedStateRevision' in data or 'serverSessionId' in data
+        current = {'stateRevision': STATE_REVISION, 'sessionId': SESSION_ID}
+        if (required or STATE is not None or getattr(ACCOUNT_CONTEXT, 'ROOM_RUNTIME', False)) and not guarded:
+            self._send_json({'ok': False, 'error': '请重新读取战役状态后发布，旧页面未覆盖当前进度',
+                             'errorCode': 'state-version-required', **current}, 409)
+            return False
+        if not guarded:
+            return True
+        revision, session = data.get('expectedStateRevision'), data.get('serverSessionId')
+        if (not isinstance(revision, int) or isinstance(revision, bool) or revision < 0
+                or not isinstance(session, str) or not session):
+            self._send_json({'ok': False, 'error': '运行状态版本无效，请重新读取后发布',
+                             'errorCode': 'state-version-invalid'}, 400)
+            return False
+        if session != SESSION_ID:
+            self._send_json({'ok': False, 'error': '战役服务已重启，请保留草稿并重新读取后核对',
+                             'errorCode': 'state-session-changed', **current}, 409)
+            return False
+        if revision != STATE_REVISION:
+            self._send_json({'ok': False, 'error': '战役已被另一操作更新，请保留草稿并重新读取后核对',
+                             'errorCode': 'state-conflict', **current}, 409)
+            return False
+        # Guards describe the transport baseline, never persisted campaign data.
+        data.pop('expectedStateRevision')
+        data.pop('serverSessionId')
+        return True
+
+    @database_error_boundary
     def handle_modules(self):
+        global STATE_REVISION
         if not local_save_request_allowed(self):
             self._send_document_json({'ok':False,'error':'模块管理仅可从本机主控台操作'},403); return
         try:
             from server.module_runtime import ModuleRuntime
             from server.module_packages import MAX_PACKAGE_BYTES
             from server.module_store import RevisionConflict
+            from server.backup_retention import BackupRetention, BackupPlanConflict
+            staging = ModuleStaging(LOCAL_SAVE_ROOT)
+            staging.cleanup()
             runtime = ModuleRuntime(LOCAL_SAVE_ROOT, ROOT)
+            op = None
             if self.path in ('/api/modules/import','/api/modules/preview','/api/workspace-backups/import'):
+                if self.path=='/api/workspace-backups/import' and ACCOUNT_SETTINGS.get('enabled') and ACCOUNT_SETTINGS.get('roomsEnabled'):
+                    raise ValueError('多战役模式请停服后恢复整个数据目录')
                 length = int(self.headers.get('Content-Length') or 0)
                 limit = 16*1024**3 if self.path == '/api/workspace-backups/import' else MAX_PACKAGE_BYTES
                 if not 0 < length <= limit: raise ValueError('模块文件为空或超过容量限制')
@@ -3620,31 +4186,53 @@ class Handler(SimpleHTTPRequestHandler):
                         old=next((m for m in runtime.packages.catalog() if m['moduleId']==manifest['moduleId']),None)
                         if old and old['kind']!=manifest['kind']: raise ValueError('同一模块不能更改类型')
                         ticket=secrets.token_hex(16)
-                        staging=Path(LOCAL_SAVE_ROOT)/'模块存储/导入暂存'
-                        staging.mkdir(parents=True,exist_ok=True)
-                        upload.seek(0)
-                        with (staging/(ticket+'.sundoll')).open('xb') as output: shutil.copyfileobj(upload,output)
-                        from server.workspace import atomic_json
-                        atomic_json(staging/(ticket+'.json'),{'expectedHash':old['dataHash'] if old else None,'expires':time.time()+3600})
+                        with staging.lease('import', ticket+'.sundoll') as preview:
+                            preview.parent.mkdir(parents=True,exist_ok=True)
+                            upload.seek(0)
+                            with preview.open('xb') as output: shutil.copyfileobj(upload,output)
+                            from server.workspace import atomic_json
+                            atomic_json(staging.path('import',ticket+'.json'),{'expectedHash':old['dataHash'] if old else None,'expires':time.time()+3600})
                         result={'module':manifest,'ticket':ticket,'previous':old,'update':bool(old and old['dataHash']!=manifest['dataHash'])}
                     else:
                         result = {'module':runtime.packages.install(upload)}
             else:
                 data = self._read_json_body(64*1024)
                 op = data.get('op')
+                if str(op).startswith('backup') and ACCOUNT_SETTINGS.get('enabled') and ACCOUNT_SETTINGS.get('roomsEnabled'):
+                    raise ValueError('多战役模式请停服后备份或恢复整个数据目录')
                 if op == 'overview':
                     from server.module_management import overview
                     result=overview(runtime)
+                    result['migration'] = migration_snapshot(runtime, result)
+                    result['capabilities'] = {
+                        'emailAccounts': AUTH_METHOD == 'email_password',
+                        'spaceAccounts': ACCOUNT_SETTINGS.get('enabled') is True and ACCOUNT_SETTINGS.get('roomsEnabled') is True,
+                        'roomWorkspace': getattr(ACCOUNT_CONTEXT, 'ROOM_RUNTIME', False),
+                        'manageMembers': getattr(ACCOUNT_CONTEXT, 'ROOM_RUNTIME', False) and getattr(self, '_room_access', {}).get('role') == 'owner',
+                        'workspaceBackups': not (ACCOUNT_SETTINGS.get('enabled') and ACCOUNT_SETTINGS.get('roomsEnabled')),
+                    }
+                    if result['capabilities']['roomWorkspace'] and not result['capabilities']['manageMembers']:
+                        for entry in result['migration']['profiles']:
+                            entry['linked'] = bool(entry.pop('accountId', None))
+                elif op == 'content-packages':
+                    result = {'packageContext': ContentPackages(LOCAL_SAVE_ROOT).context(data.get('campaignId'))}
+                elif op == 'set-content-packages':
+                    from server.save_storage import SAVE_WRITE_LOCK
+                    with SAVE_WRITE_LOCK, profiles.LOCK, LOCK:
+                        context = ContentPackages(LOCAL_SAVE_ROOT).set_enabled(
+                            data.get('campaignId'), data.get('enabledPackageIds'),
+                            data.get('revision'), data.get('requestId'))
+                        result = {'packageContext': context}
                 elif op == 'list':
                     from server.workspace import Workspace
                     result = {'modules':runtime.packages.catalog(), 'workspace':Workspace(LOCAL_SAVE_ROOT).summary()}
                 elif op == 'confirm-import':
                     ticket=str(data.get('ticket',''))
                     if not re.fullmatch(r'[0-9a-f]{32}',ticket): raise ValueError('导入预览无效')
-                    staging=Path(LOCAL_SAVE_ROOT)/'模块存储/导入暂存'
-                    info=json.loads((staging/(ticket+'.json')).read_text('utf-8'))
-                    if info['expires']<time.time(): raise ValueError('导入预览已过期，请重新选择文件')
-                    result={'module':runtime.packages.install(staging/(ticket+'.sundoll'),info['expectedHash'])}
+                    with staging.lease('import',ticket+'.sundoll') as preview:
+                        info=json.loads(staging.path('import',ticket+'.json').read_text('utf-8'))
+                        if info['expires']<time.time(): raise ValueError('导入预览已过期，请重新选择文件')
+                        result={'module':runtime.packages.install(preview,info['expectedHash'])}
                 elif op in ('uninstall','restore-module'):
                     from server.module_management import set_archived
                     result=set_archived(runtime,data.get('moduleId'),op=='uninstall')
@@ -3652,8 +4240,13 @@ class Handler(SimpleHTTPRequestHandler):
                     from server.module_management import restore_campaign
                     result=restore_campaign(runtime,data.get('path'),data.get('campaignId'))
                 elif op == 'backups':
-                    from server.workspace_backup import Backups
-                    result={'backups':Backups(LOCAL_SAVE_ROOT).list()}
+                    result=BackupRetention(LOCAL_SAVE_ROOT).overview()
+                elif op == 'backup-policy':
+                    result=BackupRetention(LOCAL_SAVE_ROOT).set_policy(data.get('keepCount'),data.get('keepDays'))
+                elif op == 'backup-pin':
+                    result=BackupRetention(LOCAL_SAVE_ROOT).set_pinned(data.get('backupId'),data.get('pinned'))
+                elif op == 'backup-cleanup':
+                    result=BackupRetention(LOCAL_SAVE_ROOT).apply(data.get('previewToken'),data.get('backupIds'),data.get('requestId'))
                 elif op == 'backup-create':
                     from server.workspace_backup import Backups
                     result={'backup':Backups(LOCAL_SAVE_ROOT).create(data.get('name') or '手动备份')}
@@ -3666,28 +4259,39 @@ class Handler(SimpleHTTPRequestHandler):
                 elif op == 'backup-export':
                     from server.workspace_backup import Backups
                     name=secrets.token_hex(16)+'.zip'
-                    path=Path(LOCAL_SAVE_ROOT)/'模块存储/导出暂存'/name
-                    path.parent.mkdir(parents=True,exist_ok=True)
-                    Backups(LOCAL_SAVE_ROOT).export(data.get('backupId'),path)
+                    with staging.lease('export',name) as path:
+                        path.parent.mkdir(parents=True,exist_ok=True)
+                        Backups(LOCAL_SAVE_ROOT).export(data.get('backupId'),path)
                     result={'downloadUrl':'/api/modules/download/'+name,'filename':'整套私人备份.zip'}
                 elif op == 'create-run': result = runtime.create_run(data.get('moduleId'),data.get('requestId'))
                 elif op == 'activate-general': result = runtime.activate_general(data.get('moduleId'))
                 elif op == 'activate-player': result = runtime.activate_player(data.get('moduleId'))
                 elif op in ('export-player','export-campaign','export-general'):
                     name = secrets.token_hex(16)+'.sundoll'
-                    path = Path(LOCAL_SAVE_ROOT)/'模块存储/导出暂存'/name
                     from server.module_management import export_general
-                    manifest = export_general(runtime,data.get('owner'),path) if op=='export-general' else runtime.export_player(data.get('playerId'),path) if op=='export-player' else runtime.export_campaign(data.get('campaignId'), data.get('kind'), path)
+                    with staging.lease('export',name) as path:
+                        manifest = export_general(runtime,data.get('owner'),path) if op=='export-general' else runtime.export_player(data.get('playerId'),path) if op=='export-player' else runtime.export_campaign(data.get('campaignId'), data.get('kind'), path)
                     result = {'module':manifest,'downloadUrl':'/api/modules/download/'+name}
                 else: raise ValueError('模块操作无效')
+            if op in ('set-content-packages', 'activate-general', 'uninstall', 'restore-module'):
+                snapshot = None
+                with profiles.LOCK, LOCK:
+                    if STATE and STATE.get('campaignId'):
+                        revision = ContentPackages(LOCAL_SAVE_ROOT).context(STATE['campaignId'])['revision']
+                        if STATE.get('packageContextRevision') != revision:
+                            STATE['packageContextRevision'] = revision
+                            STATE_REVISION += 1
+                            STATE['_stateRevision'] = STATE_REVISION
+                            snapshot = state_snapshot()
+                if snapshot: broadcast({'type': 'state', 'state': snapshot})
             self._send_document_json(dict(ok=True,**result))
-        except (RevisionConflict, SaveConflict) as error:
+        except (RevisionConflict, SaveConflict, BackupPlanConflict) as error:
             self._send_document_json({'ok':False,'error':str(error)},409)
         except profiles.ProfileError as error:
             self._send_document_json({'ok':False,'error':str(error)},error.status)
         except (ValueError, TypeError, KeyError, zipfile.BadZipFile) as error:
             self._send_document_json({'ok':False,'error':str(error) or '模块数据无效'},400)
-        except (OSError, sqlite3.Error):
+        except OSError:
             self._send_document_json({'ok':False,'error':'模块操作未确认，请核对磁盘空间后重试原操作'},500)
 
     def handle_danmaku(self, data, action, name, role, sender_key):
@@ -3742,7 +4346,9 @@ class Handler(SimpleHTTPRequestHandler):
             if path == '/api/local-tunnel':
                 return 4096
             return MAX_LOCAL_SAVE_BODY if path == '/api/local-save' else 64 * 1024
-        host_routes = ('/api/assets/cache-map', '/api/players/kick', '/api/state', '/api/host-action')
+        if path == '/api/music-live':
+            return 132000 if host_request_allowed(self) else 0
+        host_routes = ('/api/assets/cache-map', '/api/players/kick', '/api/state', '/api/host-action', '/api/host-state/takeover')
         if path in host_routes or path.startswith('/api/music'):
             if not host_request_allowed(self):
                 return 0
@@ -3761,9 +4367,21 @@ class Handler(SimpleHTTPRequestHandler):
             '/api/register': 64 * 1024, '/api/presence': 64 * 1024,
             '/api/players/kick': 64 * 1024, '/api/state': MAX_BODY,
             '/api/host-action': 64 * 1024, '/api/action': MAX_ACTION_BODY,
+            '/api/host-state/takeover': 64 * 1024,
         }.get(path, 0)
 
+    @database_error_boundary
     def do_POST(self):
+        if getattr(self.server, 'shutdown_pending', False) is True:
+            self.close_connection = True
+            self._send_json({'ok': False, 'error': '服务正在保存并退出，请稍后重新连接'}, 503); return
+        if handle_site_identity_http(self, ACCOUNT_CONTEXT): return
+        if handle_room_http(self, ACCOUNT_CONTEXT): return
+        if handle_account_http(self, ACCOUNT_CONTEXT): return
+        if urlparse(self.path).path in ('/api/dm/login', '/api/dm/logout'):
+            self._dm_auth_post(); return
+        if Handler._dm_gate(self):
+            self.close_connection = True; return
         try:
             length = int(self.headers.get('Content-Length') or 0)
             if length < 0:
@@ -3776,7 +4394,11 @@ class Handler(SimpleHTTPRequestHandler):
         original_reader, original_writer = self.rfile, self.wfile
         # Spool large bodies/responses to disk; neither slow direction owns a
         # shared transaction lock. Header/connection handling stays unchanged.
-        with tempfile.SpooledTemporaryFile(max_size=1024 * 1024) as request_body, tempfile.SpooledTemporaryFile(max_size=1024 * 1024) as response_body:
+        # Python 3.9's SpooledTemporaryFile lacks the seekable method required
+        # by ZipFile. Archive uploads need a normal seekable disk file.
+        archive_upload = urlparse(self.path).path in ('/api/modules/import', '/api/modules/preview', '/api/workspace-backups/import')
+        request_buffer = tempfile.TemporaryFile() if archive_upload else tempfile.SpooledTemporaryFile(max_size=1024 * 1024)
+        with request_buffer as request_body, tempfile.SpooledTemporaryFile(max_size=1024 * 1024) as response_body:
             if 0 < length <= limit:
                 remaining = length
                 while remaining:
@@ -3797,7 +4419,9 @@ class Handler(SimpleHTTPRequestHandler):
                 # Keep the existing write order and recheck epoch after upload.
                 with save_storage.SAVE_WRITE_LOCK, profiles.LOCK:
                     from server.workspace_backup import epoch
-                    if getattr(self.server, 'restore_pending', False) is True:
+                    if getattr(self.server, 'shutdown_pending', False) is True:
+                        self._send_json({'ok': False, 'error': '服务正在保存并退出，请稍后重新连接'}, 503)
+                    elif getattr(self.server, 'restore_pending', False) is True:
                         self._send_json({'ok': False, 'error': '正在恢复工作区，请等待重启后刷新页面'}, 409)
                     else:
                         current_epoch = epoch(LOCAL_SAVE_ROOT)
@@ -3815,6 +4439,41 @@ class Handler(SimpleHTTPRequestHandler):
         if self.path in ('/api/modules','/api/modules/import','/api/modules/preview','/api/workspace-backups/import'):
             self.handle_modules(); return
         global STATE, STATE_REVISION, NEXT_SEQ, PUBLIC_BASE_URL
+        if self.path == '/api/host-state/takeover':
+            if not host_request_allowed(self):
+                self._send_json({'ok': False, 'error': 'state takeover is host-only'}, 403); return
+            try:
+                data = self._read_json_body(64 * 1024)
+                if not isinstance(data, dict): raise ValueError('接管请求格式无效')
+                from server.host_state import preserve_takeover
+                with save_storage.SAVE_WRITE_LOCK, profiles.LOCK, LOCK:
+                    if not self._state_publish_guard(data, required=True): return
+                    result = preserve_takeover(data, LOCAL_SAVE_ROOT, STATE, STATE_REVISION, SESSION_ID)
+                    # Both originals are durable. Keep live presentation intact
+                    # until the new DM explicitly publishes the formal version.
+                    STATE_REVISION += 1
+                    if STATE is not None: STATE['_stateRevision'] = STATE_REVISION
+                    result.update(ok=True, stateRevision=STATE_REVISION, sessionId=SESSION_ID)
+                    # An old live/formal hash pair cannot be falsely rebound by
+                    # the worker's automatic checkpoint acknowledgement.
+                    self._checkpoint_saved = True
+            except OverflowError:
+                self._send_json({'ok': False, 'error': '接管请求过大'}, 413); return
+            except (ValueError, TypeError, OSError) as error:
+                self._send_json({'ok': False, 'error': str(error), 'errorCode': 'state-takeover-failed'}, getattr(error, 'status', 500 if isinstance(error, OSError) else 400)); return
+            broadcast({'type': 'state', 'state': state_snapshot()})
+            self._send_json(result); return
+        if self.path == '/api/music-live':
+            if not host_request_allowed(self):
+                self._send_json({'ok': False, 'error': 'host only'}, 403); return
+            try:
+                data = self._read_json_body(132000)
+                result = MUSIC_RELAY.write(data)
+            except OverflowError:
+                self._send_json({'ok': False, 'error': 'audio packet too large'}, 413); return
+            except (ValueError, TypeError):
+                self._send_json({'ok': False, 'error': '音频连接或分片无效，请重新连接'}, 400); return
+            self._send_json(result); return
         if self.path == '/api/map-items':
             self.handle_map_items()
             return
@@ -3925,10 +4584,10 @@ class Handler(SimpleHTTPRequestHandler):
                 STATE_REVISION += 1
                 STATE['_streamSeq'] = seq
                 STATE['_stateRevision'] = STATE_REVISION
-                act.update(campaignId=STATE.get('campaignId'), _sessionId=SESSION_ID)
+                act.update(campaignId=STATE.get('campaignId'), _sessionId=SESSION_ID, _stateRevision=STATE_REVISION)
                 RECENT_ACTIONS.append(act)
                 del RECENT_ACTIONS[:-MAX_RECENT]
-            broadcast({'type': 'action', 'seq': seq, 'action': act}, seq)
+            broadcast({'type': 'action', 'seq': seq, 'revision': act['_stateRevision'], 'action': act}, seq)
             self._send_json({'ok': True, 'journal': journal, 'entryId': entry_id})
         elif self.path == '/api/local-save':
             self.handle_local_save()
@@ -3978,13 +4637,14 @@ class Handler(SimpleHTTPRequestHandler):
             if not isinstance(data, dict):
                 self._send_json({'ok': False, 'error': '加入信息无效'}, 400)
                 return
+            if AUTH_METHOD == 'email_password' and (self.path == '/api/register' or set(data) != {'sessionToken'}):
+                self._send_json({'ok': False, 'error': '请通过邮箱账号页面登录', 'loginUrl': '/account'}, 401)
+                return
             registering = self.path == '/api/register'
             if (AUTH_METHOD == 'name' and (registering or not data.get('sessionToken'))) or registering or data.get('credential'):
                 try:
                     if not allow_credential_attempt(self.client_address[0]):
                         raise profiles.ProfileError('登录尝试过于频繁，请稍后再试', 429)
-                    if (registering or data.get('roomCode')) and str(data.get('roomCode') or '').strip().upper() != ROOM_CODE:
-                        raise profiles.ProfileError('房间码不正确', 403)
                     if registering:
                         if not allow_registration_attempt(self.client_address[0]):
                             raise profiles.ProfileError('注册尝试过于频繁，请稍后再试', 429)
@@ -4004,12 +4664,8 @@ class Handler(SimpleHTTPRequestHandler):
                 except OSError:
                     self._send_json({'ok': False, 'error': '写入未完成，请先尝试用玩家名字登录；若不存在再创建'}, 500)
                 return
-            room = str(data.get('roomCode') or '').strip().upper()
             nickname = str(data.get('nickname') or '').strip()[:24]
             resume = str(data.get('sessionToken') or '').strip()
-            if room and room != ROOM_CODE:
-                self._send_json({'ok': False, 'error': '房间码不正确'}, 403)
-                return
             if not nickname and resume:
                 with LOCK:
                     existing = touch_session(resume)
@@ -4172,6 +4828,15 @@ class Handler(SimpleHTTPRequestHandler):
                 self._send_json({'ok': False, 'error': 'state must be an object'}, 400)
                 return
             with profiles.LOCK, LOCK:
+                if not self._state_publish_guard(data): return
+                try:
+                    campaign = data.get('campaignId')
+                    if campaign:
+                        formal_hash = save_storage.formal_campaign_source(LOCAL_SAVE_ROOT, campaign)
+                        if (formal_hash is not None or '_formalSourceHash' in data) and data.get('_formalSourceHash') != formal_hash:
+                            raise SaveConflict('正式存档已更新，请保留草稿并重新读取后发布')
+                except (ValueError, TypeError, OSError) as error:
+                    self._send_json({'ok':False, 'error':str(error), 'errorCode':'state-formal-conflict'}, 409); return
                 if (ResourceStore(profile_store(), profiles).database.active() and data.get('protocolVersion') != SERVER_PROTOCOL_VERSION) or data.get('protocolVersion') not in (None, SERVER_PROTOCOL_VERSION) or ((STATE or {}).get('protocolVersion') == SERVER_PROTOCOL_VERSION and data.get('protocolVersion') != SERVER_PROTOCOL_VERSION):
                     self._send_json({'ok': False, 'error': '请刷新旧主控台页面后重新联机'}, 409)
                     return
@@ -4215,6 +4880,7 @@ class Handler(SimpleHTTPRequestHandler):
             self._send_json({
                 'ok': True,
                 'stateRevision': STATE_REVISION,
+                'sessionId': SESSION_ID,
                 'characterUpdates': character_updates(STATE),
                 'mapId': active_map.get('id') if isinstance(active_map, dict) else None,
                 'mapAssetUrl': active_map.get('mapData') if isinstance(active_map, dict) else None,
@@ -4332,9 +4998,17 @@ class Handler(SimpleHTTPRequestHandler):
             action_id = str(data.get('actionId') or action.get('actionId') or '').strip()[:96]
             if action_id:
                 with LOCK:
-                    duplicate_seq = ACTION_IDS.get(action_id)
+                    if not self.action_context_matches(data):
+                        self._send_json({'ok': False, 'error': '战役或服务器已切换，请等待同步后重试'}, 409)
+                        return
+                    duplicate_seq = ACTION_IDS.get(player_action_key(player, action_id))
+                    duplicate_action = next((a for a in reversed(RECENT_ACTIONS)
+                                             if a.get('seq') == duplicate_seq and a.get('actionId') == action_id), None)
                 if duplicate_seq is not None:
-                    self._send_json({'ok': True, 'seq': duplicate_seq, 'duplicate': True})
+                    receipt = {'ok': True, 'seq': duplicate_seq, 'duplicate': True}
+                    if duplicate_action is not None:
+                        receipt['characterUpdates'] = copy.deepcopy(duplicate_action.get('characterUpdates', []))
+                    self._send_json(receipt)
                     return
             with LOCK:
                 if not self.action_context_matches(data):
@@ -4366,8 +5040,8 @@ class Handler(SimpleHTTPRequestHandler):
                     initiative_action['seq'] = seq
                     if action_id:
                         initiative_action['actionId'] = action_id
-                        ACTION_IDS[action_id] = seq
-                    initiative_action.update(campaignId=STATE.get('campaignId'), _sessionId=SESSION_ID)
+                        remember_action_id(player, action_id, seq)
+                    initiative_action.update(campaignId=STATE.get('campaignId'), _sessionId=SESSION_ID, _stateRevision=STATE_REVISION)
                     initiative_action.update(name=session['name'], displayName=session['name'])
                     RECENT_ACTIONS.append(initiative_action)
                     if len(RECENT_ACTIONS) > MAX_RECENT:
@@ -4436,8 +5110,8 @@ class Handler(SimpleHTTPRequestHandler):
                     end_action['seq'] = seq
                     if action_id:
                         end_action['actionId'] = action_id
-                        ACTION_IDS[action_id] = seq
-                    end_action.update(campaignId=STATE.get('campaignId'), _sessionId=SESSION_ID)
+                        remember_action_id(player, action_id, seq)
+                    end_action.update(campaignId=STATE.get('campaignId'), _sessionId=SESSION_ID, _stateRevision=STATE_REVISION)
                     RECENT_ACTIONS.append(end_action)
                     if len(RECENT_ACTIONS) > MAX_RECENT:
                         del RECENT_ACTIONS[:len(RECENT_ACTIONS) - MAX_RECENT]
@@ -4459,7 +5133,7 @@ class Handler(SimpleHTTPRequestHandler):
                 broadcast(ev)
                 if action_id:
                     with LOCK:
-                        ACTION_IDS[action_id] = 0
+                        remember_action_id(player, action_id, 0)
                 self._send_json({'ok': True})
                 return
             # 地图表情是短暂表现，不写入状态和动作历史，避免重连后重新播放旧表情。
@@ -4475,7 +5149,7 @@ class Handler(SimpleHTTPRequestHandler):
                 broadcast({'type': 'action', 'seq': 0, 'action': public_reaction})
                 if action_id:
                     with LOCK:
-                        ACTION_IDS[action_id] = 0
+                        remember_action_id(player, action_id, 0)
                 self._send_json({'ok': True})
                 return
             # BGM：不修改状态，只广播让玩家端跟随播放
@@ -4572,7 +5246,7 @@ class Handler(SimpleHTTPRequestHandler):
                     return
                 if action.get('op') == 'patchToken':
                     _, changing_token = find_token(STATE, action.get('tokenId'))
-                    if changing_token and changing_token.get('ownedPieceId') and any(k in action.get('patch', {}) for k in ('hp','hpMax','tempHp','tempHpMax','ac')):
+                    if changing_token and changing_token.get('ownedPieceId') and any(k in action.get('patch', {}) for k in ('hp','hpMax','tempHp','tempHpMax','ac','conditions')):
                         canonical = ResourceStore(profile_store(), profiles).character(STATE.get('campaignId'), changing_token['ownedPieceId'])
                         if canonical and action.get('characterRevision') != canonical['revision']:
                             self._send_json({'ok': False, 'error': '角色状态已更新，请刷新后调整'}, 409); return
@@ -4609,6 +5283,7 @@ class Handler(SimpleHTTPRequestHandler):
                                        for form in synced.get('portraitVariants') or []):
                                     action['patch']['portraitVariant'] = synced.get('portraitVariant')
                                     action['patch']['portraitBeforeDowned'] = synced.get('portraitBeforeDowned')
+                                    action['patch']['portraitView'] = copy.deepcopy(synced.get('portraitView'))
                             elif action.get('op') == PLAYER_OWNED_RELEASE_ACTION: action['token'] = copy.deepcopy(synced)
                             profile_store().sync_token(player, synced, candidate.get('campaignId'))
                 except (profiles.ProfileError, OSError) as error:
@@ -4626,18 +5301,17 @@ class Handler(SimpleHTTPRequestHandler):
                 act['seq'] = seq
                 if action_id:
                     act['actionId'] = action_id
-                act.update(campaignId=STATE.get('campaignId'), _sessionId=SESSION_ID)
+                act.update(campaignId=STATE.get('campaignId'), _sessionId=SESSION_ID, _stateRevision=STATE_REVISION)
                 RECENT_ACTIONS.append(act)
                 if len(RECENT_ACTIONS) > MAX_RECENT:
                     del RECENT_ACTIONS[:len(RECENT_ACTIONS) - MAX_RECENT]
                 ev = {'type': 'action', 'seq': seq, 'revision': STATE_REVISION, 'action': dict(act)}
+                receipt = {'ok': True, 'seq': seq, 'stateRevision': STATE_REVISION,
+                           'characterUpdates': copy.deepcopy(act['characterUpdates'])}
                 if action_id:
-                    ACTION_IDS[action_id] = seq
-                    if len(ACTION_IDS) > MAX_ACTION_IDS:
-                        for old_id in list(ACTION_IDS)[:len(ACTION_IDS) - MAX_ACTION_IDS]:
-                            ACTION_IDS.pop(old_id, None)
+                    remember_action_id(player, action_id, seq)
             broadcast(ev, seq if seq else None)
-            self._send_json({'ok': True, 'seq': seq, 'stateRevision': STATE_REVISION})
+            self._send_json(receipt)
         else:
             self._send_json({'ok': False, 'error': 'not found'}, 404)
 
@@ -4667,7 +5341,8 @@ class Handler(SimpleHTTPRequestHandler):
             if can_replay:
                 for action in recent:
                     if action.get('seq', 0) > last_id:
-                        event = {'type': 'action', 'seq': action.get('seq', 0), 'action': dict(action)}
+                        event = {'type': 'action', 'seq': action.get('seq', 0), 'action': dict(action),
+                                 **({'revision': action['_stateRevision']} if isinstance(action.get('_stateRevision'), int) else {})}
                         if not client.enqueue(sse_bytes(event, action.get('seq'))):
                             break
             if not client.closed:
@@ -4700,32 +5375,71 @@ class Server(ThreadingHTTPServer):
             return
         super().handle_error(request, client_address)
 
+
+def serve_application(server, project_lock, installation_lease):
+    """SIGTERM uses the same worker checkpoint/cleanup path as normal exit."""
+    import signal
+    previous = {}
+    def stop(*_):
+        server.shutdown_pending = True
+        # HTTPServer.shutdown must run outside its serve_forever thread.
+        threading.Thread(target=server.shutdown, daemon=True).start()
+    for name in (signal.SIGTERM, signal.SIGINT):
+        previous[name] = signal.signal(name, stop)
+    try:
+        server.serve_forever()
+    finally:
+        server.shutdown_pending = True
+        try:
+            # Finish writes already inside the normal transaction boundary;
+            # uploads finishing later are rejected by do_POST's second gate.
+            with save_storage.SAVE_WRITE_LOCK, profiles.LOCK:
+                supervisor = getattr(_ACCOUNT_STORE, '_supervisor', None)
+                if supervisor is not None: supervisor.close()
+                with LOCK:
+                    for client in list(CLIENTS): client.close()
+                    CLIENTS.clear()
+        finally:
+            server.server_close()
+            project_lock.close()
+            installation_lease.close()
+            for name, handler in previous.items(): signal.signal(name, handler)
+
+
 if __name__ == '__main__':
     os.chdir(ROOT)
     try:
+        validate_startup(LOCAL_SAVE_ROOT, ACCOUNT_SETTINGS)
+        from server.installation_backup import InstallationLease, installation_root
+        # Maintenance owns the exclusive installation lease. Acquire this
+        # shared lease before any startup recovery or persistent initialization.
+        installation_lease = InstallationLease(installation_root(LOCAL_SAVE_ROOT), shared=True)
         project_lock = ProjectServerLock(LOCAL_SAVE_ROOT)
+        validate_startup(LOCAL_SAVE_ROOT, ACCOUNT_SETTINGS)
     except RuntimeError as error:
         sys.exit(str(error))
-    from server.workspace_backup import recover_pending
-    recover_pending(LOCAL_SAVE_ROOT)
-    from server.distribution import initialize as initialize_distribution
-    initialize_distribution(ROOT, LOCAL_SAVE_ROOT)
-    from server.player_directories import migrate as migrate_player_directories
-    migrate_player_directories(LOCAL_SAVE_ROOT, create_backup=True)
+    if not ACCOUNT_ROOMS_ONLY:
+        from server.workspace_backup import recover_pending
+        recover_pending(LOCAL_SAVE_ROOT)
+        from server.distribution import initialize as initialize_distribution
+        initialize_distribution(ROOT, LOCAL_SAVE_ROOT)
+        from server.player_directories import migrate as migrate_player_directories
+        migrate_player_directories(LOCAL_SAVE_ROOT, create_backup=True)
+        from server.support_files import register_support_files
+        register_support_files(LOCAL_SAVE_ROOT)
+        ModuleStaging(LOCAL_SAVE_ROOT).cleanup(force=True)
     srv = Server((BIND_HOST, PORT), Handler)
     print('=' * 56)
     print('桑哆尔之歌联机服务器已启动，端口 %d，监听 %s' % (PORT, BIND_HOST))
-    for ip in get_ips():
-        if ip != '127.0.0.1':
-            print('  玩家请打开:  http://%s:%d/主控台/玩家.html' % (ip, PORT))
-    print('  主机:        http://localhost:%d/主控台/主控台.html' % PORT)
+    if ACCOUNT_ROOMS_ONLY:
+        print('  账号与房间:  http://127.0.0.1:%d/account#dashboard' % PORT)
+    else:
+        for ip in get_ips():
+            if ip != '127.0.0.1':
+                print('  玩家请打开:  http://%s:%d/主控台/玩家.html' % (ip, PORT))
+        print('  主机:        http://localhost:%d/主控台/主控台.html' % PORT)
     print('  按 Ctrl+C 停止')
     print('=' * 56)
-    try:
-        srv.serve_forever()
-    except KeyboardInterrupt:
-        pass
+    serve_application(srv, project_lock, installation_lease)
     if getattr(srv,'restore_pending',False):
-        srv.server_close()
-        project_lock.close()
         os.execv(sys.executable,[sys.executable,*sys.argv])

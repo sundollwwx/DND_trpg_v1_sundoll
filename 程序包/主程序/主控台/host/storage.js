@@ -2,7 +2,7 @@
 
 function stateStorageReplacer(key, value) {
   if (key === 'turnPath' && this === state.encounter) return undefined;
-  // 棋子 GM 私密备注功能已经移除；旧存档中的字段在下一次保存时一并清理。
+  // The retired note UI stays removed; nonempty text is archived before serialization.
   if (key === 'gmNote') return undefined;
   // 棋子库是全局数据，只写入“存档/棋子库/棋子库.json”。
   if (key === 'library' && this === state) return undefined;
@@ -15,6 +15,12 @@ function stateStorageReplacer(key, value) {
 }
 
 function stateStorageJson(space) {
+  if (typeof archiveLegacyGmNote === 'function') {
+    const tokens = (state.maps || []).flatMap(map => map.tokens || [])
+      .concat(state.travelBasketTokens || [], Object.values(state.parkedOwnedPieces || {}));
+    tokens.forEach(archiveLegacyGmNote);
+  }
+  if (typeof rememberWorldWeather === 'function') rememberWorldWeather();
   return JSON.stringify(state, stateStorageReplacer, space);
 }
 
@@ -42,7 +48,7 @@ function cacheLoadedStateInBrowser(savedAt = 0) {
   } catch (error) {
     browserStateCacheFailed = true;
     console.warn('正式存档已读取，但浏览器恢复缓存写入失败', error);
-    return { ok: false, issue: browserStorageIssue(error) };
+    return { ok: false, issue: browserStorageIssue(error), errorClass: error?.name || 'Error' };
   }
 }
 
@@ -100,28 +106,34 @@ function serverApiBase() {
 }
 
 function isLoopbackHost(hostname) {
-  return ['localhost', '127.0.0.1', '::1'].includes(String(hostname || '').toLowerCase());
+  const host = String(hostname || '').toLowerCase();
+  return host === 'localhost' || host.endsWith('.localhost') || host === '::1' || host === '[::1]' || /^127\./.test(host);
 }
 
 function playerViewerUrl() {
-  const room = streamInfo?.roomCode ? `?room=${encodeURIComponent(streamInfo.roomCode)}` : '';
+  if (window.SundollRoom) {
+    let origin = location.origin;
+    const publicBase = normalizeServerBase(streamInfo?.publicBase);
+    if (publicBase && !isLoopbackHost(new URL(publicBase).hostname)) origin = publicBase;
+    return `${origin}${window.SundollRoom.prefix}/主控台/玩家.html`;
+  }
   const publicBase = streamInfo && Object.prototype.hasOwnProperty.call(streamInfo, 'publicBase')
     ? normalizeServerBase(streamInfo.publicBase) : queryPublicBase();
-  if (publicBase) return `${publicBase}/主控台/玩家.html${room}`;
+  if (publicBase) return `${publicBase}/`;
   const pageIsHttp = location.protocol === 'http:' || location.protocol === 'https:';
   if (pageIsHttp && !isLoopbackHost(location.hostname)) {
-    return `${location.origin}/主控台/玩家.html${room}`;
+    return `${location.origin}/主控台/玩家.html`;
   }
   const configured = configuredServerBase();
   if (configured) {
     try {
       const configuredUrl = new URL(configured);
-      if (!isLoopbackHost(configuredUrl.hostname)) return `${configured}/主控台/玩家.html${room}`;
+      if (!isLoopbackHost(configuredUrl.hostname)) return `${configured}/主控台/玩家.html`;
     } catch (e) { /* 回退到局域网地址 */ }
   }
   const ip = streamInfo?.ip || '127.0.0.1';
   const port = streamInfo?.port || 8090;
-  return `http://${ip}:${port}/主控台/玩家.html${room}`;
+  return `http://${ip}:${port}/主控台/玩家.html`;
 }
 
 function sendHostAction(action) {
@@ -145,7 +157,9 @@ function folderSaveSnapshot() {
 
 let pendingFolderSave = null;
 function queueCurrentFolderSave(options = {}) {
+  if (typeof hostCampaignDeferred !== 'undefined' && hostCampaignDeferred) return Promise.resolve(false);
   if (campaignLoadInProgress) return Promise.resolve(false);
+  if (typeof hostStateConflict !== 'undefined' && hostStateConflict) { keepHostConflictDraft(); return Promise.resolve(false); }
   const campaignId = state.campaignId;
   if (!campaignId) {
     updateSaveStatus('临时进度 · 仅浏览器缓存', 'error');
@@ -171,53 +185,58 @@ function queueCurrentFolderSave(options = {}) {
     }
     updateSaveStatus('正在写入存档文件夹…', 'busy');
     try {
-      const record = await campaignPut(campaignId, campaignName, snapshot, { backup: makeBackup });
-      await rememberCampaignSelection(campaignId);
+      const record = await campaignPut(campaignId, campaignName, snapshot, { backup: makeBackup, currentProgress: true });
+      try { await rememberCampaignSelection(campaignId); } catch (error) { record.indexWarning = error.message || '上次打开记录未更新'; }
       lastFolderSaveAt = Number(record?.savedAt) || Date.now();
       try { localStorage.setItem('dnd-board-last-folder-save-at', String(lastFolderSaveAt)); } catch (e) { /* 忽略 */ }
-      updateSaveStatus(`文件夹已保存 ${new Date(lastFolderSaveAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`, 'ok');
+      const newerDraft = typeof hostEditGeneration !== 'undefined' && Number.isInteger(record?._clientEditGeneration) && hostEditGeneration > record._clientEditGeneration;
+      if (typeof hostStateConflict !== 'undefined' && hostStateConflict) updateSaveStatus('正式存档已保存 · 同步暂停', 'error');
+      else if (newerDraft) updateSaveStatus('有新修改 · 等待自动保存', 'pending');
+      else updateSaveStatus(`正式存档已保存 ${new Date(lastFolderSaveAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}${record?.indexWarning ? ' · 列表待更新' : ''}`, record?.indexWarning ? 'pending' : 'ok');
       if ($('#campaign-modal') && !$('#campaign-modal').hidden) renderCampaignList();
       if ($('#cover') && !$('#cover').hidden) refreshHostHome({ forceRecords: true });
       return true;
     } catch (error) {
       console.warn('写入存档文件夹失败', error);
-      updateSaveStatus(`保存未完成：${error.message || '写入失败'} · 请保留当前页面`, 'error');
+      if (error.status === 409 && typeof pauseHostStateSync === 'function') pauseHostStateSync(error.message || '正式存档已更新，请重新读取。', error);
+      if (!(typeof hostStateConflict !== 'undefined' && hostStateConflict)) updateSaveStatus(`保存未完成：${error.message || '写入失败'} · 请保留当前页面`, 'error');
       return false;
     }
   });
   return folderSaveQueue;
 }
 
-async function loadFolderSave(item, confirmLoad = true) {
+async function loadFolderSave(item, confirmLoad = true, loadRun = null) {
   if (!item?.path) return false;
   if (campaignLoadInProgress) { toast('正在读取存档，请稍候'); return false; }
   campaignLoadInProgress = true;
+  const ownRun = !loadRun;
+  loadRun ||= globalThis.SundollHostLoadProgress?.begin('campaign', { retry: () => loadFolderSave(item, confirmLoad), retryLabel: '重新读取存档' });
+  const stage = (key, work) => loadRun ? loadRun.step(key, work) : Promise.resolve().then(work);
   let applied = false;
   const hadPendingAutosave = Boolean(autosaveTimer);
   try {
-    flushDetailTextSave();
-    await folderSaveQueue;
-    const compactRead = usingLocalSaveBridge() ? await localSaveApiRequest('read-campaign', { path: item.path }) : null;
-    const text = compactRead ? compactRead.text : await readBoundText(item.path);
-    const data = parseCampaignFile(text, item.folderName || '');
-    if (!data?.state) {
-      toast('存档文件无效或已经损坏');
-      return false;
-    }
-    if (confirmLoad && !confirm(`读取存档「${item.name}」？当前未保存内容会被替换。`)) return false;
-    if (state.campaignId) await writeRecoverySnapshot('读取前恢复点', folderSaveSnapshot());
+    await stage('pendingSave', async () => { flushDetailTextSave(); await folderSaveQueue; });
+    const {compactRead,text} = await stage('saveRead', async () => {
+      const compactRead = item._verifiedRead || (usingLocalSaveBridge() ? await localSaveApiRequest('read-campaign', { path: item.path }) : null);
+      return {compactRead,text:compactRead ? compactRead.text : await readBoundText(item.path)};
+    });
+    const data = await stage('parse', () => { const parsed=parseCampaignFile(text,item.folderName||'');if(!parsed?.state)throw new SyntaxError('存档文件无效或已经损坏');return parsed; });
+    if (confirmLoad && !confirm(`读取存档「${item.name}」？当前未保存内容会被替换。`)) { loadRun?.cancel(); return false; }
+    if (state.campaignId) await stage('recoveryWrite', () => writeRecoverySnapshot('读取前恢复点', folderSaveSnapshot()));
     const loadedHash = compactRead ? compactRead.sourceHash : await campaignTextHash(text);
-    if (!applySavedState(data.state)) throw new Error('存档结构无效，当前战役未修改');
+    await stage('normalize', () => { if (!applySavedState(data.state)) throw new Error('存档结构无效，当前战役未修改'); });
     campaignLoadedHashes.set(data.id || data.state.campaignId, loadedHash);
     applied = true;
     if (autosaveTimer) clearTimeout(autosaveTimer);
     autosaveTimer = null;
-    applyAllState();
-    loadLinks();
-    renderLinks();
-    const browserCache = cacheLoadedStateInBrowser(data.savedAt);
-    try { await rememberCampaignSelection(state.campaignId); } catch (e) {
+    await stage('interface', () => { applyAllState(); loadLinks(); renderLinks(); });
+    const browserCache = await stage('browserCache', () => cacheLoadedStateInBrowser(data.savedAt));
+    if (!browserCache.ok) loadRun?.warn('browserCache', Object.assign(new Error(), { name: browserCache.errorClass || 'Error' }));
+    try { await stage('selection', () => rememberCampaignSelection(state.campaignId)); } catch (e) {
       toast(`战役已读取，但上次打开记录未保存：${e.message}`);
+      loadRun?.setRetry(() => refreshHostHome({ forceRecords: true }), '返回存档列表');
+      loadRun?.resume();
     }
     if (browserCache.ok) {
       updateSaveStatus(`已读取 ${item.name}`, 'ok');
@@ -227,8 +246,17 @@ async function loadFolderSave(item, confirmLoad = true) {
       toast(`已读取存档「${item.name}」；${browserCache.issue}，正式文件仍可使用`);
     }
     streamDirty = true;
+    if (ownRun) loadRun?.finish();
     return true;
   } catch (error) {
+    if (loadRun) {
+      const failedStage = globalThis.SundollHostLoadProgress?.snapshot()?.stages.findLast(row=>row.status==='failure')?.stage;
+      const loadedCampaignId = state.campaignId;
+      const retry = applied && typeof retryHostLoadedInterface === 'function'
+        ? () => retryHostLoadedInterface(loadedCampaignId)
+        : failedStage === 'recoveryWrite' ? () => refreshHostHome({forceRecords:true}) : undefined;
+      loadRun.fail(error, retry ? {retry,retryLabel:applied?'重试恢复界面':'返回存档列表'} : {});
+    }
     console.warn('读取文件夹存档失败', error);
     toast(`${applied ? '存档已读取，但界面刷新失败' : '读取存档失败'}：${error.message || '无法读取文件'}`);
     return false;
@@ -251,7 +279,7 @@ async function restoreFolderIfAvailable() {
   try { lastCampaignId = localStorage.getItem(typeof modularStorage !== 'undefined' && modularStorage ? STORAGE_KEY + ':last-campaign' : 'dnd-board-last-campaign-id') || ''; } catch (e) { /* 使用当前进度 */ }
   try { const index = JSON.parse(await readBoundText(SAVE_INDEX_FILE) || '{}'); lastCampaignId = index.lastCampaignId || lastCampaignId; } catch (e) { /* 兼容旧索引 */ }
   // 每次恢复都重读磁盘；读取过缓存的时间不能证明缓存比正式文件更新。
-  const records = await readCampaignRecords(true);
+  const records = await readCampaignRecords(true, { covers: false });
   const requestedId = lastCampaignId || state.campaignId;
   const record = requestedId ? records.find(item => item.id === requestedId) : records[0];
   if (!record) {
@@ -263,6 +291,9 @@ async function restoreFolderIfAvailable() {
 }
 
 function scheduleAutosave(markStream = true) {
+  if (typeof hostEditGeneration !== 'undefined') hostEditGeneration++;
+  if (typeof hostStateConflict !== 'undefined' && hostStateConflict) { keepHostConflictDraft(); updateSaveStatus('同步暂停 · 本页草稿待处理', 'error'); return; }
+  updateSaveStatus('有修改 · 等待自动保存', 'pending');
   if (markStream) streamDirty = true;
   // 第一处修改启动一分钟窗口；后续操作会一并写入，不会无限延后保存。
   if (autosaveTimer) return;
@@ -273,6 +304,7 @@ function scheduleAutosave(markStream = true) {
 }
 
 function saveNow(options = {}) {
+  if (typeof hostCampaignDeferred !== 'undefined' && hostCampaignDeferred) return false;
   if (campaignLoadInProgress) return false;
   if (autosaveTimer) {
     clearTimeout(autosaveTimer);
@@ -316,19 +348,21 @@ function saveNow(options = {}) {
 
 async function saveNowWithFeedback() {
   flushDetailTextSave();
-  if (!(await ensureSaveFolderAccess(true))) return;
+  if (typeof hostStateConflict !== 'undefined' && hostStateConflict) { keepHostConflictDraft(); toast('同步已暂停，请先保留草稿并重新读取正式存档'); return false; }
+  if (!(await ensureSaveFolderAccess(true))) return false;
   if (!state.campaignId) {
     const name = prompt('给这个存档起个名字', `战役 ${new Date().toLocaleDateString('zh-CN')}`);
-    if (name === null || !name.trim()) return;
+    if (name === null || !name.trim()) return false;
     state.campaignId = 'c' + (uid++);
     state.campaignName = name.trim();
   }
   if (!saveNow({ backup: true })) {
     toast('保存失败');
-    return;
+    return false;
   }
   const ok = await folderSaveQueue;
-  toast(ok ? `✅ 已保存「${state.campaignName}」` : ($('#save-status')?.textContent || '保存未完成，请保留当前页面'));
+  toast(ok ? `已保存「${state.campaignName}」` : ($('#save-status')?.textContent || '保存未完成，请保留当前页面'));
+  return ok === true;
 }
 
 function loadSaved() {
@@ -401,6 +435,7 @@ function applySavedState(s) {
     state.snap = s.snap !== false;
     state.showNames = s.showNames !== false;
     state.campaignId = s.campaignId || null;
+    state.packageContextRevision = typeof s.packageContextRevision === 'string' ? s.packageContextRevision : '';
     state.travelBasketSkin = ['stone-road','travel-wagon','star-portal','forest-path','snow-trail','voyage-ship','country-road','desert-sand','mountain-trail','swamp-path','coastal-beach','cavern-floor','dungeon-stone','wood-boardwalk','volcanic-ground'].includes(s.travelBasketSkin)?s.travelBasketSkin:(s.travelBasketSkin==='road'?'stone-road':s.travelBasketSkin==='ship'?'voyage-ship':'travel-wagon');
     // Opening a campaign always starts with the travel basket closed.
     state.travelBasketOpen = false;
@@ -411,14 +446,26 @@ function applySavedState(s) {
       ? s.sharedResources.map(normalizeLink).filter(Boolean) : [];
     state.sharedNotes = typeof s.sharedNotes === 'string' ? s.sharedNotes.slice(0, 4000) : '';
     state.prepHandbook = typeof SundollPrepHandbook !== 'undefined' ? SundollPrepHandbook.normalize(s.prepHandbook) : (Array.isArray(s.prepHandbook) ? s.prepHandbook : []);
+    state.combatQuickCards = typeof SundollPrepHandbook !== 'undefined' ? SundollPrepHandbook.normalizeCards(s.combatQuickCards) : [];
     state.journal = CampaignJournal.normalize(s.journal, state.campaignId);
+    state.encounter = normalizeEncounter(s.encounter);
+    const normalizeCachedWeather = (weather) => weather && typeof weather === 'object' && !Array.isArray(weather)
+      ? normalizeWeather(weather, worldTimeNow(state.encounter)) : null;
+    state.worldWeatherLocationId = typeof s.worldWeatherLocationId === 'string' ? s.worldWeatherLocationId : null;
+    state.worldWeatherDefault = normalizeCachedWeather(s.worldWeatherDefault);
     state.mapChapters = Array.isArray(s.mapChapters)
       ? s.mapChapters.map((chapter) => ({ id: chapter?.id, name: chapter?.name })) : [];
     state.mapLocations = Array.isArray(s.mapLocations)
-      ? s.mapLocations.map((location) => ({ id: location?.id, chapterId: location?.chapterId, name: location?.name })) : [];
+      ? s.mapLocations.map((location) => ({
+        id: location?.id, chapterId: location?.chapterId, name: location?.name,
+        climateKey: typeof location?.climateKey === 'string' && location.climateKey.trim() && location.climateKey.length <= 64
+          && (typeof CLIMATE_AVAILABLE === 'undefined' || !CLIMATE_AVAILABLE
+            || (typeof CLIMATE_META !== 'undefined' && Object.hasOwn(CLIMATE_META, location.climateKey)))
+          ? location.climateKey : null,
+        weather: normalizeCachedWeather(location?.weather),
+      })) : [];
     userLinks = state.sharedResources.slice();
     state.selectedId = null;
-    state.encounter = normalizeEncounter(s.encounter);
     if (!loadLibrary().length && Array.isArray(s.library) && s.library.length) {
       // 旧版本：棋子库曾存在主存档里，迁移到共享存储
       state.library = s.library.map(normalizeLibPreset);
@@ -458,10 +505,14 @@ function applySavedState(s) {
         mapData: m.mapData || null,
         mapW: m.mapW || 1400,
         mapH: m.mapH || 900,
+        ...(typeof SundollMapForms !== 'undefined' ? SundollMapForms.fields(m) : {
+          mapForms: Array.isArray(m.mapForms) ? m.mapForms : [], activeMapFormId: m.activeMapFormId || null,
+        }),
         gridSize: m.gridSize || 50,
         gridLineWidth: clamp(Number(m.gridLineWidth) || 2, .5, 8),
         gridOffsetX: clamp(Number(m.gridOffsetX) || 0, -3000, 3000),
         gridOffsetY: clamp(Number(m.gridOffsetY) || 0, -3000, 3000),
+        gridCover: SundollRules.normalizeMapCover(m.gridCover),
         gridVisible: typeof m.gridVisible === 'boolean' ? m.gridVisible : s.showGrid !== false,
         cells: Array.isArray(m.cells) ? m.cells.map((r) => r.slice()) : null,
         cellVariants: m.cellVariants && typeof m.cellVariants === 'object' ? { ...m.cellVariants } : {},
@@ -494,11 +545,14 @@ function applySavedState(s) {
       state.presentedMapId = legacy.id;
       ensureMapNavigation();
     }
+    if (!state.mapLocations.some((location) => location.id === state.worldWeatherLocationId)) {
+      state.worldWeatherLocationId = null;
+    }
     repairDuplicateTokenIds(state.maps);
     // 旧版手动先攻只有名字；仅在当前地图存在唯一同名棋子时自动补上关联。
     // 骑手和坐骑若曾分别存在，也会在这里安全合并为同一个先攻项。
     reconcileInitiativeEntries({ linkLegacyNames: true });
-    const unlinkedInitiativeEntries = state.encounter.entries.filter((entry) => !initiativeEntryToken(entry));
+    const unlinkedInitiativeEntries = state.encounter.entries.filter((entry) => entry.kind !== 'environment' && !initiativeEntryToken(entry));
     if (state.encounter.playMode === 'turn' && unlinkedInitiativeEntries.length) {
       state.encounter.playMode = 'prepare';
       state.encounter.currentEntryId = null;
@@ -513,6 +567,7 @@ function applySavedState(s) {
     uid = nextSafeCounter(ids);
     renumberAllMaps();
     pendingLegacyPortraitMigrations = migratedPortraits;
+    if(typeof window!=='undefined'){window.PlayerBackpack?.contextChanged();window.ItemLibrary?.contextChanged();window.MapItems?.contextChanged();}
     return true;
   } catch (e) {
     for (const key of Object.keys(state)) {
@@ -543,6 +598,9 @@ const LOCAL_SAVE_BRIDGE_HANDLE = Object.freeze({ kind: 'directory', name: SAVE_R
 let projectDirHandle = null; // 兼容旧变量名：现在始终代表用户选中的“存档”文件夹本身。
 let campaignRecordsCache = null;
 const campaignCoverCache = new Map();
+const campaignCoverReadJobs = new Map();
+const campaignCoverReadVersions = new Map();
+let campaignCoverCacheVersion = 0;
 const campaignLoadedHashes = new Map();
 let localSaveApiAvailable = false;
 let modularStorage = false;
@@ -552,16 +610,63 @@ function usingLocalSaveBridge() {
   return projectDirHandle === LOCAL_SAVE_BRIDGE_HANDLE;
 }
 
+async function preserveUnconfirmedCampaignWrite(payload) {
+  const envelope = {format:'sundoll-pending-campaign-save',savedAt:Date.now(),payload};
+  let browserKept = false;
+  try {localStorage.setItem(STORAGE_KEY + ':pending-save',JSON.stringify(envelope));browserKept = true;} catch (_) {}
+  const path = payload.path.replace(/当前存档\.json$/, '自动备份/写入待确认-' + Date.now() + '.json');
+  try {
+    await localSaveApiRequest('write', {path,text:payload.text});
+    return {kept:true,path};
+  } catch (_) {return {kept:browserKept,path:''};}
+}
+
 async function localSaveApiRequest(op, payload = {}) {
-  const response = await fetch(LOCAL_SAVE_API_PATH, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', [LOCAL_SAVE_API_HEADER]: '1' },
-    body: JSON.stringify({ op, ...payload, ...(payload.path === '棋子库/棋子库.json' && op === 'write' ? {catalogHash:loadedCatalogHash}:{}), protocolVersion: globalThis.SundollProtocol?.version }),
-  });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok || data.ok === false) throw new Error(data.error || '本机存档服务不可用');
-  if (payload.path === '棋子库/棋子库.json' && 'catalogHash' in data) loadedCatalogHash=data.catalogHash;
-  return data;
+  const readOnly = ['status', 'read', 'read-campaign', 'read-binary', 'list', 'campaign-catalog', 'save-receipt', 'recovery-list', 'recovery-read'].includes(op);
+  const controller = new AbortController();
+  let timer;
+  const bounded = readOnly || op === 'write-campaign' || op === 'write' || op === 'recovery-copy';
+  const timeout = bounded ? new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      reject(Object.assign(new Error(readOnly ? '读取超时，请检查网络后重试；正式存档没有被修改' : '写入结果尚未确认，请保留草稿后核对'), {name:'TimeoutError'}));
+      controller.abort();
+    }, readOnly ? (op === 'read-binary' ? 30000 : 10000) : 30000);
+  }) : null;
+  const request = (async () => {
+    const response = await fetch(LOCAL_SAVE_API_PATH, {
+      method: 'POST', signal: controller.signal,
+      priority: op === 'read-binary' ? 'low' : 'auto',
+      headers: { 'Content-Type': 'application/json', [LOCAL_SAVE_API_HEADER]: '1' },
+      body: JSON.stringify({ op, ...payload, ...(payload.path === '棋子库/棋子库.json' && op === 'write' ? {catalogHash:loadedCatalogHash}:{}), protocolVersion: globalThis.SundollProtocol?.version }),
+    });
+    const data = await response.json();
+    if (!response.ok || data.ok === false) {
+      const error = Object.assign(new Error(data.error || '存档服务不可用'), {status:response.status,errorCode:data.errorCode});
+      if (op === 'write-campaign' && response.status === 409 && typeof pauseHostStateSync === 'function') pauseHostStateSync(error.message, data);
+      throw error;
+    }
+    return data;
+  })();
+  try {
+    const data = await (timeout ? Promise.race([request, timeout]) : request);
+    if (payload.path === '棋子库/棋子库.json' && 'catalogHash' in data) loadedCatalogHash=data.catalogHash;
+    return data;
+  } catch (error) {
+    if (op !== 'write-campaign' || (error.status && error.status < 500)) throw error;
+    // Never repeat a write whose connection failed: preserve its exact text first,
+    // then ask the server whether this same command has a committed receipt.
+    const preservation = await preserveUnconfirmedCampaignWrite(payload);
+    try {
+      const signature = await campaignTextHash((payload.expectedHash == null ? 'None' : String(payload.expectedHash)) + ':' + payload.text);
+      const receipt = await localSaveApiRequest('save-receipt', {path:payload.path,signature});
+      if (receipt.committed === true && receipt.matchesCurrent === true && receipt.result?.stateRevision === payload.expectedStateRevision + 1 && receipt.result.sessionId === payload.serverSessionId && receipt.stateRevision === receipt.result.stateRevision && receipt.sessionId === receipt.result.sessionId && /^[0-9a-f]{64}$/.test(receipt.hash || '')) {
+        return {...receipt.result,hash:receipt.hash};
+      }
+    } catch (_) { /* An inaccessible receipt cannot establish a successful write. */ }
+    const message = '正式写入结果尚未确认，自动提交已暂停。' + (preservation.kept ? '提交原文已保留为待确认草稿。' : '请下载本页草稿并保持页面开启。');
+    if (typeof pauseHostStateSync === 'function') pauseHostStateSync(message, {errorCode:'state-result-unknown'});
+    throw Object.assign(new Error(message), {errorCode:'state-result-unknown'});
+  } finally { clearTimeout(timer); }
 }
 
 async function loadProjectDirHandle() {
@@ -587,7 +692,7 @@ async function loadProjectDirHandle() {
   } catch (e) {
     if (location.protocol !== 'file:') {
       projectDirHandle = null;
-      throw new Error('本机工作区服务不可用，请重新启动程序后刷新；未载入旧目录缓存');
+      throw Object.assign(new Error(e.message || '工作区服务不可用，请重试'), {name:e.name || 'Error'});
     }
   }
   try {
@@ -609,6 +714,12 @@ async function hasSaveFolderPermission() {
 }
 
 async function ensureSaveFolderAccess(requestPermission = false) {
+  // A fast click before home initialization must still resolve the server's
+  // workspace, never fall back to a directory from this browser.
+  if (!projectDirHandle && location.protocol !== 'file:') {
+    try { await loadProjectDirHandle(); }
+    catch (error) { updateSaveStatus(error.message || '工作区连接失败，请重试', 'error'); return false; }
+  }
   if (usingLocalSaveBridge()) {
     try {
       await localSaveApiRequest('status');
@@ -837,18 +948,40 @@ async function writeBoundBlob(relPath, blob) {
 }
 
 function clearCampaignCoverCache(folderName = '') {
-  if (folderName) campaignCoverCache.delete(folderName);
-  else campaignCoverCache.clear();
+  if (folderName) {
+    campaignCoverReadVersions.set(folderName, (campaignCoverReadVersions.get(folderName) || 0) + 1);
+    campaignCoverCache.delete(folderName);
+    campaignCoverReadJobs.delete(folderName);
+  } else {
+    campaignCoverCacheVersion++;
+    campaignCoverReadVersions.clear();
+    campaignCoverCache.clear();
+    campaignCoverReadJobs.clear();
+  }
 }
 
-async function readCampaignCover(folderName) {
+function campaignCoverReadVersion(folderName) {
+  return `${campaignCoverCacheVersion}:${campaignCoverReadVersions.get(folderName) || 0}`;
+}
+
+function readCampaignCover(folderName) {
+  if (campaignCoverReadJobs.has(folderName)) return campaignCoverReadJobs.get(folderName);
+  const job = readCampaignCoverFile(folderName, campaignCoverReadVersion(folderName)).finally(() => {
+    if (campaignCoverReadJobs.get(folderName) === job) campaignCoverReadJobs.delete(folderName);
+  });
+  campaignCoverReadJobs.set(folderName, job);
+  return job;
+}
+
+async function readCampaignCoverFile(folderName, version) {
   const directory = `${SAVE_CAMPAIGN_DIR}/${folderName}`;
   const files = await listBoundFiles(directory);
+  if (version !== campaignCoverReadVersion(folderName)) return null;
   const file = CAMPAIGN_COVER_FILES
     .map((name) => files.find((entry) => entry.name === name))
     .find(Boolean);
   if (!file) {
-    clearCampaignCoverCache(folderName);
+    campaignCoverCache.delete(folderName);
     return null;
   }
   const cacheKey = `${file.name}:${file.lastModified || 0}:${file.size || 0}`;
@@ -861,6 +994,7 @@ async function readCampaignCover(folderName) {
     fileName: file.name,
     url: await readFileAsDataUrl(blob),
   };
+  if (version !== campaignCoverReadVersion(folderName)) return null;
   campaignCoverCache.set(folderName, cover);
   return cover;
 }
@@ -943,17 +1077,37 @@ function campaignRecordSummary(record) {
   } };
 }
 
-async function readCampaignRecords(force = false) {
-  if (!force && Array.isArray(campaignRecordsCache)) return campaignRecordsCache.slice();
+async function loadCampaignRecordCovers(records) {
+  await Promise.all(records.map(async (record) => {
+    if (Object.hasOwn(record, 'coverUrl')) return;
+    let cover, version;
+    do {
+      version = campaignCoverReadVersion(record._folderName);
+      cover = await readCampaignCover(record._folderName);
+    } while (version !== campaignCoverReadVersion(record._folderName));
+    record.coverFile = cover?.fileName || '';
+    record.coverUrl = cover?.url || '';
+  }));
+}
+
+async function readCampaignRecords(force = false, options = {}) {
+  const includeCovers = options.covers !== false;
+  if (!force && Array.isArray(campaignRecordsCache)) {
+    if (includeCovers) await loadCampaignRecordCovers(campaignRecordsCache);
+    return campaignRecordsCache.slice();
+  }
+  campaignRecordsCache = null;
   if (usingLocalSaveBridge()) {
     const data = await localSaveApiRequest('campaign-catalog');
+    homeLastCampaignId = data.lastCampaignId || '';
     const byId = new Map();
     for (const item of data.records || []) {
-      const cover = await readCampaignCover(item._folderName);
-      const record = { ...item, coverFile: cover?.fileName || '', coverUrl: cover?.url || '' };
-      if (!byId.has(record.id) || record.savedAt > byId.get(record.id).savedAt) byId.set(record.id, record);
+      const record = { ...item };
+      if (byId.has(record.id) && byId.get(record.id)._path !== record._path) throw new Error('发现重复战役身份「' + record.name + '」，请保留两个副本并检查存档目录，当前未自动选择。');
+      byId.set(record.id, record);
     }
     campaignRecordsCache = [...byId.values()].sort((a,b) => b.savedAt-a.savedAt);
+    if (includeCovers) await loadCampaignRecordCovers(campaignRecordsCache);
     return campaignRecordsCache.slice();
   }
   const folders = await listBoundDirs(SAVE_CAMPAIGN_DIR);
@@ -963,18 +1117,17 @@ async function readCampaignRecords(force = false) {
     const path = `${SAVE_CAMPAIGN_DIR}/${folderName}/当前存档.json`;
     const parsed = parseCampaignFile(await readBoundText(path), folderName);
     if (!parsed) continue;
-    const cover = await readCampaignCover(folderName);
     const record = {
       ...campaignRecordSummary(parsed),
-      coverFile: cover?.fileName || '',
-      coverUrl: cover?.url || '',
       _folderName: folderName,
       _path: path,
     };
     const previous = byId.get(record.id);
-    if (!previous || record.savedAt >= previous.savedAt) byId.set(record.id, record);
+    if (previous && previous._path !== record._path) throw new Error('发现重复战役身份「' + record.name + '」，请保留两个副本并检查存档目录，当前未自动选择。');
+    byId.set(record.id, record);
   }
   campaignRecordsCache = [...byId.values()].sort((a, b) => b.savedAt - a.savedAt);
+  if (includeCovers) await loadCampaignRecordCovers(campaignRecordsCache);
   return campaignRecordsCache.slice();
 }
 
@@ -984,26 +1137,6 @@ async function trimAutomaticBackups(folderName) {
   const files = (await listBoundFiles(dir)).filter((item) => /^\d+\.json$/.test(item.name));
   files.sort((a, b) => b.lastModified - a.lastModified);
   for (const old of files.slice(10)) await deleteBoundEntry(`${dir}/${old.name}`);
-}
-
-async function copyCampaignHistory(sourceFolder, targetFolder) {
-  if (!sourceFolder || sourceFolder === targetFolder) return;
-  for (const dirName of ['自动备份']) {
-    const sourceDir = `${SAVE_CAMPAIGN_DIR}/${sourceFolder}/${dirName}`;
-    const targetDir = `${SAVE_CAMPAIGN_DIR}/${targetFolder}/${dirName}`;
-    const files = (await listBoundFiles(sourceDir)).filter((item) => item.name.endsWith('.json'));
-    for (const file of files) {
-      const text = await readBoundText(`${sourceDir}/${file.name}`);
-      if (text) await writeBoundText(`${targetDir}/${file.name}`, text);
-    }
-  }
-  const cover = await readCampaignCover(sourceFolder);
-  if (cover?.fileName) {
-    const blob = await readBoundBlob(`${SAVE_CAMPAIGN_DIR}/${sourceFolder}/${cover.fileName}`);
-    if (blob) await writeBoundBlob(`${SAVE_CAMPAIGN_DIR}/${targetFolder}/${cover.fileName}`, blob);
-    clearCampaignCoverCache(sourceFolder);
-    clearCampaignCoverCache(targetFolder);
-  }
 }
 
 async function writeSaveIndex(records) {
@@ -1049,10 +1182,15 @@ async function campaignTextHash(text) {
   return Array.from(new Uint8Array(bytes), byte => byte.toString(16).padStart(2, '0')).join('');
 }
 
-async function writeCurrentCampaign(path, packageData, expectedHash) {
+async function writeCurrentCampaign(path, packageData, expectedHash, snapshotGuard = null) {
   const text = JSON.stringify(packageData, null, 2);
   if (usingLocalSaveBridge()) {
-    const result = await localSaveApiRequest('write-campaign', { path, text, expectedHash });
+    const guard = snapshotGuard || (typeof hostStateGuardFields === 'function' ? hostStateGuardFields() : {});
+    if(typeof beginHostStateCommit==='function')beginHostStateCommit();
+    try {
+    const result = await localSaveApiRequest('write-campaign', { path, text, expectedHash, ...guard });
+    if (typeof acknowledgeHostStateWrite === 'function' && !acknowledgeHostStateWrite(result,guard)) throw new Error('保存结果未确认，请保留草稿并核对正式存档');
+    if(typeof endHostStateCommit==='function')endHostStateCommit();
     // Do not replace an image the user changed while this save was in flight.
     if (state.campaignId === packageData.campaignId && result.mapAssets) {
       for (const saved of packageData.state.maps || []) {
@@ -1075,6 +1213,7 @@ async function writeCurrentCampaign(path, packageData, expectedHash) {
       }
     }
     return result.hash;
+    } finally {if(typeof endHostStateCommit==='function')endHostStateCommit();}
   }
   // 文件夹模式也核对版本；同源标签页通过 Web Locks 串行提交。
   const commit = async () => {
@@ -1093,9 +1232,15 @@ async function writeCurrentCampaign(path, packageData, expectedHash) {
 }
 
 async function writeCampaignRecord(id, name, snapshot, options = {}) {
+  if (usingLocalSaveBridge() && typeof enqueueHostStateWrite === 'function' && !options._serialized) {
+    const capturedGuard = options._snapshotGuard || (typeof hostStateRevision !== 'undefined' && Number.isInteger(hostStateRevision) && typeof hostStateGuardFields === 'function' ? hostStateGuardFields() : null);
+    return enqueueHostStateWrite(() => writeCampaignRecord(id, name, snapshot, {...options,_serialized:true,_snapshotGuard:capturedGuard}));
+  }
+  let savedGeneration = typeof hostEditGeneration !== 'undefined' ? hostEditGeneration : null;
+  let snapshotGuard = options._snapshotGuard || (usingLocalSaveBridge() && typeof hostStateGuardFields === 'function' ? hostStateGuardFields() : null);
   if (!(await ensureSaveFolderAccess(false))) throw new Error('save folder unavailable');
   const cleanId = safeCampaignId(id);
-  const cleanName = String(name || '未命名战役').trim().slice(0, 120) || '未命名战役';
+  let cleanName = String(name || '未命名战役').trim().slice(0, 120) || '未命名战役';
   const existing = await campaignGet(cleanId);
   // 目录是持久身份，改显示名称无需迁移或删除历史文件。
   const folderName = existing?._folderName || campaignFolderName(cleanId, cleanName);
@@ -1108,12 +1253,24 @@ async function writeCampaignRecord(id, name, snapshot, options = {}) {
       throw new Error('备份未能完整写入，正式存档未覆盖');
     }
   }
+  // Reads and backup writes can yield to player actions. Re-capture the current
+  // draft and its causal guard together immediately before the formal commit.
+  if (options.currentProgress && state.campaignId === cleanId) {
+    snapshot = folderSaveSnapshot();
+    cleanName = String(state.campaignName || cleanName).trim().slice(0,120) || '未命名战役';
+    savedGeneration = typeof hostEditGeneration !== 'undefined' ? hostEditGeneration : null;
+    snapshotGuard = usingLocalSaveBridge() && typeof hostStateGuardFields === 'function' ? hostStateGuardFields() : null;
+  }
   const packageData = campaignPackage(cleanId, cleanName, snapshot, savedAt);
-  const savedHash = await writeCurrentCampaign(currentPath, packageData, campaignLoadedHashes.get(cleanId) ?? null);
+  const savedHash = await writeCurrentCampaign(currentPath, packageData, campaignLoadedHashes.get(cleanId) ?? null, snapshotGuard);
   campaignLoadedHashes.set(cleanId, savedHash);
-  await trimAutomaticBackups(folderName);
+  if (state.campaignId === cleanId) streamDirty = true;
+  let indexWarning = '';
+  try { await trimAutomaticBackups(folderName); } catch (error) { indexWarning = error.message || '备份列表待更新'; }
   const record = {
     id: cleanId,
+    _clientEditGeneration: savedGeneration,
+    indexWarning,
     name: cleanName,
     savedAt,
     state: campaignRecordSummary({ state: packageData.state }).state,
@@ -1124,7 +1281,7 @@ async function writeCampaignRecord(id, name, snapshot, options = {}) {
   };
   campaignRecordsCache = [record, ...(campaignRecordsCache || []).filter((item) => item.id !== cleanId)]
     .sort((a, b) => b.savedAt - a.savedAt);
-  await writeSaveIndex(campaignRecordsCache);
+  try { await writeSaveIndex(campaignRecordsCache); } catch (error) { record.indexWarning = error.message || '存档列表待更新'; }
   return record;
 }
 
@@ -1143,7 +1300,7 @@ async function writeRecoverySnapshot(label, snapshot) {
 
 async function migrateLegacyCampaigns() {
   if (modularStorage) return 0;
-  const existingIds = new Set((await readCampaignRecords(true)).map((item) => item.id));
+  const existingIds = new Set((await readCampaignRecords(true, { covers: false })).map((item) => item.id));
   const candidates = new Map();
   let legacy = [];
   try { legacy = await legacyCampaignList(); } catch (e) { /* 旧库不存在 */ }

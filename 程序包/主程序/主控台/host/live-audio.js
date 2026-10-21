@@ -6,13 +6,13 @@
   'use strict';
   const env = options.env || globalThis;
   const peers = new Map();
-  const rtcConfig = {iceServers:[{urls:['stun:stun.cloudflare.com:3478','stun:stun.l.google.com:19302']}]};
+  const rtcConfig = {iceServers:[{urls:['stun:stun.cloudflare.com:3478','stun:stun.l.google.com:19302']}] };
   let request = 0, pending = false, capture = null, paused = false, label = '', error = '';
   const changed = () => options.changed?.();
   const isCurrent = (id, entry) => peers.get(id) === entry;
   const release = stream => stream?.getTracks().forEach(track => { track.onended = null; track.stop(); });
   function status() {
-    return {active:!!capture,pending,paused,label,error,connected:[...peers.values()].filter(e=>e.pc.connectionState==='connected').length,total:peers.size};
+    return {active:!!capture,pending,paused,label,error,connected:[...peers.values()].filter(e=>e.pc.connectionState==='connected').length,total:peers.size,signal:options.relay?.signal?.()||'',transport:options.relay?'https':'webrtc',url:options.relay?.url()||''};
   }
   function closePeer(id, notify = false) {
     const entry = peers.get(id); if (!entry) return;
@@ -47,12 +47,14 @@
     changed();
   }
   function sync(players=options.players(), restart=false) {
+    if(options.relay){changed();return;}
     const ids=new Set((players||[]).filter(p=>p.online&&p.playerId).map(p=>p.playerId));
     for (const id of peers.keys()) if(restart||!ids.has(id)) closePeer(id);
     if(capture) ids.forEach(id=>createPeer(id));
     changed();
   }
   async function signal(event) {
+    if(options.relay)return;
     if(!capture || event?.target!=='host') return;
     const id=event.senderPlayerId, msg=event.signal||{};
     if(msg.type==='ready'){closePeer(id);await createPeer(id);return;}
@@ -68,11 +70,11 @@
       }else if(msg.type==='stop')closePeer(id);
     }catch(_){if(isCurrent(id,entry)){error='音频连接未完成，可点击重新连接';changed();}}
   }
-  function cancelPending(){++request;pending=false;changed();}
+  function cancelPending(){++request;if(pending)options.relay?.stop();pending=false;changed();}
   function stop({broadcast=true}={}) {
     ++request;pending=false;
     const wasActive=!!capture, stream=capture;capture=null;paused=false;
-    release(stream);
+    release(stream);options.relay?.stop();
     [...peers.keys()].forEach(id=>closePeer(id,true));
     if(wasActive)options.stopped?.(broadcast);
     changed();
@@ -81,7 +83,7 @@
     if(pending||capture)return;
     if(!options.online())throw new Error('请先开启联机');
     const media=env.navigator?.mediaDevices;
-    if(!env.RTCPeerConnection||!media)throw new Error('请通过 localhost 或 HTTPS，在 Chrome / Edge 中打开主控台');
+    if((!options.relay&&!env.RTCPeerConnection)||!media)throw new Error('请通过 localhost 或 HTTPS，在 Chrome / Edge 中打开主控台');
     if(kind==='device'&&!deviceId)throw new Error('请先选择接收音乐的输入设备');
     const token=++request;pending=true;error='';changed();
     let stream;
@@ -95,6 +97,12 @@
       }
       if(token!==request||!options.online()){release(stream);if(token===request){pending=false;changed();}return;}
       if(!stream.getAudioTracks().length)throw new Error(kind==='device'?'所选设备没有可用音频':'没有取得声音。请勾选共享音频；若没有此选项，请使用音频输入设备。');
+      if(options.relay){
+        await options.relay.prepare();
+        if(token!==request||!options.online()){release(stream);if(token===request){pending=false;changed();}return;}
+        const url=await options.relay.start(stream);
+        if(token!==request||!options.online()||!url){release(stream);if(url&&options.relay.url()===url)options.relay.stop();if(token===request){pending=false;changed();}return;}
+      }
       capture=stream;pending=false;paused=false;
       label=kind==='device'?`外部音源 · ${deviceLabel||'音频输入'}`:kind==='system'?'系统声音直播':'标签页声音直播';
       stream.getTracks().forEach(track=>{track.onended=()=>{if(capture===stream)stop();};});
@@ -103,6 +111,7 @@
     }catch(e){
       release(stream);
       if(token!==request)return;
+      options.relay?.stop();
       capture=null;pending=false;
       error=e.name==='NotAllowedError'?'未获得声音共享权限':e.name==='AbortError'?'已取消选择音源':e.message||'音源连接失败';
       changed();throw new Error(error);

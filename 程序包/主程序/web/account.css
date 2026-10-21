@@ -1,0 +1,120 @@
+:root{
+ color-scheme:dark;--account-bg:#10191b;--account-text:#eee9dc;--account-muted:#a1b0aa;--account-gold:#d6bc88;--account-line:#a8b5a51f;--account-panel:#1c2b2b85;--control-border:#a5b3a738;
+ font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;font-synthesis:none;color:var(--account-text);background:var(--account-bg)
+}
+*{box-sizing:border-box}[hidden]{display:none!important}
+body{margin:0;min-width:280px;min-height:100svh;line-height:1.6;background:radial-gradient(ellipse at 90% 0,#29413e4d,transparent 55%),var(--account-bg)}
+a{color:inherit;text-decoration:none}button,input,select{font:inherit}button,a,summary{-webkit-tap-highlight-color:transparent}
+:is(a,button,input,select,summary):focus-visible{outline:2px solid var(--account-gold);outline-offset:3px}
+.skip-link{position:fixed;z-index:40;left:16px;top:-80px;padding:10px 18px;background:var(--account-gold);color:var(--account-bg)}.skip-link:focus{top:12px}
+
+/* Page > section > card > field: each level has its own scale. */
+.account-header{border-bottom:1px solid var(--account-line);background:#131f20b3}
+.account-header-inner{width:min(100% - 80px,1120px);min-height:72px;margin-inline:auto;display:flex;align-items:center;justify-content:space-between;gap:20px}
+.account-brand{display:inline-flex;align-items:center;gap:11px;min-width:0}.account-brand img{flex:0 0 auto;object-fit:contain}
+.brand-name{font-size:13px;letter-spacing:.09em;color:#e7ddc5;white-space:nowrap}.brand-english{display:block;color:#a49472;font-size:7px;letter-spacing:.21em}
+.account-home-link{display:inline-flex;align-items:center;gap:7px;min-height:36px;padding:7px 12px;border:1px solid var(--account-line);border-radius:7px;color:#b9c5bc;font-size:12px;white-space:nowrap}
+.account-home-link:hover{border-color:#d6bc8855;color:var(--account-gold)}
+.account{width:min(100% - 40px,460px);margin:clamp(28px,6vh,56px) auto 0}
+.account[data-view="dashboard"]{width:min(100% - 80px,1040px);margin-top:36px;padding-bottom:48px}
+.account[data-view="auth"] .account-content{padding:30px 34px;border:1px solid #d6bc8830;border-radius:16px;background:var(--account-panel);box-shadow:0 20px 60px #030c0d26}
+.account-heading{margin-bottom:24px}.account[data-view="auth"] .account-heading{padding-bottom:22px;border-bottom:1px solid var(--account-line)}
+.account .eyebrow{margin:0 0 10px;color:#b5aa8e;font-size:9px;letter-spacing:.2em}
+.account h1{margin:0;font:400 34px/1.35 "Songti SC","STSong",Georgia,serif;letter-spacing:.06em}
+.account h2{margin:0;font:500 21px/1.45 "Songti SC","STSong",Georgia,serif;letter-spacing:.06em}
+.account h3{margin:0;font-size:16px;font-weight:550;line-height:1.5;color:#eee5d3;overflow-wrap:anywhere}
+.account .intro{margin:12px 0 0;font-size:13px;color:var(--account-muted)}
+.account #account-dashboard p{margin:10px 0;color:var(--account-muted);font-size:12px;line-height:1.7;overflow-wrap:anywhere}
+.room-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:14px}
+.room-heading :is(h2,h3){min-width:0}.room-heading .text-button{flex:0 0 auto}
+
+/* Filled primary actions, outlined secondary actions, quiet utilities. */
+.account button,.primary-link{display:inline-flex;align-items:center;justify-content:center;gap:8px;width:fit-content;max-width:100%;min-height:38px;padding:8px 14px;border:1px solid var(--control-border);border-radius:7px;background:#d6bc8808;color:#e4d3af;font-size:13px;font-weight:500;line-height:1.5;text-align:center;cursor:pointer;transition:border-color .15s ease,background .15s ease}
+.account button:not(:disabled):hover,.primary-link:hover{background:#d6bc8814;border-color:#d6bc8875}.account button:disabled{opacity:.45;cursor:default}
+.account :is(#account-submit,#player-start,#accept-room),.account .character-enter{background:var(--account-gold);border-color:var(--account-gold);color:#262218}
+.account :is(#account-submit,#player-start,#accept-room):not(:disabled):hover,.account .character-enter:not(:disabled):hover{background:#e5cfa3;border-color:#e5cfa3}
+.account .text-button{min-height:32px;padding:6px 8px;border-color:transparent;background:transparent;color:#acbcb3;font-size:12px;font-weight:400}
+.account .text-button:not(:disabled):hover{border-color:transparent;background:#c8c6af0a;color:#ead4aa}.account .danger-button{color:#d7a59b}
+.account summary{width:fit-content;max-width:100%;min-height:36px;padding-block:8px;color:#c4b18e;font-size:12px;cursor:pointer}.account summary:hover{color:#edd7af}
+
+/* Consistent field height without stretching every action across the card. */
+.account form{margin-top:22px}.account label{display:block;margin-bottom:6px;color:#bdc9c0;font-size:12px}
+.account input,.account select{width:100%;min-width:0;min-height:40px;padding:9px 12px;border:1px solid var(--control-border);border-radius:7px;background:#0e191ab3;color:var(--account-text);font-size:14px;line-height:1.5}
+.account input::placeholder{color:#82958b;opacity:1}.account :is(input,select):hover{border-color:#d6bc8860}.account input[readonly]{color:#b5c4b9}
+.account small{display:block;margin-top:7px;color:var(--account-muted);font-size:12px;line-height:1.65;overflow-wrap:anywhere}
+.account-tabs{display:flex;gap:4px;padding:4px;border-radius:8px;background:#0e191b80}
+.account .account-tabs button{flex:1;min-height:36px;padding:7px 12px;border-color:transparent;background:transparent;color:var(--account-muted)}
+.account .account-tabs button[aria-pressed="true"]{background:#d6bc881a;color:#f1dcad;border-color:#d6bc882b}
+#account-form>div{margin-bottom:17px}.account #account-submit{width:100%;min-height:42px;margin-top:3px}.account #mode-forgot{display:flex;margin:7px 0 0 auto}
+.code-actions{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:6px}
+.account #account-code{font-size:22px;font-variant-numeric:tabular-nums;letter-spacing:.4em}
+.account:has(#mode-register[aria-pressed="true"]) #account-form>div{margin-bottom:13px}
+
+/* Identity is context; characters and rooms are the primary content. */
+.identity{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:0 0 24px;margin-bottom:30px;border-bottom:1px solid var(--account-line)}
+.identity-details{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px;min-width:0}
+#identity-name{font-size:14px;font-weight:500;color:#d8ccad;overflow-wrap:anywhere}.account #identity-email{margin:0;font-size:12px}#account-logout{flex:0 0 auto}
+#my-characters{margin-bottom:34px}.character-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.character-card{min-width:0;padding:19px 20px;border:1px solid #d6bc8833;border-radius:12px;background:var(--account-panel)}
+.character-identity{min-width:0}.account .character-card h3{font-size:18px}.account #account-dashboard .character-card p{margin:6px 0 0}
+.character-actions{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end;gap:10px;margin-top:18px}
+.character-room{min-width:0}.character-room span{display:block;margin-bottom:5px;font-size:11px;color:#94a89b}.account .character-room{margin:0}
+.account .character-room select{min-height:38px;font-size:13px;padding-block:8px}.account .character-enter{white-space:nowrap;min-height:38px}
+.character-card:only-child{grid-column:1/-1;display:grid;grid-template-columns:minmax(0,1fr) minmax(310px,400px);align-items:center;gap:24px}
+.character-card:only-child .character-actions{margin-top:0}
+.character-create{margin-top:10px}.character-create>summary{padding-inline:2px}
+.character-create form{max-width:520px;margin-top:10px;padding:18px 20px;border-left:2px solid #d6bc8844;background:#18262955;border-radius:0 8px 8px 0}
+.character-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:14px 0}.character-stats label{min-width:0}.character-stats input{margin-top:6px}
+#room-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:start;gap:14px}
+.room-card{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:12px;min-width:0;padding:18px 20px 10px;border:1px solid var(--account-line);border-radius:12px;background:#17262559}
+.account .room-card>p{margin:0;padding:3px 7px;border:1px solid #d6bc881f;border-radius:4px;color:#bdaf91;font-size:10px;white-space:nowrap}
+.room-card .primary-link{justify-self:start;min-height:36px;padding:7px 12px;font-size:12px}
+.room-options{grid-column:1/-1;min-width:0;border-top:1px solid var(--account-line);padding-top:2px}
+.room-options summary{font-size:11px;color:#98aaa0;width:100%}
+.room-options[open]{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px}.room-options .text-button{min-height:34px;padding:7px 9px}
+.room-card:only-child{grid-column:1/-1;grid-template-columns:minmax(0,1fr) auto auto}.room-card:only-child .primary-link{margin-left:12px}
+.personal-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px;margin-top:26px;padding-top:24px;border-top:1px solid var(--account-line)}
+.account .personal-action{display:flex;flex-direction:column;align-items:flex-start;min-width:0;margin:0;padding:0}
+.action-heading{display:flex;align-items:center;gap:10px;margin-bottom:15px}.account .personal-action h3{font-size:14px;font-weight:500;color:#cdd5ca}
+.action-role{font-size:10px;line-height:1.4;color:#c6b38d;border:1px solid #d6bc8833;border-radius:4px;padding:3px 6px}
+.account .personal-action button{margin-top:12px;font-size:12px}
+.account-help{margin-top:20px}.account-help summary{color:#91a499;font-size:11px}.account #account-dashboard .account-help p{margin:4px 0 0;max-width:680px;font-size:12px}
+
+/* Contextual panels stay subordinate to the content that opened them. */
+.invitation-panel,.onboarding-panel,.management-panel,.profile-panel{margin:18px 0;padding:20px;border:1px solid #d6bc8840;border-radius:10px;background:#1e2d2be6}
+.onboarding-panel{border-left:3px solid #d6bc8899}.account .onboarding-panel .room-heading h3{font-size:16px}.onboarding-panel .room-heading{margin-bottom:6px}
+.account .character-switch{display:flex;align-items:flex-start;gap:9px;margin:12px 0 0;color:#d5c7a8;line-height:1.7}
+.account .character-switch input{flex:0 0 auto;width:16px;min-height:16px;height:16px;margin:3px 0 0;padding:0;accent-color:var(--account-gold)}
+#player-character{max-width:440px}.onboarding-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;margin-top:16px}
+#room-join-confirm{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px}
+.migration-panel,.room-profile-binding{margin:18px 0;padding:10px 14px;border:1px solid var(--account-line);border-radius:8px;background:#0e171a40}
+.account #room-management p{font-size:12px}.account #room-migration-list p{margin:7px 0}
+.account #room-management form{margin-top:16px;max-width:540px}.account #room-management label:not(:first-child){margin-top:14px}.account #room-management button[type="submit"]{margin-top:16px}
+.room-member{padding:12px 0;border-bottom:1px solid var(--account-line);color:#c6cec3;font-size:12px;overflow-wrap:anywhere}
+.room-member span{display:block;margin-bottom:3px}.room-member .text-button{margin-right:8px}#room-invitation{margin-top:10px}
+.account #profile-form button,.account #bind-profile{margin-top:16px}.account .profile-panel .primary-link{margin-top:6px}
+.account .notice,#room-status{padding:12px 15px;border:1px solid var(--account-line);border-radius:8px;background:#d6bc8808;font-size:12px;color:#caba99;overflow-wrap:anywhere}.account .notice{margin:0 0 18px}
+#account-status{margin:16px 0 0;color:#acd4bd;font-size:12px;line-height:1.7;overflow-wrap:anywhere}#account-status:empty{margin:0}
+#account-status[data-error="true"],.account :is(#room-status,#character-status)[data-error="true"]{color:#efb3a9}
+.account[data-view="dashboard"] #account-status:not(:empty){position:fixed;z-index:30;bottom:20px;left:50%;transform:translateX(-50%);width:max-content;max-width:min(600px,calc(100vw - 32px));margin:0;padding:10px 16px;border:1px solid #6b967e66;border-radius:8px;background:#182629;box-shadow:0 8px 28px #0005}
+.account[data-view="dashboard"] #account-status[data-error="true"]:not(:empty){border-color:#c8837866}
+#character-list,#room-list,.invitation-panel,.onboarding-panel,.management-panel{scroll-margin-top:24px}
+:is(#character-list,#room-list,.invitation-panel,.onboarding-panel,.management-panel):focus{outline:none}
+.account-footer{width:min(100% - 40px,1040px);margin:28px auto;text-align:center;color:#77877b;font-size:8px;letter-spacing:.2em}
+
+@media(max-width:760px){
+ .account-header-inner,.account[data-view="dashboard"]{width:calc(100% - 40px)}.account[data-view="dashboard"]{margin-top:28px}
+ .character-grid,#room-list{grid-template-columns:minmax(0,1fr)}.character-card:only-child{display:block}.character-card:only-child .character-actions{margin-top:16px}
+ .room-card:only-child{grid-template-columns:minmax(0,1fr) auto}.room-card:only-child .primary-link{margin-left:0}
+}
+@media(max-width:520px){
+ .account-header-inner{width:calc(100% - 32px);min-height:64px;gap:10px}.account-brand{gap:8px}.account-brand img{width:30px;height:30px}.brand-name{font-size:12px}.brand-english{font-size:6px}
+ .account-home-link{font-size:11px;padding-inline:8px}.account,.account[data-view="dashboard"]{width:calc(100% - 32px);margin-top:24px}
+ .account[data-view="auth"] .account-content{padding:24px 22px;border-radius:12px}.account h1{font-size:29px}.account h2{font-size:20px}
+ .identity{align-items:flex-start;margin-bottom:24px;padding-bottom:18px;gap:8px}.identity-details{display:block}.account #identity-email{margin-top:3px;font-size:11px}
+ .character-card,.room-card{padding:16px}.character-actions{grid-template-columns:minmax(0,1fr);gap:12px}.account .character-enter{justify-self:start}
+ .account input,.account select,.account .character-room select{font-size:16px}.character-create form{padding:16px}.character-stats{gap:8px}
+ .personal-actions{grid-template-columns:minmax(0,1fr);gap:24px}.invitation-panel,.onboarding-panel,.management-panel,.profile-panel{padding:16px}.onboarding-actions{gap:8px 10px}.account-footer{margin-top:18px}
+}
+@media(max-width:520px),(pointer:coarse){.account button,.account .text-button,.account .account-tabs button,.account #account-submit,.account .character-enter,.primary-link,.room-card .primary-link,.account summary,.account-home-link{min-height:44px}}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{transition:none!important}}

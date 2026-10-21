@@ -1,0 +1,16 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>音乐模块原生连接验收</title>
+<style>body{background:#171923;color:#eee;font:16px system-ui;padding:32px}button{padding:12px;margin:8px}pre{white-space:pre-wrap}</style>
+<h1>音乐模块原生连接验收</h1><p>仅发送本页生成的测试音，不采集麦克风或系统声音。</p>
+<button id="start">开始测试音</button><button id="pause">暂停或继续</button><button id="reconnect">重建连接</button><button id="stop">停止测试</button>
+<p id="host-status">未开始</p><p id="player-audio-title"></p><p id="player-audio-status"></p><button id="player-audio-enable">启用声音</button><button id="player-audio-mute">静音</button><input id="player-audio-volume" type="range" value="10"><pre id="stats"></pre>
+<script src="/host-module.js"></script><script src="/player-module.js"></script>
+<script>
+const $=s=>document.querySelector(s), receivers=[];
+let context,oscillator,issued=Date.now(),receiver,sender;
+class TestPeer extends RTCPeerConnection {constructor(){super({iceServers:[]});receivers.push(this);}}
+receiver=SundollPlayerMusic.create({$,session:()=> 'test',playerId:()=> 'p',serverNow:()=>Date.now(),env:{Audio,MediaStream,RTCPeerConnection:TestPeer,localStorage:{getItem:()=> '0.1',setItem(){}},fetch:async(url,options)=>{const {signal}=JSON.parse(options.body);queueMicrotask(()=>sender.signal({target:'host',senderPlayerId:'p',signal}));return{ok:true,json:async()=>({ok:true})};}}});
+function command(action){receiver.apply({action,mode:'live',track:'合成测试音',issuedAt:++issued});}
+sender=SundollLiveAudio.create({online:()=>true,players:()=>[{playerId:'p',online:true}],env:{RTCPeerConnection:class extends RTCPeerConnection{constructor(){super({iceServers:[]});}},navigator:{mediaDevices:{getUserMedia:async()=>{context=new AudioContext();await context.resume();oscillator=context.createOscillator();oscillator.frequency.value=220;const gain=context.createGain();gain.gain.value=.02;const out=context.createMediaStreamDestination();oscillator.connect(gain).connect(out);oscillator.start();return out.stream;}}}},signal:async(id,signal)=>{queueMicrotask(()=>receiver.signal({target:id,signal}));return{ok:true};},started:()=>command('play'),stopped:()=>{command('stop');oscillator?.stop();context?.close();},command,changed:()=>{$('#host-status').textContent=JSON.stringify(sender.status());}});
+$('#start').onclick=()=>sender.start('device','synthetic','测试音');$('#pause').onclick=()=>sender.togglePause();$('#stop').onclick=()=>sender.stop();$('#reconnect').onclick=()=>sender.sync(undefined,true);
+setInterval(async()=>{const pc=receivers.findLast(pc=>pc.connectionState==='connected');const audio=receiver.backgrounds()[1];const stats=pc?await pc.getStats():[];const inbound=[...stats.values()].find(r=>r.type==='inbound-rtp'&&r.kind==='audio');$('#stats').textContent=JSON.stringify({connected:!!pc,paused:audio.paused,audioTracks:audio.srcObject?.getAudioTracks().length||0,bytesReceived:inbound?.bytesReceived||0,totalAudioEnergy:inbound?.totalAudioEnergy||0},null,2);},300);
+</script></html>

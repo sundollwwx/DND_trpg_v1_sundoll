@@ -1,0 +1,12 @@
+{
+  "enabled": false,
+  "roomsEnabled": true,
+  "publicOrigin": "https://pl.sundollworld.com",
+  "smtp": {
+    "host": "",
+    "port": 465,
+    "security": "ssl",
+    "username": "",
+    "from": ""
+  }
+}

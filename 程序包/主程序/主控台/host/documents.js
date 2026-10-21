@@ -13,6 +13,8 @@ let campaignDocumentsCatalogKey = '';
 let campaignDocumentsRequest = 0;
 let campaignDocumentsLoading = false;
 let campaignDocumentsError = '';
+let campaignDocumentsWarnings = [];
+let campaignDocumentsWarningCount = 0;
 let campaignDocumentSelectedId = '';
 let campaignDocumentPreviewId = '';
 let campaignDocumentPreviewRequest = 0;
@@ -110,6 +112,10 @@ function makeCampaignDocumentsMessage(text, kind = '') {
   return paragraph;
 }
 
+function campaignDocumentsWarningSummary(){
+  return campaignDocumentsWarningCount ? `部分资料加载失败：${campaignDocumentsWarningCount} 个来源暂时无法读取，已加载 ${campaignDocuments.length} 份资料。` : '';
+}
+
 function renderCampaignDocumentsUi() {
   const hasCampaign = Boolean(getState().campaignId);
   const selected = campaignDocumentById();
@@ -120,10 +126,11 @@ function renderCampaignDocumentsUi() {
   const list = $('#campaign-documents-list');
   const refreshButtons = [$('#btn-campaign-documents-refresh'), $('#btn-campaign-documents-dialog-refresh')];
 
-  count.textContent = `${campaignDocuments.length} 份`;
+  count.textContent = `${campaignDocuments.length} 份${campaignDocumentsWarningCount ? ' · 部分失败' : ''}`;
   current.textContent = hasCampaign
     ? `当前战役：${getState().campaignName || '未命名战役'}`
     : '选择正式战役后读取 Word / PDF 资料。';
+  if(hasCampaign && campaignDocumentsWarningCount) current.textContent += ' · ' + campaignDocumentsWarningSummary();
   campaignName.textContent = hasCampaign ? (getState().campaignName || '未命名战役') : '尚未选择战役';
   refreshButtons.forEach((button) => { button.disabled = !hasCampaign || campaignDocumentsLoading; });
 
@@ -152,7 +159,7 @@ function renderCampaignDocumentsUi() {
   } else if (campaignDocumentsError) {
     list.append(makeCampaignDocumentsMessage(campaignDocumentsError, 'error'));
   } else if (!campaignDocuments.length) {
-    list.append(makeCampaignDocumentsMessage('当前战役还没有 Word 或 PDF 资料。'));
+    list.append(makeCampaignDocumentsMessage(campaignDocumentsWarningCount ? '暂未加载到资料；部分来源读取失败，请刷新重试。' : '当前战役还没有 Word 或 PDF 资料。'));
   } else {
     campaignDocuments.forEach((documentItem) => {
       const button = document.createElement('button');
@@ -168,6 +175,14 @@ function renderCampaignDocumentsUi() {
       button.addEventListener('click', () => selectCampaignDocument(documentItem.id, { open: true, preview: true }));
       list.append(button);
     });
+  }
+  if(hasCampaign && !campaignDocumentsLoading && !campaignDocumentsError && campaignDocumentsWarningCount){
+    const warning=makeCampaignDocumentsMessage(campaignDocumentsWarningSummary(),'warning');
+    warning.setAttribute('role','status');
+    list.append(warning);
+    for(const item of campaignDocumentsWarnings){
+      list.append(makeCampaignDocumentsMessage(`${item.module ? item.module+'：' : ''}${item.message}`,'warning'));
+    }
   }
   renderCampaignDocumentSelectionHeader();
 }
@@ -301,6 +316,8 @@ async function loadCampaignDocumentLibrary(options = {}) {
     campaignDocuments = [];
     campaignDocumentsLoading = false;
     campaignDocumentsError = '';
+    campaignDocumentsWarnings = [];
+    campaignDocumentsWarningCount = 0;
     campaignDocumentSelectedId = '';
     clearCampaignDocumentPreview('请先选择或新建一个正式战役。');
     renderCampaignDocumentsUi();
@@ -311,6 +328,8 @@ async function loadCampaignDocumentLibrary(options = {}) {
   campaignDocumentsCatalogKey = requestedKey;
   campaignDocumentsLoading = true;
   campaignDocumentsError = '';
+  campaignDocumentsWarnings = [];
+  campaignDocumentsWarningCount = 0;
   if (campaignChanged) {
     campaignDocuments = [];
     campaignDocumentSelectedId = '';
@@ -327,13 +346,17 @@ async function loadCampaignDocumentLibrary(options = {}) {
     }
     const previousSelectedId = campaignDocumentSelectedId;
     campaignDocuments = data.documents.map(normalizeCampaignDocument).filter(Boolean);
+    const warnings=Array.isArray(data.warnings)?data.warnings:[];
+    campaignDocumentsWarnings=warnings.filter(w=>w&&typeof w==='object').slice(0,20).map(w=>({module:String(w.module||'').slice(0,120),message:String(w.message||'此资料来源暂时无法读取，请刷新重试。').slice(0,500)}));
+    const reported=Number(data.warningCount);
+    campaignDocumentsWarningCount=Math.max(warnings.length,Number.isSafeInteger(reported)&&reported>0?reported:0);
     campaignDocumentSelectedId = campaignDocuments.some((item) => item.id === previousSelectedId)
       ? previousSelectedId : (campaignDocuments[0]?.id || '');
     campaignDocumentsError = '';
     setCampaignDocumentStatus(campaignDocuments.length
       ? '选择资料后点击预览。'
-      : '当前战役还没有 Word 或 PDF 资料。');
-    if (!options.silent) toast(`战役资料已刷新：${campaignDocuments.length} 份`);
+      : campaignDocumentsWarningCount ? '暂未加载到资料；部分来源读取失败，请刷新重试。' : '当前战役还没有 Word 或 PDF 资料。');
+    if (!options.silent) toast(campaignDocumentsWarningSummary() || `战役资料已刷新：${campaignDocuments.length} 份`);
     return true;
   } catch (error) {
     if (request !== campaignDocumentsRequest || requestedKey !== currentCampaignDocumentsKey()) return false;

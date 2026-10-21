@@ -34,13 +34,14 @@ def _walk_music_files(root, start):
                 yield path
 
 
-def music_library_catalog(root=None, campaign_id='', campaign_name=''):
+def music_library_catalog(root=None, campaign_id='', campaign_name='', module_identity=''):
     """扫描项目曲库，返回公开目录与只在服务器内使用的 ID->路径索引。"""
     root = os.path.abspath(root or DEFAULT_MUSIC_ROOT)
     campaign_id = re.sub(r'[^\w\-]', '', str(campaign_id or ''))[:80]
     campaign_name = _safe_music_campaign_name(campaign_name)[:120]
     entries = []
     index = {}
+    aliases = {}
 
     def add(path, scope, collection_root, default_category):
         if len(entries) >= MAX_MUSIC_LIBRARY_FILES:
@@ -53,12 +54,14 @@ def music_library_catalog(root=None, campaign_id='', campaign_name=''):
             size = stat.st_size
         except OSError:
             return
-        track_id = hashlib.sha256(relative.encode('utf-8')).hexdigest()[:32]
+        from .catalog_paths import catalog_identity
+        track_id, legacy_id = catalog_identity(relative, module_identity)
         category_relative = os.path.relpath(os.path.dirname(path), collection_root)
         category = default_category if category_relative == '.' else category_relative.replace(os.sep, ' / ')
         filename = os.path.basename(path)
         entries.append({
             'id': track_id,
+            'legacyId': legacy_id,
             'title': os.path.splitext(filename)[0],
             'fileName': filename,
             'scope': scope,
@@ -68,6 +71,7 @@ def music_library_catalog(root=None, campaign_id='', campaign_name=''):
             'url': '/api/music-stream/' + track_id + '?v=%x-%x' % (stat.st_mtime_ns, size),
         })
         index[track_id] = path
+        aliases.setdefault(legacy_id, []).append(track_id)
 
     if os.path.isdir(root):
         # 根目录里的旧曲目继续作为通用音乐；其余通用分类可直接建子文件夹。
@@ -120,6 +124,6 @@ def music_library_catalog(root=None, campaign_id='', campaign_name=''):
         'campaignFolder': selected_campaign_folder,
         'tracks': entries,
         '_index': index,
+        '_aliases': aliases,
     }
-
 

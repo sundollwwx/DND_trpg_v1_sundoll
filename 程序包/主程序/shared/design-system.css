@@ -1,0 +1,176 @@
+/* Sundoll function surfaces. Shared by game clients and the Pages build.
+   Meaningful state colours (health, rarity, warnings, selection) stay local. */
+:root {
+  --sw-ink: #f0ebe1;
+  --sw-muted: #b0bbb7;
+  --sw-canvas: #11191c;
+  --sw-neutral: #1c2429;
+  --sw-edge: #c1c6bd29;
+  --sw-radius: 12px;
+  --ui-control-sm: 32px;
+  --ui-control: 34px;
+  --ui-control-primary: 38px;
+  --ui-control-touch: 44px;
+  --ui-radius: 8px;
+  --ui-dialog-title: 22px;
+  --ui-section-title: 15px;
+  --ui-body: 13px;
+  --ui-meta: 12px;
+  --sw-character: #1d2b26;
+  --sw-character-raised: #2a3831;
+  --sw-character-line: #4f6256;
+  --sw-character-accent: #c4cebd;
+  --sw-room: #1d282d;
+  --sw-room-raised: #2a363c;
+  --sw-room-line: #4f6269;
+  --sw-room-accent: #c0cbcd;
+  --sw-item: #2b2922;
+  --sw-item-raised: #39362d;
+  --sw-item-line: #6b6552;
+  --sw-item-accent: #d6c8a8;
+  --sw-note: #252b27;
+  --sw-note-raised: #323a34;
+  --sw-note-line: #5b6559;
+  --sw-note-accent: #cacebc;
+  --sw-world: #1c2c2b;
+  --sw-world-raised: #293b38;
+  --sw-world-line: #4e6660;
+  --sw-world-accent: #c0cec5;
+  --sw-manage: #262b2c;
+  --sw-manage-raised: #343b3c;
+  --sw-manage-line: #5e696a;
+  --sw-manage-accent: #c8ceca;
+  --feature-bg: var(--sw-manage);
+  --feature-raised: var(--sw-manage-raised);
+  --feature-line: var(--sw-manage-line);
+  --feature-accent: var(--sw-manage-accent);
+}
+
+/* Same function, same colour at its entry, panel and detail view. */
+:is(#my-characters,.character-card,.player-library-dialog,.portrait-manager-modal,.player-portrait-manager-dialog,.detail-management-dialog,.map-forms-dialog,.pv-dialog,#player-unit-card,#unit-card,[data-player-workspace="units"],[data-player-workspace-tab="units"],#btn-player-library,#btn-player-profiles,#cover-player-profiles,#btn-token-library,body[data-sundoll-surface="characters"]) {
+  --feature-bg:var(--sw-character);--feature-raised:var(--sw-character-raised);--feature-line:var(--sw-character-line);--feature-accent:var(--sw-character-accent);
+}
+:is(#campaign-rooms,.room-card,#room-join-form,.adventure-panel,.map-browser-modal,.map-image-import-modal,.player-map-dialog,#map-cover-tools,[data-workspace="scene"],[data-workspace="room"],[data-workspace-tab="scene"],[data-workspace-tab="room"],[data-player-workspace="room"],[data-player-workspace="tools"],[data-player-workspace-tab="room"],[data-player-workspace-tab="tools"],#btn-player-maps,#btn-join,.cover-current,.cover-card,body[data-sundoll-surface="maps"]) {
+  --feature-bg:var(--sw-room);--feature-raised:var(--sw-room-raised);--feature-line:var(--sw-room-line);--feature-accent:var(--sw-room-accent);
+}
+:is(.backpack-dialog,.item-library-dialog,.map-items-dialog,.travel-skin-dialog,#btn-player-backpack,#btn-item-library,[data-workspace="dice"],[data-workspace-tab="dice"],.dice-section) {
+  --feature-bg:var(--sw-item);--feature-raised:var(--sw-item-raised);--feature-line:var(--sw-item-line);--feature-accent:var(--sw-item-accent);
+}
+:is(#prep-dialog,#qc-detail-dialog,.journal-book,.announcements,.puzzle-section,.about-layout,#shared-note-card,[data-tool-panel="draw"],[data-workspace="resources"],[data-workspace-tab="resources"],[data-player-workspace-tab="draw"],[data-player-workspace="draw"],#btn-player-journal) {
+  --feature-bg:var(--sw-note);--feature-raised:var(--sw-note-raised);--feature-line:var(--sw-note-line);--feature-accent:var(--sw-note-accent);
+}
+:is(.daily-life-dialog,.lifestyle-dialog,.world-dialog,.dining-dialog,.rest-scene-picker,.guestbook-section,[data-workspace="gameplay"],[data-workspace-tab="gameplay"],[data-player-workspace="resources"],[data-player-workspace-tab="resources"]) {
+  --feature-bg:var(--sw-world);--feature-raised:var(--sw-world-raised);--feature-line:var(--sw-world-line);--feature-accent:var(--sw-world-accent);
+}
+:is(#account-auth,#room-create-form,#room-management,.module-dialog,#save-tools-dialog,#campaign-modal,#mount-modal,#btn-save-tools-open,#cover-load,#cover-new,.initiative-manager-dialog,.player-initiative-manager-dialog) {
+  --feature-bg:var(--sw-manage);--feature-raised:var(--sw-manage-raised);--feature-line:var(--sw-manage-line);--feature-accent:var(--sw-manage-accent);
+}
+/* Map cover lives under the dice/drawing workspace, but belongs to map tools. */
+#map-cover-tools[data-workspace] {
+  --feature-bg:var(--sw-room);--feature-raised:var(--sw-room-raised);--feature-line:var(--sw-room-line);--feature-accent:var(--sw-room-accent);
+}
+
+/* Account and local entry pages. */
+body .account[data-view="auth"] .account-content { background:linear-gradient(140deg,#343b3c59,transparent 65%),var(--sw-manage);border-color:#5e696a5c; }
+body .account-tabs { background:#141b2380; }
+body .account[data-view="auth"] :is(input,select) { background:#141a22; }
+body .account .character-card,body .account .room-card { background:linear-gradient(135deg,color-mix(in srgb,var(--feature-raised) 65%,transparent),transparent 70%),var(--feature-bg);border-color:color-mix(in srgb,var(--feature-line) 75%,transparent); }
+body .account :is(#my-characters,#campaign-rooms)>.room-heading h2 { color:var(--feature-accent); }
+body .account :is(.character-room select,.room-card .primary-link) { background:color-mix(in srgb,var(--feature-bg) 78%,#080c10);border-color:var(--feature-line); }
+body .account .room-card>p { background:var(--feature-raised);border-color:var(--feature-line);color:var(--feature-accent); }
+body .account .personal-actions { gap:16px;border-top:0;padding-top:0; }
+body .account .personal-action { padding:20px;border:1px solid color-mix(in srgb,var(--feature-line) 65%,transparent);border-radius:var(--sw-radius);background:var(--feature-bg); }
+body .account .personal-action .action-role { background:var(--feature-raised);color:var(--feature-accent);border-color:var(--feature-line); }
+body .account .personal-action button { background:var(--feature-raised);border-color:var(--feature-line);color:var(--feature-accent); }
+body .account :is(.onboarding-panel,.management-panel,.invitation-panel) { background:var(--feature-bg);border-color:var(--feature-line); }
+body .account .onboarding-panel { border-left-color:var(--feature-accent); }
+body .account .character-create form { background:var(--sw-character);border-left-color:var(--sw-character-line); }
+body .account .room-member { border-color:var(--sw-edge); }
+body .entry-card { background:var(--sw-room);border-color:var(--sw-room-line);border-radius:var(--sw-radius); }
+body .entry-card.player-card { background:var(--sw-character);border-color:var(--sw-character-line); }
+body .entrance.login:not(.account) { background:var(--sw-manage);border:1px solid var(--sw-manage-line);border-radius:16px;margin-top:36px; }
+
+/* The portal reads as one composition; function colours stay subtle here. */
+body :is(.adventure-panel,.lobby-news,.guestbook-section,.dice-section,.puzzle-section) {
+  --feature-bg:#182326;--feature-raised:#24302f;--feature-line:#687060;--feature-accent:#c9bc9b;
+}
+body :is(.adventure-panel,.lobby-news) { background:linear-gradient(140deg,#c6b58e06,transparent 72%),#172225ed;border-color:#c6b58e30; }
+body .adventure-panel { background:linear-gradient(135deg,#c6b58e0a,transparent 70%),#1b2828ed; }
+body :is(.adventure-panel,.lobby-news,.guestbook-section,.dice-section,.puzzle-section) .eyebrow { color:var(--feature-accent); }
+body :is(.guestbook-section,.dice-section,.puzzle-section) { background:linear-gradient(135deg,#c6b58e04,transparent 70%),#15202299;border:1px solid #c6b58e24;border-radius:12px;padding:28px; }
+body .guestbook-section :is(textarea,.guestbook-compose) { background:color-mix(in srgb,var(--feature-bg) 75%,#080e12);border-color:var(--feature-line); }
+body .about-layout { border-left:2px solid var(--sw-note-line);padding-left:28px; }
+body .news-article { background:#172225d9;border:1px solid #c6b58e30;border-radius:12px;padding:clamp(22px,4vw,48px); }
+
+/* Game workspace chrome. The board, map art and token colours are untouched. */
+body :is(#topbar,.topbar) { background:#182126;border-bottom-color:var(--sw-edge); }
+body :is(#left-panel,#right-panel) { background:#141e23; }
+body :is(#workspace-tabs,.player-workspace-tabs) { background:#151e24;border-color:var(--sw-edge); }
+body :is(.workspace-tab,.player-workspace-tab) { border-color:color-mix(in srgb,var(--feature-line) 50%,transparent);background:color-mix(in srgb,var(--feature-bg) 68%,#141b20);color:var(--feature-accent); }
+body :is(.workspace-tab[aria-expanded="true"],.player-workspace-tab[aria-selected="true"]) { background:var(--feature-raised);border-color:var(--feature-line);box-shadow:inset 0 -2px var(--feature-accent);color:var(--sw-ink); }
+body :is([data-workspace],[data-player-workspace]).card { background:var(--feature-bg);border-color:color-mix(in srgb,var(--feature-line) 65%,transparent);border-radius:10px; }
+body :is([data-workspace],[data-player-workspace]).card>:is(h2,.card-head) { color:var(--feature-accent); }
+body :is(#unit-card,#player-unit-card) { background:var(--sw-character);border-color:var(--sw-character-line); }
+body :is(.detail-card-heading,.player-detail-heading) { background:var(--sw-character-raised);border-bottom-color:var(--sw-character-line); }
+body :is(.detail-tabs,.player-detail-tabs) { background:#17271f;border-bottom-color:#4f625655; }
+body :is(#btn-player-library,#btn-player-maps,#btn-player-journal,#btn-player-backpack,#btn-join,#btn-token-library,#btn-item-library,#btn-player-profiles,#btn-save-tools-open) { background:var(--feature-bg);border-color:var(--feature-line);color:var(--feature-accent); }
+body :is(#btn-player-library,#btn-player-maps,#btn-player-journal,#btn-player-backpack,#btn-join,#btn-token-library,#btn-item-library,#btn-player-profiles,#btn-save-tools-open):hover { background:var(--feature-raised); }
+body #topbar .topbar-action-group>button,body #topbar #topbar-actions>button { background:var(--feature-bg);border-color:var(--feature-line);color:var(--feature-accent); }
+body #topbar .topbar-action-group>button:hover,body #topbar #topbar-actions>button:hover { background:var(--feature-raised); }
+body :is(.cover-current,.cover-card) { background:var(--sw-room);border-color:#4f626977; }
+body :is(#cover-player-profiles,#cover-load,#cover-new) { background:var(--feature-bg);border-color:var(--feature-line); }
+body :is(#cover-player-profiles,#cover-load,#cover-new) strong { color:var(--feature-accent); }
+
+/* Shared role, bag, item, map and management dialogs. */
+body :is(.player-library-dialog,.backpack-dialog,.item-library-dialog,.map-items-dialog,.module-dialog,.daily-life-dialog,.lifestyle-dialog,.world-dialog,.dining-dialog,.travel-skin-dialog,.map-forms-dialog,.pv-dialog) { background:var(--feature-bg);border-color:var(--feature-line);color:var(--sw-ink);border-radius:14px;box-shadow:0 24px 80px #03080b80; }
+body :is(.player-library-dialog,.backpack-dialog,.item-library-dialog,.module-dialog,.travel-skin-dialog,.map-forms-dialog)>header,
+body :is(.backpack-dialog,.item-library-dialog)>.bp-header,
+body :is(.daily-life-dialog,.lifestyle-dialog,.world-dialog) .fishing-header,
+body .dining-dialog>header { background:var(--feature-raised);border-bottom-color:var(--feature-line); }
+body .module-dialog>header,body .map-forms-dialog>header { background:transparent; }
+body :is(.player-library-dialog,.backpack-dialog,.item-library-dialog,.module-dialog,.daily-life-dialog,.dining-dialog,.map-forms-dialog) :is(.pl-eyebrow,.bp-eyebrow,.fishing-eyebrow) { color:var(--feature-accent); }
+body .player-library-dialog :is(.pl-piece-card,.pl-panel) { background:color-mix(in srgb,var(--feature-raised) 64%,var(--feature-bg));border-color:color-mix(in srgb,var(--feature-line) 65%,transparent); }
+body .player-library-dialog .pl-player-picker { background:transparent;border:0;border-bottom:1px solid var(--feature-line); }
+body .player-library-dialog .pl-player-preview { background:#17281f;border-color:#4f625680; }
+body .player-library-dialog .pl-player-preview[aria-pressed="true"] { background:var(--sw-character-raised);border-color:#91b28c;box-shadow:inset 0 -2px #bfd7b4; }
+body .player-library-dialog :is(.pl-picker-heading h3,.pl-library-head h3) { color:var(--feature-accent); }
+body .player-library-dialog .pl-portrait { background:#122219;border-color:#4f625655; }
+body .player-library-dialog :is(input,select,textarea) { background:#122219;border-color:#4f625677; }
+body .player-library-dialog .pl-editor { border-top-color:#8fac9433; }
+body .backpack-dialog :is(.bp-toolbar,.bp-tools) { background:#27261f;border-color:#6b65525c; }
+body .backpack-dialog :is(.bp-detail,.bp-detail-pane) { background:#23231e;border-color:#6b65525c; }
+body .backpack-dialog :is(.bp-tabs,.bp-wallet-bar) { border-color:#6b65525c; }
+body .backpack-dialog .bp-item:not([data-rarity]) { background:#36342a;border-color:#6b65525c; }
+body .item-library-dialog :is(.il-tools,.il-detail) { background:#23231e;border-color:#6b65525c; }
+body .item-library-dialog .il-row:not(.selected) { background:#36342a66;border-color:#6b65524d; }
+body .map-items-dialog :is(.mi-header,.mi-footer) { background:var(--sw-item-raised);border-color:#6b65526b; }
+body .map-items-dialog :is(.mi-content-card,.mi-grant) { background:#36342a80;border-color:#6b65526b; }
+body .module-dialog .module-card { background:var(--sw-manage-raised);border-color:#5e696a70; }
+body .daily-life-dialog :is(.lifestyle-card,.fishing-result,.world-time-panel) { background:var(--sw-world-raised);border-color:#4e666080; }
+body .daily-life-dialog :is(select,input),body .dining-dialog select { background:#162724;border-color:#4e666080; }
+body :is(.map-browser-modal,.map-image-import-modal) { background:var(--sw-room);border-color:var(--sw-room-line); }
+body :is(.portrait-manager-modal,.player-portrait-manager-dialog,.detail-management-dialog) { background:var(--sw-character);border-color:var(--sw-character-line); }
+body :is(.initiative-manager-dialog,.player-initiative-manager-dialog),body :is(#campaign-modal,#mount-modal)>.modal { background:var(--sw-manage);border-color:var(--sw-manage-line); }
+body #save-tools-dialog { background:var(--sw-manage);border-color:var(--sw-manage-line);border-radius:14px; }
+body #save-tools-dialog .save-tools-head { background:var(--sw-manage-raised);border-bottom-color:var(--sw-manage-line); }
+
+/* Notes retain a readable paper interior rather than tinting their text. */
+body #prep-dialog,body #qc-detail-dialog { background:var(--sw-note);border-color:var(--sw-note-line); }
+body #prep-dialog>header,body #qc-detail-dialog>header { background:var(--sw-note-raised);border-bottom-color:var(--sw-note-line); }
+body #prep-dialog nav { background:#1e2521;border-color:#5b65596b; }
+body #prep-dialog .qc-tile { background:var(--sw-note-raised);border-color:#5b655980; }
+body .journal-book { border-color:#65604c; }
+body .journal-book .journal-heading { background:var(--sw-note-raised);color:#eeeadd;border-color:var(--sw-note-line); }
+body .journal-book .journal-heading :is(h2,p,span) { color:inherit; }
+body .journal-book .journal-heading button { background:var(--sw-note);color:#dedccc;border-color:var(--sw-note-line); }
+
+/* Standalone editors use the same materials, without changing their canvases. */
+body[data-sundoll-surface] { --bg:var(--sw-canvas);--panel:var(--feature-bg);--panel2:var(--feature-raised);--border:var(--feature-line);--line:var(--feature-line);--text:var(--sw-ink);--muted:var(--sw-muted); }
+body[data-sundoll-surface] :is(.panel,.sidebar,.toolbar,.topbar,.editor-panel) { background:var(--feature-bg);border-color:var(--feature-line); }
+body[data-sundoll-surface] :is(.card,.category-item,.library-card) { border-color:color-mix(in srgb,var(--feature-line) 70%,transparent); }
+@media(max-width:600px) {
+  body :is(.guestbook-section,.dice-section,.puzzle-section) { padding:20px 16px;border-radius:12px; }
+  body .account .personal-action { padding:16px; }
+  body .about-layout { padding-left:18px; }
+}
+@media(prefers-reduced-motion:reduce) { .workspace-tab,.player-workspace-tab { transition:none; } }

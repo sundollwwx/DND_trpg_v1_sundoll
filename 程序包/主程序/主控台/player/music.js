@@ -6,24 +6,31 @@
   'use strict';
   const {$,session,playerId,serverNow}=options,env=options.env||globalThis;
   const file=new env.Audio(),live=new env.Audio();
-  const rtcConfig={iceServers:[{urls:['stun:stun.cloudflare.com:3478','stun:stun.l.google.com:19302']}]};
+  const rtcConfig={iceServers:[{urls:['stun:stun.cloudflare.com:3478','stun:stun.l.google.com:19302']}] };
   let command={action:'stop',mode:'library'},key='',lastIssued=0,revision=0,peer=null,ice=[],muted=false,blocked=false,error='';
+  const relay=env.SundollPlayerRelay?.create({env,session,changed:()=>ui()});
   const current=()=>command.mode==='live'?live:file;
   function ui(){
     $('#player-audio-title').textContent=command.track||(command.mode==='live'?'外部音源':'尚未播放');
     let status=command.action==='stop'?'等待主控台':command.action==='pause'?'主控台已暂停':command.mode==='live'&&!live.srcObject?'正在连接外部音源…':current().paused?'正在加载声音…':'正在播放 · 与主控台同步';
-    $('#player-audio-status').textContent=error||(blocked?'点击“启用声音”开始收听':status);
-    $('#player-audio-enable').hidden=command.action!=='play'||(!blocked&&!error&&!current().paused);
+    if(command.action==='play'&&command.mode==='live'&&command.url&&relay){
+      if(relay.receiving?.()===false)status='正在等待中转音频…';
+      else if(relay.silent?.())status='已接收 · 音源暂无声音';
+    }
+    $('#player-audio-status').textContent=error||(relay?.error()||'')||((blocked||relay?.blocked())?'点击“启用声音”开始收听':status);
+    $('#player-audio-enable').hidden=command.action!=='play'||(!blocked&&!relay?.blocked()&&!relay?.error()&&!error&&!current().paused);
     $('#player-audio-mute').textContent=muted||Number($('#player-audio-volume').value)===0?'🔇':'🔊';
   }
   async function play(){
     const audio=current(),requested=revision;
     if(command.action!=='play'||(audio===live&&!live.srcObject)|| (audio===file&&!file.src)){ui();return;}
+    relay?.resume();
     try{await audio.play();if(requested!==revision)return;blocked=false;error='';}
     catch(e){if(requested!==revision)return;blocked=e.name==='NotAllowedError';error=blocked?'':'音乐加载失败，可点击“启用声音”重试';}
     ui();
   }
   function closeLive(){
+    relay?.stop();
     ice=[];
     const old=peer;peer=null;
     if(old){old.ontrack=null;old.onicecandidate=null;old.onconnectionstatechange=null;old.close();}
@@ -49,6 +56,13 @@
     command={...next,mode:next.mode||'library'};
     if(command.mode==='live'){
       file.onloadedmetadata=null;file.pause();
+      if(command.url){
+        if(peer)closeLive();
+        if(command.action!=='play')closeLive();
+        else if(relay){try{live.srcObject=relay.start(command.url);await play();}catch(e){error=e.message;}}
+        else error='此浏览器不支持音频中转';
+        ui();return;
+      }
       if(command.action==='stop')closeLive();
       else if(command.action==='pause')live.pause();
       else await play();
@@ -74,6 +88,7 @@
     return pc;
   }
   async function signal(event){
+    if(command.mode==='live'&&command.url)return;
     if(!session()||!event||event.target!==playerId()||!event.signal)return;
     const msg=event.signal,token=session();
     try{

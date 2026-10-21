@@ -1,17 +1,18 @@
 'use strict';
 
 (async () => {
-await loadProjectDirHandle();
+globalThis.SundollHostLoadProgress = globalThis.SundollHostLoading.create();
+globalThis.SundollHostLoading.mount(globalThis.SundollHostLoadProgress);
+if (!hostCampaignDeferred) await loadProjectDirHandle();
 
 /* ==================== 启动 ==================== */
 
 preloadConditionPixels();
 bindEvents();
-initCoverThemePicker();
 hostDocuments.init();
 hostPrep.init();
 hostDocuments.ensureCampaign();
-hostMusic.loadProjectMusicLibrary({ silent: true });
+if (!hostCampaignDeferred) hostMusic.loadProjectMusicLibrary({ silent: true });
 try {
   const hdMigration = localStorage.getItem('sangduoer-hd-default-v2');
   if (!hdMigration) {
@@ -27,6 +28,7 @@ syncHdUi();
 const appVersionEl = $('#app-version');
 if (appVersionEl) appVersionEl.textContent = APP_VERSION;
 updateStreamUi();
+loadHostStreamAccountConfig().then(updateStreamUi);
 
 window.addEventListener('pagehide', () => {
   flushPendingAutosave();
@@ -35,7 +37,7 @@ window.addEventListener('pagehide', () => {
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') flushPendingAutosave();
 });
-const loaded = loadSaved();
+const loaded = !hostCampaignDeferred && loadSaved();
 if (loaded) {
   applyAllState();
   if (pendingLegacyPortraitMigrations > 0) {
@@ -45,7 +47,7 @@ if (loaded) {
   }
 }
 // 独立棋子库：与「棋子库」程序共用同一份数据
-const sharedLib = loadLibrary();
+const sharedLib = hostCampaignDeferred ? [] : loadLibrary();
 if (sharedLib.length) {
   state.library = sharedLib;
   // 把 normalize 后的轻量版本写回，清除旧版遗留的大体积内嵌高清字段。
@@ -53,16 +55,19 @@ if (sharedLib.length) {
 } else if (state.library.length) {
   saveLibrary();
 }
-libRecentIds = loadLibraryRecentIds();
+if (!hostCampaignDeferred) libRecentIds = loadLibraryRecentIds();
 setUnitSource('library', false);
 renderLibrary();
 // 等正式存档恢复完成后再联机，避免把启动时的旧浏览器缓存推到房间。
 // 可折叠卡片默认收起；固定操作卡保持可见。
 document.querySelectorAll('#left-panel .card:not([data-no-collapse])').forEach((c) => c.classList.add('collapsed'));
 document.querySelectorAll('#left-panel .card[data-no-collapse]').forEach((c) => c.classList.remove('collapsed'));
-loadLinks();
-renderLinks();
+if (!hostCampaignDeferred) { loadLinks(); renderLinks(); }
 (async () => {
+  if (hostCampaignDeferred) {
+    await refreshHostHome({ forceRecords: true });
+    return;
+  }
   if (projectDirHandle && await hasSaveFolderPermission()) {
     try {
       await ensureSaveFolderStructure();
@@ -95,19 +100,11 @@ initMapQuickTools();
 syncActiveMapGridSetting();
 renderEncounter();
 clearInterval(encounterClockTimer);
-encounterClockTimer = setInterval(() => {
-  const e = encounterState();
-  if (!e.worldTime.runningSince) return;
-  const totalSeconds = worldTimeNow(e);
-  const automaticWeather = refreshScheduledWeather(e, totalSeconds);
-  if (automaticWeather) {
-    setEncounterEvent(e, `每日 08:00：天气变为${automaticWeather.conditionLabel} ${automaticWeather.temperature}°C`);
-    scheduleAutosave();
-  }
-  renderEncounter();
-}, 500);
+encounterClockTimer = setInterval(() => { if (!hostCampaignDeferred) tickHostClock(); }, 500);
+document.addEventListener('visibilitychange', () => { if (!hostCampaignDeferred && !document.hidden) refreshHostClock(); });
+initHostDiceLoading();
 updateCoverContinue();
-setTimeout(() => { prewarmAvatarCache(); }, 1000);
+if (!hostCampaignDeferred) setTimeout(() => { prewarmAvatarCache(); }, 1000);
 window.journalBridge = {
   isDM: true,
   actorName: () => 'DM',
@@ -152,8 +149,8 @@ window.journalBridge = {
 
 
 
-ItemLibrary.configure({campaign:()=>({id:state.campaignId||'',name:state.campaignName||''})});
-PlayerBackpack.configure({host:true,roll:(...args)=>playDiceFx(...args),campaignId:()=>state.campaignId||'',characters:(chars,campaign)=>{if(campaign!==state.campaignId)return;for(const c of chars)applyRemoteAction({op:'characterState',characterId:c.id,ownerPlayerId:c.ownerPlayerId,patch:{...c.base,...c.runtime,characterRevision:c.revision}});}});
+ItemLibrary.configure({campaign:()=>({id:state.campaignId||'',name:state.campaignName||''}),packageContextRevision:()=>state.packageContextRevision||''});
+PlayerBackpack.configure({host:true,roll:(...args)=>playDiceFx(...args),campaignId:()=>state.campaignId||'',packageContextRevision:()=>state.packageContextRevision||'',characters:(chars,campaign)=>{if(campaign!==state.campaignId)return;for(const c of chars)applyRemoteAction({op:'characterState',characterId:c.id,ownerPlayerId:c.ownerPlayerId,patch:{...c.base,...c.runtime,characterRevision:c.revision}});}});
 PlayerLibrary.configure({
   host:true, place:placeOwnedPiece, bind:bindSelectedOwnedPiece,
   onPieceEdited:(playerId, ownedPieceId, patch)=>{
@@ -197,6 +194,6 @@ PlayerLibrary.configure({
 const playerLibraryEntry = document.querySelector('#btn-player-profiles');
 playerLibraryEntry.onclick = () => PlayerLibrary.open();
 
-MapItems.configure({host:true,map:()=>activeMap(),campaign:()=>state.campaignId,world:()=>world,board:()=>board,zoom:()=>activeMap()?.cam?.zoom||1,toast});
+MapItems.configure({host:true,map:()=>activeMap(),campaign:()=>state.campaignId,packageContextRevision:()=>state.packageContextRevision||'',world:()=>world,board:()=>board,zoom:()=>activeMap()?.cam?.zoom||1,toast});
 
 })().catch(error => { console.error(error); updateSaveStatus("启动未完成，请保留页面并检查本机存档服务", "error"); });

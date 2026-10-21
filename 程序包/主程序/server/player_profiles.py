@@ -1,5 +1,5 @@
 """Private, server-owned player collections. No browser file writes."""
-import os, json, secrets, hashlib, threading, copy, base64, re, time
+import os, json, secrets, hashlib, threading, copy, base64, re, time, math
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 from server.module_store import ModuleStore, RevisionConflict
@@ -11,6 +11,62 @@ class ProfileError(ValueError):
     def __init__(self, message, status=400):
         super().__init__(message)
         self.status = status
+
+
+def normalize_portrait_view(raw):
+    """Validate a display transform; None keeps the legacy image framing."""
+    if raw is None:
+        return None
+    bounds = {'scale': (0.5, 3.0), 'offsetX': (-1.0, 1.0), 'offsetY': (-1.0, 1.0)}
+    if not isinstance(raw, dict) or set(raw) != set(bounds):
+        raise ProfileError('立绘显示范围必须包含缩放和两个位置参数')
+    result = {}
+    for key, (minimum, maximum) in bounds.items():
+        value = raw[key]
+        if type(value) not in (int, float) or not minimum <= value <= maximum or not math.isfinite(value):
+            raise ProfileError('立绘显示范围超出允许范围')
+        result[key] = round(float(value), 6)
+    return result
+
+
+def copy_portrait_view(target, source):
+    """Copy a form's framing and clear the previous framing when absent."""
+    view = normalize_portrait_view(source.get('portraitView'))
+    if view is None:
+        target.pop('portraitView', None)
+    else:
+        target['portraitView'] = view
+
+
+def portrait_image(source):
+    if not isinstance(source, dict): return None
+    return source.get('iconImgPath') or source.get('iconImgHd') or source.get('iconImg') or source.get('iconImgId')
+
+
+def same_portrait_view(first, second):
+    return normalize_portrait_view(first.get('portraitView')) == normalize_portrait_view(second.get('portraitView'))
+
+
+def portrait_matches(first, second, identity=portrait_image):
+    image = identity(first)
+    return bool(image) and image == identity(second) and same_portrait_view(first, second)
+
+
+def portrait_variant_index(source, forms, identity=portrait_image):
+    hinted = source.get('portraitVariant')
+    if type(hinted) is int and 0 <= hinted < len(forms) and portrait_matches(source, forms[hinted], identity):
+        return hinted
+    return next((i for i, form in enumerate(forms) if portrait_matches(source, form, identity)), None)
+
+
+def matching_portrait_source(item, originals, identity=portrait_image):
+    """Choose metadata for one form, even when several forms share its image."""
+    candidates = [v for v in originals if identity(item) and identity(v) == identity(item)]
+    if 'portraitView' in item:
+        exact = next((v for v in candidates if same_portrait_view(item, v)), None)
+        if exact is not None: return exact
+    named = next((v for v in candidates if v.get('name') == item.get('name')), None)
+    return named if named is not None else (candidates[0] if candidates else {})
 
 
 def atomic(path, value):
@@ -33,6 +89,14 @@ def atomic(path, value):
 
 
 class Store:
+    def __new__(cls, save_root, project_root, cache_root):
+        if cls is Store:
+            from .account_characters import context
+            if context(save_root):
+                from .global_profiles import GlobalProfiles
+                return object.__new__(GlobalProfiles)
+        return object.__new__(cls)
+
     def __init__(self, save_root, project_root, cache_root):
         self.save_root = Path(save_root)
         self.workspace = Workspace(save_root)
@@ -98,7 +162,7 @@ class Store:
             result.append(profile)
         return result
 
-    def create(self, name, login_code=None):
+    def create(self, name, login_code=None, *, account_id=None):
         from .authentication import name_key
         identity_name = name_key(name)
         name = str(name).strip()
@@ -108,6 +172,7 @@ class Store:
             if login_code is not None: self.validate_login_code(login_code)
             pid = 'p' + secrets.token_hex(16)
             profile = {'playerId': pid, 'name': name, 'enabled': True, 'revision': 1}
+            if account_id is not None: profile['accountId'] = account_id
             try:
                 atomic(self.path(pid, '棋子库.json'), {'revision': 1, 'pieces': [], 'grants': {}})
                 credential = self.rotate(pid, creating=True, login_code=login_code)
@@ -171,6 +236,8 @@ class Store:
         """Remove the active profile while retaining a private rollback copy."""
         with LOCK:
             source = self.path(pid, '当前档案.json').parent
+            if source.exists() and self.read(pid).get('accountId'):
+                raise ProfileError('此档案已绑定注册账号，不能删除。移除房间成员会保留原角色和背包。', 409)
             archived = self.root / '已删除' / pid
             if source.exists():
                 if archived.exists(): raise ProfileError('删除备份已存在，请检查档案目录', 409)
@@ -328,13 +395,33 @@ class Store:
         if target.read_bytes() != raw: raise OSError('立绘写入校验失败')
         return '/api/player-art/' + digest
 
+    @staticmethod
+    def piece_roles(lib):
+        pieces = lib.get('pieces', [])
+        main = next((p for p in pieces if p.get('collectionRole') == 'main'), None)
+        if main is None:
+            main = next((p for p in pieces if p.get('collectionRole') != 'companion' and p.get('type', 'pc') == 'pc'), None)
+        return {p['ownedPieceId']: ('main' if p is main else p.get('collectionRole') or ('character' if p.get('type', 'pc') == 'pc' else 'companion')) for p in pieces}
+
+    def snapshot_initiative_portrait(self, portrait):
+        if portrait is None: return None
+        if not isinstance(portrait, dict) or set(portrait) - {'iconImgPath', 'iconImgHd', 'iconImg', 'iconImgId'}:
+            raise ProfileError('先攻头像资料无效')
+        image = self.snapshot_image(portrait.get('iconImgPath') or portrait.get('iconImgHd') or portrait.get('iconImg'))
+        if portrait.get('iconImgId') and not image:
+            raise ProfileError('请先将浏览器中的先攻头像保存为文件再发放')
+        return {'iconImgPath': image} if image else None
+
     def snapshot(self, preset):
         if not isinstance(preset, dict): raise ProfileError('棋子资料无效')
         # Only character data; never copy embedded credentials or arbitrary ownership.
         from server.token_sizes import size_fields
         fields = ('name','type','icon','size','sizeCategory','hpMax','ac','level','category','publicNote','spellRange')
         result = {k: copy.deepcopy(preset[k]) for k in fields if k in preset}
-        result['name'] = str(result.get('name') or '未命名棋子')[:24]
+        if 'collectionRole' in preset:
+            if preset['collectionRole'] not in ('main', 'character', 'companion'): raise ProfileError('棋子分类无效')
+            result['collectionRole'] = preset['collectionRole']
+        result['name'] = str(result.get('name') or '未命名棋子')[:60]
         result['publicNote'] = str(result.get('publicNote') or '')[:240]
         for key, default, maximum in [('hpMax',10,99999),('ac',10,99),('level',1,99)]:
             try: result[key] = max(0 if key == 'ac' else 1, min(maximum, int(result.get(key, default))))
@@ -342,7 +429,9 @@ class Store:
         result.update(size_fields(preset))
         result['type'] = result.get('type') if result.get('type') in ('pc','ally','npc','enemy') else 'pc'
         result['iconImgPath'] = self.snapshot_image(preset.get('iconImgPath') or preset.get('iconImgHd') or preset.get('iconImg'))
+        copy_portrait_view(result, preset)
         if preset.get('iconImgId') and not result['iconImgPath']: raise ProfileError('请先将浏览器中的立绘保存为文件再发放')
+        result['initiativePortrait'] = self.snapshot_initiative_portrait(preset.get('initiativePortrait'))
         result['portraitVariants'] = []
         variants = preset.get('portraitVariants') or []
         if not isinstance(variants, list) or len(variants) > 24 or any(not isinstance(v, dict) for v in variants):
@@ -351,13 +440,21 @@ class Store:
             image = self.snapshot_image(variant.get('iconImgPath') or variant.get('iconImgHd') or variant.get('iconImg'))
             if not image:
                 raise ProfileError('形态缺少可读取的立绘，请先保存图片再发放或同步')
-            result['portraitVariants'].append({'name': str(variant.get('name') or '形态')[:24], 'iconImgPath': image})
+            form = {'name': str(variant.get('name') or '形态')[:24], 'iconImgPath': image,
+                    'initiativePortrait': self.snapshot_initiative_portrait(variant.get('initiativePortrait'))}
+            form_id = variant.get('formId')
+            if isinstance(form_id, str) and re.fullmatch(r'[A-Za-z0-9_-]{1,96}', form_id):
+                form['formId'] = form_id
+            copy_portrait_view(form, variant)
+            result['portraitVariants'].append(form)
         current = result.get('iconImgPath')
-        if current and not any(v.get('iconImgPath') == current for v in result['portraitVariants']):
+        if current and not any(portrait_matches(result, v) for v in result['portraitVariants']):
             if len(result['portraitVariants']) >= 24:
                 raise ProfileError('当前立绘与形态合计超过 24 项，请先整理形态')
-            result['portraitVariants'].insert(0, {'name':'默认形态', 'iconImgPath':current})
-        result['portraitVariant'] = next((i for i,v in enumerate(result['portraitVariants']) if v.get('iconImgPath') == current and current), None)
+            form = {'name':'默认形态', 'iconImgPath':current}
+            copy_portrait_view(form, result)
+            result['portraitVariants'].insert(0, form)
+        result['portraitVariant'] = portrait_variant_index(dict(result, portraitVariant=preset.get('portraitVariant')), result['portraitVariants'])
         return result
 
     def sync_forms(self, pid, oid):
@@ -378,14 +475,18 @@ class Store:
             source = candidates[0]
             incoming = self.snapshot(source)
             forms = copy.deepcopy(piece.get('portraitVariants') or [])
-            seen = {v.get('iconImgPath') for v in forms}
             for variant in incoming['portraitVariants']:
-                if variant.get('iconImgPath') and variant['iconImgPath'] not in seen:
-                    forms.append(variant); seen.add(variant['iconImgPath'])
+                existing = next((v for v in forms if portrait_matches(v, variant)), None)
+                if variant.get('iconImgPath') and existing is None:
+                    forms.append(variant)
+                elif existing is not None:
+                    existing['initiativePortrait'] = copy.deepcopy(variant.get('initiativePortrait'))
             if len(forms) > 24: raise ProfileError('合并后超过 24 个形态，未修改收藏')
-            if forms == piece.get('portraitVariants') and piece.get('sourcePresetId') == source['id']:
+            if (forms == piece.get('portraitVariants') and piece.get('sourcePresetId') == source['id']
+                    and piece.get('initiativePortrait') == incoming.get('initiativePortrait')):
                 return lib
             piece['portraitVariants'] = forms
+            piece['initiativePortrait'] = copy.deepcopy(incoming.get('initiativePortrait'))
             piece['sourcePresetId'] = source['id']
             piece['revision'] += 1
             return self.commit_library(pid, lib)
@@ -461,15 +562,18 @@ class Store:
             piece = next((p for p in lib['pieces'] if p['ownedPieceId'] == token.get('ownedPieceId')), None)
             if not piece or token.get('ownerPlayerId') != pid:
                 raise ProfileError('棋子归属已变化', 403)
-            watched = ('name','type','icon','size','sizeCategory','hpMax','ac','level','category','publicNote','spellRange','iconImgPath','iconImgHd','iconImg','portraitVariants','portraitVariant','hp','tempHp','tempHpMax','conditions')
+            watched = ('name','type','icon','size','sizeCategory','hpMax','ac','level','category','publicNote','spellRange','iconImgPath','iconImgHd','iconImg','initiativePortrait','portraitView','portraitVariants','portraitVariant','hp','tempHp','tempHpMax','conditions')
             source = {k: copy.deepcopy(token[k]) for k in watched if k in token}
+            source['portraitView'] = copy.deepcopy(token.get('portraitView'))
             if campaign_id and piece.get('mapSyncStates', {}).get(campaign_id) == source:
                 return lib
             previous = piece.get('mapSyncStates', {}).get(campaign_id)
             changed = {k: v for k, v in source.items() if previous is None or previous.get(k) != v}
             updated = self.snapshot(dict(piece, **changed))
             runtime = {k: copy.deepcopy(token[k]) for k in ('hp','tempHp','tempHpMax','conditions') if k in token}
-            if any(piece.get(k) != v for k, v in updated.items()) or campaign_id:
+            if any(piece.get(k) != v for k, v in updated.items()) or ('portraitView' in piece and 'portraitView' not in updated) or campaign_id:
+                if 'portraitView' not in updated:
+                    piece.pop('portraitView', None)
                 piece.update(updated)
                 if campaign_id:
                     piece.setdefault('campaignStates', {})[campaign_id] = runtime
@@ -486,8 +590,8 @@ class Store:
             if not piece: raise ProfileError('棋子不存在', 404)
             if piece_revision is not None and (type(piece_revision) is not int or piece_revision != piece['revision']):
                 raise ProfileError('这枚棋子的资料已更新；你的草稿已保留，请查看最新版本后处理', 409)
-            allowed = {'name','publicNote','iconImg','portraitVariants','portraitVariant'}
-            if host: allowed.update({'hpMax', 'ac', 'level', 'size', 'sizeCategory'})
+            allowed = {'name','publicNote','iconImg','portraitView','portraitVariants','portraitVariant','collectionRole'}
+            if host: allowed.update({'hpMax', 'ac', 'level', 'size', 'sizeCategory', 'initiativePortrait'})
             if not isinstance(patch, dict) or set(patch) - allowed:
                 raise ProfileError('不允许修改这些资料', 403)
             for field, minimum, maximum in [('hpMax',1,99999),('ac',0,99),('level',1,99)]:
@@ -509,6 +613,16 @@ class Store:
                     raise ProfileError('立绘形态必须是最多 24 项的列表')
                 for variant in variants:
                     candidates.extend(variant.get(key) for key in ('iconImgPath', 'iconImgHd', 'iconImg') if variant.get(key))
+                if not host:
+                    # Older player editors omit this host-managed field when renaming
+                    # or ordering forms. Preserve it using the unchanged body image.
+                    patch = copy.deepcopy(patch)
+                    originals = piece.get('portraitVariants') or []
+                    for variant in patch['portraitVariants']:
+                        original = matching_portrait_source(variant, originals)
+                        variant['initiativePortrait'] = copy.deepcopy(original.get('initiativePortrait'))
+                        if 'portraitView' not in variant and 'portraitView' in original:
+                            variant['portraitView'] = copy.deepcopy(original['portraitView'])
             for image in ([] if host else candidates):
                 if image is not None and (not isinstance(image, str) or (not image.startswith('data:image/') and image not in allowed_images)):
                     raise ProfileError('只能上传图片或使用自己小库已有的立绘', 403)
@@ -517,19 +631,63 @@ class Store:
                 raise ProfileError('体型无效')
             if 'size' in patch and (type(patch['size']) not in (int, float) or patch['size'] not in (.5, 1, 2, 3, 4)):
                 raise ProfileError('体型占格无效')
-            merged = dict(piece, **patch)
+            merged = copy.deepcopy(dict(piece, **patch))
+            if 'portraitVariants' in patch:
+                for variant in merged.get('portraitVariants') or []:
+                    original = matching_portrait_source(variant, piece.get('portraitVariants') or [])
+                    if original and original.get('formId') and not variant.get('formId'):
+                        variant['formId'] = original['formId']
             if 'size' in patch and 'sizeCategory' not in patch: merged.pop('sizeCategory', None)
             merged.update(size_fields(merged))
+            if patch.get('iconImg'):
+                merged['iconImgPath'] = self.snapshot_image(patch['iconImg'])
+                merged.pop('iconImg', None)
+                if 'portraitView' not in patch:
+                    merged.pop('portraitView', None)
             if 'portraitVariant' in patch:
                 index = patch['portraitVariant']
                 variants = merged.get('portraitVariants') or []
                 if type(index) is not int or not 0 <= index < len(variants):
                     raise ProfileError('形态已变化，请刷新收藏后重试', 409)
                 merged['iconImgPath'] = variants[index].get('iconImgPath') or variants[index].get('iconImgHd') or variants[index].get('iconImg')
+                copy_portrait_view(merged, variants[index])
                 merged.pop('iconImg', None)
 
-            if patch.get('iconImg'): merged['iconImgPath'] = None
+            selected = portrait_variant_index(merged, merged.get('portraitVariants') or [])
+            if 'portraitVariants' in patch and 'portraitVariant' not in patch:
+                selected = portrait_variant_index(piece, merged['portraitVariants'])
+                if selected is None:
+                    old_selected = portrait_variant_index(piece, piece.get('portraitVariants') or [])
+                    old_form = (piece.get('portraitVariants') or [])[old_selected] if old_selected is not None else None
+                    if old_form is not None:
+                        selected = next((i for i, v in enumerate(merged['portraitVariants'])
+                                         if portrait_image(v) == portrait_image(old_form) and v.get('name') == old_form.get('name')), None)
+                if selected is not None:
+                    merged['portraitVariant'] = selected
+                    copy_portrait_view(merged, merged['portraitVariants'][selected])
+
+            if 'portraitView' in patch:
+                copy_portrait_view(merged, patch)
+                if 'portraitVariant' in patch:
+                    selected = patch['portraitVariant']
+                elif 'portraitVariants' not in patch:
+                    selected = (portrait_variant_index(piece, merged.get('portraitVariants') or [])
+                                if portrait_image(merged) == portrait_image(piece)
+                                else portrait_variant_index(merged, merged.get('portraitVariants') or []))
+                if selected is not None:
+                    copy_portrait_view(merged['portraitVariants'][selected], patch)
+
             updated = self.snapshot(merged)
+            if set(patch) <= {'initiativePortrait'}:
+                # A head-only edit must not rewrite body forms or their identities.
+                updated['portraitVariants'] = copy.deepcopy(piece.get('portraitVariants') or [])
+            if 'portraitView' not in updated:
+                piece.pop('portraitView', None)
+            if patch.get('collectionRole') == 'main':
+                for other in lib['pieces']:
+                    if other is not piece and other.get('collectionRole') == 'main':
+                        other['collectionRole'] = 'character'
+                        other['revision'] += 1
             piece.update(updated)
             piece['revision'] += 1
             return self.commit_library(pid, lib)

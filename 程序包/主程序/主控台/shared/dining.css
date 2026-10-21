@@ -1,0 +1,41 @@
+.dining-dialog {margin:auto;padding:0;width:min(780px,calc(100vw - 24px));height:min(860px,calc(100dvh - 24px));border:1px solid #d6b77940;border-radius:16px;background:#172225;color:#f3eee1;box-shadow:0 18px 70px #0008;}
+.dining-dialog[open] {display:flex;flex-direction:column;}
+.dining-dialog [hidden] {display:none !important;}
+.dining-dialog::backdrop {background:#06080ec9;backdrop-filter:blur(3px);}
+.dining-dialog :focus-visible {outline:2px solid #e0b34c;outline-offset:3px;}
+.dining-toolbar {display:flex;justify-content:space-between;align-items:center;padding:12px 20px;border-bottom:1px solid #454139;gap:12px;flex-shrink:0;}
+.dining-toolbar>span {font-size:12px;color:#c0b6a3;}
+.dining-dialog button,.dining-dialog select {box-sizing:border-box;min-width:0;max-width:100%;min-height:var(--ui-control,34px);color:#e6e2d5;background:#263430;border:1px solid #5b6b5f80;border-radius:var(--ui-radius,8px);padding:6px 11px;font:inherit;font-size:var(--ui-body,13px);line-height:1.4;cursor:pointer;}
+.dining-controls {display:flex;flex-wrap:wrap;align-items:end;gap:10px;padding:12px 20px;flex-shrink:0;}
+.dining-controls label {display:grid;gap:5px;font-size:12px;flex:1;min-width:150px;}
+.dining-controls button {font-size:13px;min-height:var(--ui-control,34px);}
+.dining-controls button:first-of-type {background:#c9b780;color:#242117;border-color:#c9b780;min-height:var(--ui-control-primary,38px);}
+.dining-controls select {width:100%;}
+.dining-toolbar>span {min-width:0;overflow-wrap:anywhere;}
+.dining-toolbar>button {flex-shrink:0;}
+.dining-status {margin:0;padding:0 20px 10px;font-size:12px;color:#dec89b;}
+.dining-page {overflow:auto;min-height:0;padding:26px 38px 30px;background:#eee5d3;color:#342b22;overscroll-behavior:contain;flex:1;}
+.dining-page[data-venue="dragon-monastery"] {background:#e8e8db;color:#293b32;}
+.dining-subtitle {text-align:center;letter-spacing:.25em;font-size:12px;margin:0 0 8px;}
+.dining-page h2 {font-family:Georgia,"Songti SC",serif;text-align:center;font-size:30px;margin:0 0 12px;letter-spacing:.08em;}
+.dining-motto {text-align:center;font-size:14px;margin:0 0 20px;font-style:italic;}
+.dining-intro {font-size:13px;line-height:1.8;padding:14px 0;border-top:1px solid #89734f66;border-bottom:1px solid #89734f66;}
+.dining-section h3 {margin:22px 0 6px;font-size:17px;font-family:"Songti SC",serif;}
+.dining-item {padding:12px 0;border-bottom:1px dashed #89734f55;}
+.dining-item-top {display:flex;justify-content:space-between;align-items:baseline;gap:16px;}
+.dining-item h4 {font-size:15px;margin:0;}
+.dining-price {font-size:13px;font-weight:600;text-align:right;flex-shrink:0;}
+.dining-tag {display:block;font-size:11px;opacity:.72;margin-top:5px;}
+.dining-item p {margin:6px 0 0;font-size:13px;line-height:1.75;}
+.dining-note {font-size:12px;line-height:1.8;text-align:center;margin:22px 0 0;}
+@media(max-width:520px) {
+ .dining-page {padding:20px 18px;}
+ .dining-page h2 {font-size:25px;}
+ .dining-toolbar,.dining-controls {padding:10px 12px;}
+ .dining-controls label {flex-basis:100%;}
+ .dining-dialog select {font-size:16px;}
+ .dining-dialog button,.dining-dialog select {min-height:var(--ui-control-touch,44px);}
+ .dining-controls button {flex:1;}
+ .dining-item-top {gap:8px;flex-wrap:wrap;}
+ .dining-price {text-align:left;}
+}

@@ -1,0 +1,143 @@
+.daily-life-dialog {margin:auto; padding:0; width:min(1060px,calc(100vw - 28px)); height:min(850px,calc(100dvh - 28px)); color:var(--text); background:var(--panel); border:1px solid var(--border); border-radius:16px; box-shadow:var(--shadow);}
+.daily-life-dialog[open] {display:flex; flex-direction:column;}
+.daily-life-dialog [hidden] {display:none !important;}
+.daily-life-dialog::backdrop {background:rgba(6,8,14,.75); backdrop-filter:blur(3px);}
+.daily-life-dialog :focus-visible {outline:2px solid var(--accent); outline-offset:3px;}
+.fishing-header {display:flex; align-items:center; justify-content:space-between; gap:16px; padding:18px 22px; border-bottom:1px solid var(--border); flex-shrink:0;}
+.fishing-header>div {min-width:0;overflow-wrap:anywhere;}
+.fishing-header>button {flex-shrink:0;}
+.fishing-eyebrow {font-size:12px; color:var(--muted);}
+.fishing-header h2 {margin:4px 0 0; font-size:var(--ui-dialog-title,22px);font-weight:600;line-height:1.35;}
+.fishing-status {margin:0; padding:10px 24px 0; color:var(--muted); font-size:12px;}
+.fishing-filters {display:grid; grid-template-columns:2fr 1fr 1fr; gap:14px; padding:14px 24px; flex-shrink:0;}
+.fishing-filters label {display:grid; gap:6px; color:var(--muted); font-size:12px; min-width:0;}
+.fishing-filters select {width:100%; min-height:40px; background:var(--panel2); color:var(--text); border:1px solid var(--border); border-radius:8px; padding:7px 10px;}
+.fishing-body {overflow:auto; min-height:0; padding:0 24px 20px; flex:1; overscroll-behavior:contain;}
+.fishing-summary {background:var(--panel2); border:1px solid var(--border); border-radius:10px; padding:14px 16px; margin-bottom:16px;}
+.fishing-summary h3 {margin:0 0 8px; color:var(--accent); font-size:17px;}
+.fishing-summary p {margin:6px 0 0; font-size:13px; line-height:1.65;}
+.fishing-gear {color:var(--muted);}
+.fishing-table {width:100%; border-collapse:separate; border-spacing:0; font-size:13px; line-height:1.75; table-layout:fixed;}
+.fishing-table th,.fishing-table td {padding:10px 12px; border-bottom:1px solid var(--border); text-align:left; vertical-align:top; overflow-wrap:anywhere;}
+.fishing-table thead th {position:sticky; top:0; background:var(--panel3); z-index:1; color:var(--muted);}
+.fishing-table th:first-child {width:54px; text-align:center;}
+.fishing-table th:nth-child(2) {width:190px;}
+.fishing-table tbody th {color:var(--accent); font-variant-numeric:tabular-nums;}
+.fishing-danger {background:#e74c5e12;}
+.fishing-danger td:nth-child(2) {color:#ff9aa6; font-weight:600;}
+.fishing-jackpot {background:#e0b34c12;}
+.fishing-jackpot td:nth-child(2) {color:var(--accent); font-weight:600;}
+.fishing-empty {color:var(--muted);}
+.fishing-rules {margin-top:18px; padding:12px 16px; background:var(--panel2); border-radius:10px; font-size:13px; line-height:1.8;}
+.fishing-rules summary {cursor:pointer;}
+.fishing-rules li {margin-bottom:7px;}
+.fishing-footer {padding:12px 24px; border-top:1px solid var(--border); color:var(--muted); font-size:12px; flex-shrink:0;}
+@media(max-width:600px) {
+ .daily-life-dialog {width:calc(100vw - 12px); height:calc(100dvh - 12px); border-radius:10px;}
+ .fishing-header,.fishing-filters {padding:12px;}
+ .fishing-status {padding:8px 12px 0;}
+ .fishing-filters {gap:8px; grid-template-columns:1.4fr 1fr 1fr;}
+ .fishing-filters select {font-size:16px; padding:7px 3px;}
+ .fishing-body {padding:0 10px 12px;}
+ .fishing-table th,.fishing-table td {padding:8px 6px;}
+ .fishing-table th:first-child {width:36px;}
+ .fishing-table th:nth-child(2) {width:94px;}
+ .fishing-footer {padding:10px 12px; font-size:11px;}
+}
+
+/* Everyday tools share the host palette, spacing, and one scrolling body. */
+#workspace-tabs {grid-template-columns:repeat(5,minmax(0,1fr));}
+#workspace-tabs .workspace-tab {min-width:0;padding-inline:3px;}
+#workspace-tabs .workspace-tab span {font-size:11px;white-space:nowrap;}
+#workspace-tabs .workspace-tab-icon {display:grid;place-items:center;width:26px;height:26px;flex-shrink:0;}
+#workspace-tabs .workspace-tab-icon svg {display:block;width:20px;height:20px;}
+#workspace-tabs .workspace-tab-label {line-height:16px;}
+.world-shortcuts .world-shortcut-label {display:flex;align-items:center;gap:10px;font:inherit;opacity:1;}
+.world-shortcut-label svg {width:18px;height:18px;flex-shrink:0;}
+.daily-life-dialog button,.daily-life-dialog select,.daily-life-dialog input {box-sizing:border-box;max-width:100%;min-width:0;font:inherit;font-size:var(--ui-body,13px);line-height:1.4;color:var(--text);background:var(--panel2);border:1px solid var(--border);border-radius:var(--ui-radius,8px);padding:7px 11px;min-height:var(--ui-control,34px);}
+.daily-life-dialog button {cursor:pointer;}
+.daily-life-dialog button:hover {border-color:var(--accent);}
+.fishing-boundary {font-size:12px;color:var(--muted);line-height:1.7;border-left:2px solid var(--accent);padding-left:12px;}
+.lifestyle-dialog {width:min(880px,calc(100vw - 28px));}
+.lifestyle-tabs {display:flex;gap:6px;padding:12px 24px;border-bottom:1px solid var(--border);flex-shrink:0;}
+.lifestyle-tabs button {flex:1;min-width:0;font-size:13px;}
+.lifestyle-tabs .active {border-color:var(--accent);color:var(--accent);background:var(--panel3);}
+.lifestyle-body,.world-dialog-body {overflow:auto;min-width:0;min-height:0;padding:18px 22px;flex:1;overscroll-behavior:contain;scrollbar-gutter:stable;}
+.lifestyle-card {border:1px solid var(--border);border-radius:12px;background:var(--panel2);padding:16px 18px;margin-bottom:14px;min-width:0;}
+.lifestyle-card h3 {font-size:16px;color:var(--accent);margin:0 0 10px;}
+.lifestyle-card h4 {margin:12px 0 8px;font-size:15px;}
+.lifestyle-card p,.lifestyle-card li,.lifestyle-details p,.lifestyle-details li {font-size:13px;line-height:1.8;overflow-wrap:anywhere;}
+.lifestyle-card p:last-child {margin-bottom:0;}
+.lifestyle-fields {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:16px 0;}
+.lifestyle-fields label,.world-rate-label {display:grid;gap:6px;color:var(--muted);font-size:12px;min-width:0;}
+.lifestyle-fields select,.lifestyle-fields input {width:100%;box-sizing:border-box;}
+.lifestyle-fields button {align-self:end;}
+.lifestyle-total {display:block;font-size:24px;color:var(--accent);margin-bottom:10px;}
+.lifestyle-details {border:1px solid var(--border);border-radius:10px;padding:12px 16px;margin:14px 0;}
+.lifestyle-details summary {cursor:pointer;font-size:13px;color:var(--text);}
+.lifestyle-details[open] summary {margin-bottom:12px;}
+.lifestyle-table-wrap {max-width:100%;overflow:auto;}
+.lifestyle-table {width:100%;border-collapse:collapse;font-size:13px;line-height:1.7;}
+.lifestyle-table th,.lifestyle-table td {padding:9px 10px;border-bottom:1px solid var(--border);text-align:left;overflow-wrap:anywhere;vertical-align:top;}
+.lifestyle-table th {color:var(--muted);font-weight:500;}
+.lifestyle-table td:first-child {white-space:nowrap;}
+.lifestyle-body a,.world-dialog a {color:var(--accent);}
+.world-dialog {width:min(960px,calc(100vw - 28px));}
+.world-dialog #init-panel-time {display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;height:auto;overflow:visible;padding:0;border:0;background:none;}
+.world-dialog .world-time-main {grid-column:1/-1;min-width:0;padding:16px 18px;border:1px solid var(--border);border-radius:10px;background:#ffffff03;}
+.world-dialog .world-clock-display {font-size:36px;color:var(--accent);font-variant-numeric:tabular-nums;}
+.world-dialog .world-date-display {font-size:18px;}
+.world-dialog .world-time-event {white-space:normal;margin-top:12px;font-size:12px;}
+.world-dialog .world-time-controls {padding:16px;width:auto;min-width:0;gap:12px;border:1px solid var(--border);border-radius:10px;}
+.world-dialog .time-shift-groups {display:grid;gap:10px;}
+.world-dialog .time-shift-row {display:flex;flex-wrap:wrap;gap:6px;align-items:center;}
+.world-dialog .time-shift-row button {flex:1;font-size:12px;}
+.world-dialog .time-shift-row span {flex-basis:100%;font-size:12px;color:var(--muted);}
+.world-dialog .world-time-actions {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:12px;}
+.world-dialog .world-time-actions button {font-size:12px;white-space:normal;}
+.world-dialog .world-time-actions button:first-child {grid-column:1/-1;min-height:var(--ui-control-primary,38px);border-color:#d6b77966;color:#e7d7b4;}
+.world-dialog .world-date-inputs {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;}
+.world-dialog .world-date-inputs label {min-width:0;font-size:12px;}
+.world-dialog .world-date-inputs input {width:100%;box-sizing:border-box;}
+.world-dialog .world-date-inputs input[type=time] {width:100%;}
+.world-dialog .world-date-inputs label:last-of-type {grid-column:1/3;}
+.world-dialog .world-date-inputs button {height:auto;}
+.world-dialog .world-weather-panel {padding:16px;min-width:0;border:1px solid var(--border);border-radius:10px;}
+.world-dialog .world-weather-display {padding:0;margin-bottom:16px;}
+.world-dialog .world-weather-display>div {min-width:0;}
+.world-dialog .world-weather-display strong {font-size:18px;}
+.world-dialog .world-weather-display small {font-size:12px;line-height:1.7;white-space:normal;overflow-wrap:anywhere;text-overflow:clip;}
+.world-dialog .weather-controls {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;}
+.world-dialog .weather-controls label {font-size:12px;min-width:0;}
+.world-dialog .weather-controls input,.world-dialog .weather-controls select {width:100%;box-sizing:border-box;}
+.world-dialog .weather-actions {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:10px;}
+.world-dialog .weather-actions button {font-size:12px;white-space:normal;}
+.weather-auto-line {display:grid;gap:8px;font-size:12px;color:var(--muted);}
+.world-risk-summary {font-size:12px;line-height:1.8;color:var(--muted);}
+.world-risk-summary p {margin:6px 0;}
+.world-risk-summary strong {color:var(--text);font-weight:600;}
+.world-location-current {font-size:12px;color:var(--muted);margin:0 0 8px;}
+.world-location-controls {display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:10px;margin:12px 0;}
+.world-location-controls label {font-size:12px;min-width:0;}
+.world-location-controls select {width:100%;box-sizing:border-box;}
+.world-location-settings {margin-bottom:16px;}
+.world-location-settings > button {width:100%;font-size:12px;}
+.world-rule-condition {display:block;font-size:11px;}
+.world-rate-label {margin:12px 0;}
+@media(max-width:600px){
+ .lifestyle-tabs {gap:4px;padding:10px;}
+ .lifestyle-tabs button {padding:8px 4px;font-size:12px;}
+ .lifestyle-body,.world-dialog-body {padding:12px;}
+ .lifestyle-card {padding:13px;}
+ .lifestyle-fields {gap:10px;}
+ .daily-life-dialog select,.daily-life-dialog input {font-size:16px;}
+ .daily-life-dialog button,.daily-life-dialog select,.daily-life-dialog input {min-height:var(--ui-control-touch,44px);}
+ .fishing-filters {grid-template-columns:repeat(2,minmax(0,1fr));}
+ .fishing-filters label:first-child {grid-column:1/-1;}
+ .world-dialog .world-time-main,.world-dialog .world-time-controls,.world-dialog .world-weather-panel {padding:14px;}
+ .world-dialog #init-panel-time {grid-template-columns:minmax(0,1fr);}
+ .world-dialog .world-time-main {grid-column:auto;}
+ .lifestyle-table th,.lifestyle-table td {padding:8px 5px;font-size:12px;}
+}
+.world-rest-note,.world-edit-status {font-size:12px;line-height:1.7;color:var(--muted);margin:10px 0;}
+.world-edit-status {color:var(--accent);}

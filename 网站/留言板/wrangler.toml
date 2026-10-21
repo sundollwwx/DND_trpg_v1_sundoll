@@ -1,0 +1,16 @@
+name = "sundoll-guestbook"
+main = "worker.js"
+compatibility_date = "2026-10-05"
+compatibility_flags = ["global_fetch_strictly_public"]
+workers_dev = true
+preview_urls = false
+keep_vars = true
+routes = [{ pattern = "sundollworld.com/api/messages*", zone_name = "sundollworld.com" }]
+
+[vars]
+REVIEW_REQUIRED = "false"
+
+[[d1_databases]]
+binding = "BOARD_DB"
+database_name = "sundoll-guestbook"
+database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"

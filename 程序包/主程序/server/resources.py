@@ -8,13 +8,22 @@ import hashlib
 import json
 import re
 import secrets
+import sqlite3
 import time
-from .inventory import InventoryStore, CATALOG, HEALING_RULES, item_definition, validate_removed
+from .inventory import InventoryStore, CATALOG, HEALING_RULES, ORIGIN_FIELDS, item_definition, validate_removed, inventory_request_signature
 from .resource_database import ResourceDatabase
 from .module_store import RevisionConflict
+from .sqlite_read import open_readonly_database
 
 RUNTIME_FIELDS = ('hp', 'tempHp', 'tempHpMax', 'conditions', 'spellSlots', 'resourceSlots')
 BASE_FIELDS = ('hpMax', 'ac', 'level')
+
+
+def resource_request_signature(command, campaign, host=False):
+    signed = {k: command.get(k) for k in ('op','itemId','revision','characterId','targetRevision','sourceCharacterId','eventId')}
+    if command.get('op') == 'transfer' and 'quantity' in command: signed['quantity'] = command['quantity']
+    signed.update(host=host, campaign=campaign)
+    return hashlib.sha256(json.dumps(signed, sort_keys=True).encode()).hexdigest()
 
 
 def tokens(state):
@@ -44,12 +53,25 @@ def project(state, c):
 
 
 class ResourceStore(InventoryStore):
-    def grant_definition(self, command):
+    def grant_definition(self, command, campaign=None, pid=None):
         from .item_library import ItemLibrary
         template_id = command.get('templateId') or command.get('presetId')
-        if not template_id: return item_definition(command.get('item'), self.error)
-        template = ItemLibrary(self.profiles, self.impl).resolve(template_id, command.get('templateVersion'), required='templateId' in command)
-        return dict(item_definition(template, self.error), sourceTemplateId=template['id'], sourceTemplateVersion=template['version'])
+        if not template_id:
+            raw = command.get('item')
+            definition = item_definition(raw, self.error)
+            source = {key: value for key, value in raw.items()
+                      if key not in ORIGIN_FIELDS and key not in ('ownerPlayerId', 'ownerCharacterId', 'contentPackageId', 'moduleId')}
+            if source.get('scope') == 'personal':
+                if not pid or not command.get('characterId'):
+                    raise self.error('个人物品必须直接发放给所属角色', 400)
+                self.require_recipient(self.working if self.working is not None else self.ledger(), pid, command['characterId'])
+                source.update(ownerPlayerId=pid, ownerCharacterId=command['characterId'])
+            definition.update(self.packages.origin_for_custom(source, campaign))
+        else:
+            template = ItemLibrary(self.profiles, self.impl).resolve(template_id, command.get('templateVersion'), required='templateId' in command)
+            definition = dict(item_definition(template, self.error), **self.packages.origin_for_template(template))
+        self.require_item_available(definition, campaign)
+        return definition
 
     def __init__(self, profiles, implementation):
         super().__init__(profiles, implementation)
@@ -57,9 +79,131 @@ class ResourceStore(InventoryStore):
         self.working = None
         self.database = ResourceDatabase(profiles.save_root)
 
-    def ledger(self):
+    @property
+    def packages(self):
+        from .content_packages import ContentPackages
+        if getattr(self, '_packages', None) is None:
+            self._packages = ContentPackages(self.profiles.save_root)
+        return self._packages
+
+    def item_available(self, item, campaign):
+        from .account_characters import context
+        if context(self.profiles.save_root) and item.get('ownerCharacterId'): return True
+        return self.packages.is_available(item, campaign)
+
+    def require_item_available(self, item, campaign):
+        if not self.item_available(item, campaign): self.packages.require_available(item, campaign, self.error)
+
+    def check_package_context(self, command, campaign):
+        revision = command.get('packageContextRevision')
+        if revision is not None and revision != self.packages.context(campaign)['revision']:
+            raise self.error('战役启用的内容包已变化，请刷新背包后重试', 409)
+
+    def available_event(self, event, bag, campaign):
+        if not event.get('itemId'):
+            return event.get('op') in ('wallet', 'purgeAll')
+        # New events freeze provenance; legacy events fall back to the surviving
+        # instance. Never infer a deleted item's scope from its display name.
+        if event.get('sourcePackageId'):
+            return self.item_available(event, campaign)
+        candidates = bag.get('items', []) + [r['item'] for r in bag.get('removedItems', [])]
+        item = next((i for i in candidates if i.get('id') == event['itemId']), None)
+        if item is None and isinstance(event.get('afterItem'), dict):
+            item = event['afterItem']
+        return bool(item is not None and self.item_available(item, campaign))
+
+    def event_view(self, event, bag, campaign):
+        if self.available_event(event, bag, campaign):
+            return self.clean_event(event)
+        return dict(id=event.get('id'), at=event.get('at'), op='unavailable',
+                    name='已完成的物品操作', delta=0, remaining=0,
+                    effect='这项操作的物品目前不可用，请核对当前战役的内容包。',
+                    actor=event.get('actor', ''))
+
+    def project_view(self, bag, campaign, host=False):
+        result = self.public(bag)
+        result['items'] = [i for i in result['items'] if self.item_available(i, campaign)]
+        result['removedItems'] = [r for r in result['removedItems']
+                                  if (host or r['op'] == 'discard') and self.item_available(r['item'], campaign)]
+        result['history'] = [self.clean_event(e) for e in bag.get('history', []) if self.available_event(e, bag, campaign)]
+        result['packageContextRevision'] = self.packages.context(campaign)['revision']
+        return result
+
+    def view(self, pid, campaign, host=False, ledger=None):
+        self._packages = None
+        return self.project_view(self.read(pid, campaign, ledger=ledger), campaign, host)
+
+    def backpack_ledger(self, pid, state, host=False):
+        """Read just this backpack and characters used by its map projections."""
+        if not self.database.active(): return self.ledger()
+        identities = {t.get('ownedPieceId') for _, t in tokens(state) if t.get('ownedPieceId')}
+        return self.ledger(self.database.read_for_backpack(pid, identities, all_characters=host))
+
+    def response(self, value, event, campaign, host=False):
+        return self.project_view(value, campaign, host), self.event_view(event, value, campaign)
+
+    def recover_receipt(self, pid, campaign, command, host=False, current_campaign=None):
+        """Verify an existing receipt without mutation, reconciliation or lazy migration."""
+        with self.impl.LOCK:
+            rid = command.get('requestId')
+            if not isinstance(rid, str) or not re.fullmatch(r'[A-Za-z0-9_-]{16,96}', rid): return None
+            self.profiles.read(pid)
+            bag = self.receipt_ledger()['backpacks'].get(pid)
+            if bag is None: return None
+            receipt = bag['receipts'].get(rid) or bag.get('legacyReceipts', {}).get(campaign, {}).get(rid)
+            if receipt is None: return None
+            op = command.get('op')
+            if op == 'wallet':
+                from .wallet import wallet_request_signature
+                signature = wallet_request_signature(command, campaign, host)
+            elif op in ('heal', 'undo', 'assign', 'transfer', 'unbind'):
+                signature = resource_request_signature(command, campaign, host)
+            elif op in ('grant', 'use', 'adjust', 'edit', 'annotate', 'delete', 'discard', 'restore', 'purge', 'purgeAll'):
+                signature = inventory_request_signature(command, host)
+            else:
+                raise self.error('操作编号冲突', 409)
+            if receipt['signature'] != signature or receipt['event'].get('op') != op:
+                raise self.error('操作编号冲突', 409)
+            self._packages = None
+            return self.response(bag, receipt['event'], current_campaign, host)
+
+    def receipt_ledger(self):
+        """A recovery read must not initialize SQLite or replay module projections."""
+        from .account_characters import context
+        if context(self.profiles.save_root): return self.ledger()
+        database = self.database.store.database
+        marker = self.database.store.root / 'runtime-v3.json'
         try:
-            data = self.database.read() if self.database.active() else json.loads(self.ledger_path.read_text('utf-8'))
+            if database.is_file():
+                db = open_readonly_database(database)
+                try:
+                    db.execute('BEGIN')
+                    tables = db.execute("SELECT 1 FROM sqlite_master WHERE name='documents'").fetchone()
+                    meta = db.execute("SELECT revision FROM documents WHERE kind='runtime-meta' AND id='resources'").fetchone() if tables else None
+                    if meta:
+                        data = dict(version=1, revision=meta['revision'], globalCharacters=True,
+                                    backpacks={}, characters={'@global': {}}, mapItems={})
+                        for row in db.execute("SELECT kind,id,payload FROM documents WHERE kind IN ('runtime-character','runtime-backpack','runtime-map')"):
+                            value = json.loads(row['payload'])
+                            if row['kind'] == 'runtime-character': data['characters']['@global'][row['id']] = value
+                            elif row['kind'] == 'runtime-backpack': data['backpacks'][row['id']] = value
+                            else: data['mapItems'][row['id']] = value
+                        return self.ledger(data)
+                finally:
+                    db.close()
+            if marker.exists(): raise ValueError('模块资源缺失，不能恢复旧档回执')
+            try:
+                data = json.loads(self.ledger_path.read_text('utf-8'))
+            except FileNotFoundError:
+                data = dict(version=1, revision=0, backpacks={}, characters={})
+            return self.ledger(data)
+        except (sqlite3.DatabaseError, ValueError, TypeError, KeyError):
+            raise self.error('冒险资源存档不可读，请检查一致备份；原文件未覆盖', 503)
+
+    def ledger(self, data=None):
+        try:
+            if data is None:
+                data = self.database.read() if self.database.active() else json.loads(self.ledger_path.read_text('utf-8'))
             if data.get('version') != 1 or type(data.get('revision')) is not int or not isinstance(data.get('backpacks'), dict) or not isinstance(data.get('characters'), dict):
                 raise ValueError()
             for pid, bag in data['backpacks'].items():
@@ -111,10 +255,10 @@ class ResourceStore(InventoryStore):
         data['revision'] = previous['revision'] + 1
         self.impl.atomic(self.ledger_path, data)
 
-    def read(self, pid, campaign=None):
+    def read(self, pid, campaign=None, ledger=None):
         with self.impl.LOCK:
             self.profiles.read(pid)
-            data = self.working if self.working is not None else self.ledger()
+            data = ledger if ledger is not None else self.working if self.working is not None else self.ledger()
             if pid not in data['backpacks']:
                 bag = InventoryStore(self.profiles, self.impl).read(pid, campaign)
                 # Only exact former built-in definitions qualify for this migration.
@@ -173,6 +317,9 @@ class ResourceStore(InventoryStore):
             candidates = {}
             for _, t in tokens(state):
                 oid = t.get('ownedPieceId'); owner = t.get('ownerPlayerId')
+                if getattr(self.profiles, 'characters', None) and oid in chars:
+                    # A verified account claim may replace an obsolete legacy carrier.
+                    owner=t['ownerPlayerId']=chars[oid]['ownerPlayerId']
                 if oid and owner:
                     candidates.setdefault(oid, []).append(t)
             if pid:
@@ -209,17 +356,20 @@ class ResourceStore(InventoryStore):
             for c in chars.values(): project(state, c)
             return list(chars.values())
 
-    def characters(self, pid, state, host=False):
+    def characters(self, pid, state, host=False, ledger=None):
         campaign = (state or {}).get('campaignId')
-        data = self.ledger()
+        data = self.ledger() if ledger is None else ledger
         chars = data['characters'].get(self.character_scope(data, campaign), {})
         visible = {t.get('ownedPieceId') for m, t in tokens(state) if m.get('playerAccessible') is True and not t.get('hiddenFromPlayers')}
         result = []
+        role_maps = {}
         for c in chars.values():
             owner = c['ownerPlayerId']
             if not self.profiles.owns(owner, c['id']): continue
             if owner == pid or c['id'] in visible or host:
                 entry = copy.deepcopy(c)
+                if owner not in role_maps: role_maps[owner] = self.profiles.piece_roles(self.profiles.library(owner))
+                entry['collectionRole'] = role_maps[owner].get(c['id'], 'character')
                 if not host and 'conditions' in entry['runtime']:
                     entry['runtime']['conditions'] = [v for v in entry['runtime']['conditions'] if isinstance(v, dict) and v.get('visibility') != 'gm']
                 result.append(entry)
@@ -239,21 +389,32 @@ class ResourceStore(InventoryStore):
 
     def apply(self, pid, campaign, command, host=False, state=None):
         with self.impl.LOCK:
+            self._packages = None
+            if (state or {}).get('campaignId') and campaign != state['campaignId']:
+                raise self.error('战役已切换，请重新打开背包', 409)
             self.working = self.ledger()
             try:
                 bag = self.read(pid, campaign)
                 op = command.get('op')
+                prior_receipt = bag['receipts'].get(command.get('requestId')) or bag.get('legacyReceipts', {}).get(campaign, {}).get(command.get('requestId'))
+                if not prior_receipt:
+                    self.check_package_context(command, campaign)
                 if op == 'wallet':
                     from .wallet import apply_wallet
-                    return apply_wallet(self, pid, campaign, command, host, state, bag)
+                    _, event = apply_wallet(self, pid, campaign, command, host, state, bag)
+                    return self.response(bag, event, campaign, host)
                 if self.working.get('globalCharacters') and op == 'grant':
                     self.require_recipient(self.working, pid, command.get('characterId'))
                 if self.working.get('globalCharacters') and op == 'restore':
                     removed = next((r for r in bag.get('removedItems', []) if r['id'] == command.get('removalId')), None)
                     if removed:
                         self.require_recipient(self.working, pid, removed['item'].get('ownerCharacterId'))
-                if op not in ('heal', 'undo', 'assign', 'transfer'):
-                    old_receipt = bag['receipts'].get(command.get('requestId')) or bag.get('legacyReceipts', {}).get(campaign, {}).get(command.get('requestId'))
+                if op not in ('heal', 'undo', 'assign', 'transfer', 'unbind'):
+                    old_receipt = prior_receipt
+                    if not old_receipt and self.working.get('globalCharacters') and command.get('itemId'):
+                        target_item = next((i for i in bag['items'] if i['id'] == command['itemId']), None)
+                        if target_item:
+                            self.require_recipient(self.working, pid, target_item.get('ownerCharacterId'))
                     if op == 'use' and not old_receipt:
                         item = next((i for i in bag['items'] if i['id'] == command.get('itemId')), {})
                         if self.working.get('globalCharacters') and not item.get('ownerCharacterId'):
@@ -261,18 +422,15 @@ class ResourceStore(InventoryStore):
                         if item.get('ruleId') in HEALING_RULES: raise self.error('请选择治疗目标后使用药水')
                         if item.get('category') == 'document': raise self.error('文书请使用阅读按钮')
                     return super().apply(pid, campaign, command, host)
-                if not (op == 'assign' and self.working.get('globalCharacters')) and (not state or not campaign or campaign != state.get('campaignId')):
+                if not (op in ('assign', 'unbind') and self.working.get('globalCharacters')) and (not state or not campaign or campaign != state.get('campaignId')):
                     raise self.error('请连接当前战役后使用角色资源', 409)
                 rid = command.get('requestId')
                 if not isinstance(rid, str) or not re.fullmatch(r'[A-Za-z0-9_-]{16,96}', rid): raise self.error('操作编号无效')
-                signed = {k: command.get(k) for k in ('op','itemId','revision','characterId','targetRevision','sourceCharacterId','eventId')}
-                if op == 'transfer' and 'quantity' in command: signed['quantity'] = command['quantity']
-                signed.update(host=host, campaign=campaign)
-                sig = hashlib.sha256(json.dumps(signed, sort_keys=True).encode()).hexdigest()
+                sig = resource_request_signature(command, campaign, host)
                 receipt = bag['receipts'].get(rid)
                 if receipt:
                     if receipt['signature'] != sig: raise self.error('操作编号冲突', 409)
-                    return self.public(bag), self.clean_event(receipt['event'])
+                    return self.response(bag, receipt['event'], campaign, host)
                 if type(command.get('revision')) is not int or command['revision'] != bag['revision']: raise self.error('背包已更新，请刷新后操作', 409)
                 chars = self.working['characters'].get(self.character_scope(self.working, campaign), {})
                 event = dict(id=rid, at=int(time.time()*1000), op=op, actor='主控' if host else '玩家', campaignId=campaign)
@@ -284,16 +442,24 @@ class ResourceStore(InventoryStore):
                     c = chars.get(original['characterId'])
                     item = next((i for i in bag['items'] if i['id'] == original['itemId']), None)
                     if not c or not item or not self.profiles.owns(c['ownerPlayerId'], c['id']): raise self.error('角色或物品已变化', 409)
+                    self.require_item_available(item, campaign)
                     if c['revision'] != original['afterRevision'] or item != original['afterItem']:
                         raise self.error('治疗后的角色或物品已有新变化，不能直接撤销；请主控手动调整', 409)
+                    self.require_item_capacity(bag, item)
                     c['runtime']['hp'] = original['beforeHp']; c['revision'] += 1
                     item['quantity'] += 1; item['resourceRevision'] = item.get('resourceRevision', 0)+1; original['undone'] = True
                     event.update(name=item['name'], itemId=item['id'], delta=1, remaining=item['quantity'], effect='已撤销治疗', characterId=c['id'])
                 else:
                     item = next((i for i in bag['items'] if i['id'] == command.get('itemId')), None)
                     if not item: raise self.error('物品不存在', 404)
+                    self.require_item_available(item, campaign)
+                    if self.working.get('globalCharacters') and op != 'assign':
+                        self.require_recipient(self.working, pid, item.get('ownerCharacterId'))
+                    event.update({key: copy.deepcopy(item[key]) for key in ORIGIN_FIELDS if key in item})
                     cid = command.get('characterId')
                     c = chars.get(cid)
+                    if op in ('assign', 'transfer') and item.get('boundCharacterId') and cid != item['boundCharacterId']:
+                        raise self.error('这件个人物品仍绑定原角色，请先由主控明确解除绑定', 403)
                     if op == 'transfer':
                         if not c or not self.profiles.owns(c['ownerPlayerId'], cid):
                             raise self.error('接收角色不存在', 404)
@@ -305,25 +471,42 @@ class ResourceStore(InventoryStore):
                         amount = command.get('quantity', item['quantity'])
                         if type(amount) is not int or not 1 <= amount <= item['quantity']:
                             raise self.error('转移数量必须是整数，且不能超过持有数量')
-                        if target_pid != pid or amount < item['quantity']:
-                            target_bag = self.read(target_pid, campaign)
-                            if len(target_bag['items']) >= 300: raise self.error('接收方背包物品种类已达 300 项，请先整理', 409)
-                            moved = copy.deepcopy(item)
-                            moved.update(id='i'+secrets.token_hex(16), ownerCharacterId=cid, quantity=amount,
-                                         resourceRevision=item.get('resourceRevision', 0)+1,
-                                         notes=item.get('notes','') if target_pid == pid else '',
-                                         favorite=item.get('favorite',False) if target_pid == pid else False)
-                            target_bag['items'].append(moved)
+                        target_bag = self.read(target_pid, campaign)
+                        moved = copy.deepcopy(item)
+                        moved.update(id='i'+secrets.token_hex(16), ownerCharacterId=cid, quantity=amount,
+                                     resourceRevision=item.get('resourceRevision', 0)+1,
+                                     notes=item.get('notes','') if target_pid == pid else '',
+                                     favorite=item.get('favorite',False) if target_pid == pid else False)
+                        stack = next((i for i in target_bag['items'] if self.stack_contents(i) == self.stack_contents(moved)
+                                      and i['quantity'] + amount <= 999), None)
+                        self.require_item_capacity(target_bag, stack,
+                            releasing=item if target_pid == pid and amount == item['quantity'] else None,
+                            message='接收方背包物品种类已达 300 项，请先整理', character_id=cid)
+                        if target_pid != pid or amount < item['quantity'] or stack is not None:
+                            if stack is not None:
+                                stack['quantity'] += amount
+                                stack['resourceRevision'] = stack.get('resourceRevision', 0)+1
+                                moved = stack
+                            else:
+                                target_bag['items'].append(moved)
                             item['quantity'] -= amount
                             if target_pid != pid: target_bag['revision'] += 1
                             incoming = dict(event, op='receive', name=item['name'], itemId=moved['id'],
-                                            delta=amount, remaining=amount, effect='收到转交物品')
+                                            delta=amount, remaining=moved['quantity'], effect='收到转交物品')
                             target_bag['history'] = (target_bag['history'] + [incoming])[-80:]
                         else:
                             item['ownerCharacterId'] = cid
                         item['resourceRevision'] = item.get('resourceRevision', 0)+1
                         event.update(name=item['name'], itemId=item['id'], delta=-amount if target_pid != pid else 0,
                                      remaining=item['quantity'], characterId=cid, effect='已转交给'+c['name'])
+                    elif op == 'unbind':
+                        if not host: raise self.error('只有主控可以解除个人物品绑定', 403)
+                        if item.get('sourceScope') != 'personal' or not item.get('boundCharacterId'):
+                            raise self.error('这件物品没有需要解除的角色绑定', 409)
+                        item['boundCharacterId'] = ''
+                        item['resourceRevision'] = item.get('resourceRevision', 0)+1
+                        event.update(name=item['name'], itemId=item['id'], delta=0, remaining=item['quantity'],
+                                     characterId=item.get('ownerCharacterId'), effect='主控已解除角色绑定，个人来源仍保留')
                     elif op == 'assign':
                         if self.working.get('globalCharacters'):
                             self.require_recipient(self.working, pid, cid)
@@ -355,16 +538,17 @@ class ResourceStore(InventoryStore):
                         item['quantity'] -= 1
                         item['resourceRevision'] = item.get('resourceRevision', 0)+1
                         event.update(name=item['name'], itemId=item['id'], delta=-1, remaining=item['quantity'],
-                                     characterId=cid, sourceCharacterId=source_id, targetName=c['name'], beforeHp=before,
+                                     characterId=cid, sourceCharacterId=source_id, actingCharacterId=source_id, targetName=c['name'], beforeHp=before,
                                      afterHp=c['runtime']['hp'], afterRevision=c['revision'], afterItem=copy.deepcopy(item),
                                      dice=dice, bonus=bonus, total=total, formula=f'{count}d{sides}+{bonus}',
                                      effect=f"{c['name']}：{before} → {c['runtime']['hp']} HP（实际恢复 {c['runtime']['hp']-before}）")
+                event.update({key: copy.deepcopy(item[key]) for key in ORIGIN_FIELDS if key in item})
                 bag['history'] = (bag['history'] + [event])[-80:]
                 bag['receipts'][rid] = dict(signature=sig, event=copy.deepcopy(event))
                 if len(bag['receipts']) > 512: bag['receipts'].pop(next(iter(bag['receipts'])))
                 bag['revision'] += 1
                 self.save(self.working)
-                return self.public(bag), self.clean_event(event)
+                return self.response(bag, event, campaign, host)
             finally:
                 self.working = None
 
