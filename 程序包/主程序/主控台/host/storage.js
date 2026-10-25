@@ -639,7 +639,17 @@ async function localSaveApiRequest(op, payload = {}) {
       headers: { 'Content-Type': 'application/json', [LOCAL_SAVE_API_HEADER]: '1' },
       body: JSON.stringify({ op, ...payload, ...(payload.path === '棋子库/棋子库.json' && op === 'write' ? {catalogHash:loadedCatalogHash}:{}), protocolVersion: globalThis.SundollProtocol?.version }),
     });
-    const data = await response.json();
+    let data;
+    try {
+      data = await response.json();
+      if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('invalid response');
+    } catch (_) {
+      // A gateway can return HTML even after a write was accepted. Keep its
+      // outcome unknown so campaign writes still preserve text and check receipts.
+      throw Object.assign(new Error(readOnly
+        ? '存档服务暂时无法连接，请稍后重试'
+        : '存档写入结果尚未确认，请保留草稿后重试'), {errorCode:'save-response-unreadable'});
+    }
     if (!response.ok || data.ok === false) {
       const error = Object.assign(new Error(data.error || '存档服务不可用'), {status:response.status,errorCode:data.errorCode});
       if (op === 'write-campaign' && response.status === 409 && typeof pauseHostStateSync === 'function') pauseHostStateSync(error.message, data);

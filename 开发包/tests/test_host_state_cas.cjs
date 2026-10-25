@@ -106,6 +106,33 @@ function enableFormalWrites(f,write){
  Object.assign(f.c,{campaignLoadedHashes:new Map([['c1','a'.repeat(64)]]),campaignRecordsCache:[],SAVE_CAMPAIGN_DIR:'战役',usingLocalSaveBridge:()=>true,ensureSaveFolderAccess:async()=>true,safeCampaignId:id=>id,campaignFolderName:id=>id,campaignGet:async()=>({_path:'战役/c1/当前存档.json',_folderName:'c1'}),readBoundText:async()=>null,campaignPackage:(id,name,snapshot,savedAt)=>({campaignId:id,campaignName:name,state:snapshot,savedAt}),campaignRecordSummary:doc=>({state:{campaignId:doc.campaignId}}),trimAutomaticBackups:async()=>{},writeSaveIndex:async()=>{},localSaveApiRequest:async(op,payload)=>{assert.equal(op,'write-campaign');return write(payload);}});
  for(const name of ['writeCurrentCampaign','writeCampaignRecord'])vm.runInContext(fn(storage,name),f.c);
 }
+test('unreadable gateway responses show a retryable save message without leaking parser details',async()=>{
+ for(const invalid of ['html',null,[],'unexpected']){
+  const f=fixture();
+  Object.assign(f.c,{LOCAL_SAVE_API_PATH:'/api/local-save',LOCAL_SAVE_API_HEADER:'X-Sundoll-Local-Save',loadedCatalogHash:null,
+   fetch:async()=>({ok:false,status:502,json:async()=>{if(invalid==='html')throw new SyntaxError('Unexpected token <, private gateway page');return invalid;}})});
+  vm.runInContext(fn(storage,'localSaveApiRequest'),f.c);
+  await assert.rejects(f.c.localSaveApiRequest('read-campaign',{path:'campaign/current.json'}),error=>{
+   assert.equal(error.message,'存档服务暂时无法连接，请稍后重试');
+   assert.equal(error.errorCode,'save-response-unreadable');return true;
+  });
+  assert.equal(f.c.hostStateRevision,7);
+ }
+});
+test('an HTML write response preserves the exact draft and checks a receipt without repeating the write',async()=>{
+ const f=fixture(),calls=[],payload={path:'战役/c1/当前存档.json',text:'original exact snapshot',expectedHash:'a'.repeat(64),expectedStateRevision:7,serverSessionId:'session-1'};
+ Object.assign(f.c,{LOCAL_SAVE_API_PATH:'/api/local-save',LOCAL_SAVE_API_HEADER:'X-Sundoll-Local-Save',loadedCatalogHash:null,campaignTextHash:async()=> 's'.repeat(64),
+  fetch:async(_url,args)=>{const body=JSON.parse(args.body);calls.push(body);return {ok:body.op!=='write-campaign',status:body.op==='write-campaign'?502:200,json:async()=>{
+   if(body.op==='write-campaign')throw new SyntaxError('Unexpected token <');
+   return body.op==='save-receipt'?{ok:true,committed:false}:{ok:true};
+  }};}});
+ for(const name of ['preserveUnconfirmedCampaignWrite','localSaveApiRequest'])vm.runInContext(fn(storage,name),f.c);
+ await assert.rejects(f.c.localSaveApiRequest('write-campaign',payload),/正式写入结果尚未确认/);
+ assert.deepEqual(calls.map(call=>call.op),['write-campaign','write','save-receipt']);
+ assert.equal(calls[1].text,payload.text);assert.equal(f.c.hostStateRevision,7);
+ assert.equal(f.c.hostStateConflict.errorCode,'state-result-unknown');
+ assert.equal(JSON.parse(f.browser.get('test-state:pending-save')).payload.text,payload.text);
+});
 test('a player action while preparing a formal save is included in the snapshot with its matching frozen guard',async()=>{
  const f=fixture(),reading=deferred(),writes=[];enableActions(f);enableFormalWrites(f,payload=>{writes.push(payload);return {hash:'b'.repeat(64),stateRevision:payload.expectedStateRevision+1,sessionId:'session-1'};});f.c.readBoundText=async()=>{await reading.promise;return null;};
  const original=f.c.folderSaveSnapshot(),saving=f.c.writeCampaignRecord('c1','测试',original,{currentProgress:true});await new Promise(setImmediate);f.c.receiveHostStateAction(action(8));reading.resolve();const result=await saving;assert.equal(JSON.parse(writes[0].text).state.maps[0].tokens[0].hp,3);assert.equal(writes[0].expectedStateRevision,8);assert.equal(f.c.hostStateRevision,9);assert.equal(result.indexWarning,'');
