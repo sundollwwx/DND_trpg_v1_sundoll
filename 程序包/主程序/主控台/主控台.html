@@ -833,13 +833,13 @@
 </dialog>
 
 <dialog id="host-formal-reload-dialog" aria-labelledby="host-formal-reload-title">
-  <h2 id="host-formal-reload-title">以正式存档继续？</h2>
-  <p>本页草稿与房间实时进度会分别保留为恢复点，再载入正式存档。其他旧 DM 页面将暂停提交。</p>
+  <h2 id="host-formal-reload-title">恢复到正式存档？</h2>
+  <p>此操作会用正式存档替换房间当前进度。本页草稿与房间实时进度会分别保留恢复点，其他旧 DM 页面将暂停提交。</p>
   <form method="dialog"><button value="cancel" autofocus>取消</button><button value="continue">保留恢复点并继续</button></form>
 </dialog>
 <section id="host-save-conflict" class="host-save-conflict" role="alert" hidden>
-  <div><strong>同步已暂停</strong><p id="host-save-conflict-message">当前页面保留了草稿，请重新读取正式存档后继续。</p></div>
-  <div class="host-save-conflict-actions"><button id="host-conflict-download" type="button">下载本页草稿</button><button id="host-conflict-reload" type="button">重新读取正式存档</button></div>
+  <div><strong>同步已暂停</strong><p id="host-save-conflict-message">本页草稿已保留，可接续房间进度后继续。</p></div>
+  <div class="host-save-conflict-actions"><button id="host-conflict-resume" class="primary" type="button">接续房间进度</button><button id="host-conflict-download" type="button">下载本页草稿</button><button id="host-conflict-reload" type="button">重新读取正式存档</button></div>
 </section>
 
 <dialog id="grid-tools" aria-labelledby="grid-tools-title">
@@ -1033,7 +1033,7 @@
   <script src="/api/daily-life/climate.js"></script>
   <script src="host/encounter-ui.js?v=20261003-initiative-environment-dm-v6"></script>
   <script src="host/initiative-portrait-defaults.js?v=20261002-v1"></script>
-  <script src="host/app.js?v=20261014-account-characters-v2"></script>
+  <script src="host/app.js?v=20261024-room-resume-v1"></script>
   <script src="host/map-forms.js?v=20260926-1"></script>
   <script src="host/bootstrap.js?v=20261008-load-stages-v1"></script>
   <script src="host/travel-basket.js?v=20260924-delete-v15"></script>

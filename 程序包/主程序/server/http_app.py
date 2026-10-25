@@ -4348,7 +4348,7 @@ class Handler(SimpleHTTPRequestHandler):
             return MAX_LOCAL_SAVE_BODY if path == '/api/local-save' else 64 * 1024
         if path == '/api/music-live':
             return 132000 if host_request_allowed(self) else 0
-        host_routes = ('/api/assets/cache-map', '/api/players/kick', '/api/state', '/api/host-action', '/api/host-state/takeover')
+        host_routes = ('/api/assets/cache-map', '/api/players/kick', '/api/state', '/api/host-action', '/api/host-state/takeover', '/api/host-state/resume')
         if path in host_routes or path.startswith('/api/music'):
             if not host_request_allowed(self):
                 return 0
@@ -4368,6 +4368,7 @@ class Handler(SimpleHTTPRequestHandler):
             '/api/players/kick': 64 * 1024, '/api/state': MAX_BODY,
             '/api/host-action': 64 * 1024, '/api/action': MAX_ACTION_BODY,
             '/api/host-state/takeover': 64 * 1024,
+            '/api/host-state/resume': 64 * 1024,
         }.get(path, 0)
 
     @database_error_boundary
@@ -4439,6 +4440,26 @@ class Handler(SimpleHTTPRequestHandler):
         if self.path in ('/api/modules','/api/modules/import','/api/modules/preview','/api/workspace-backups/import'):
             self.handle_modules(); return
         global STATE, STATE_REVISION, NEXT_SEQ, PUBLIC_BASE_URL
+        if self.path == '/api/host-state/resume':
+            if not host_request_allowed(self):
+                self._send_json({'ok': False, 'error': 'state resume is host-only'}, 403); return
+            # Reading a frozen full-DM receipt must not checkpoint or advance
+            # the live authority, including on a rejected request.
+            self._checkpoint_saved = True
+            try:
+                data = self._read_json_body(64 * 1024)
+                if not isinstance(data, dict): raise ValueError('接续请求格式无效')
+                from server.host_state import resume_current, resume_ownership
+                with save_storage.SAVE_WRITE_LOCK, profiles.LOCK, LOCK:
+                    if not self._state_publish_guard(data, required=True): return
+                    result = resume_current(data, LOCAL_SAVE_ROOT, STATE, STATE_REVISION, SESSION_ID,
+                                            RECENT_ACTIONS, max(0, NEXT_SEQ - 1), resume_ownership(LOCAL_SAVE_ROOT))
+                    result['ok'] = True
+            except OverflowError:
+                self._send_json({'ok': False, 'error': '接续请求过大'}, 413); return
+            except (ValueError, TypeError, OSError) as error:
+                self._send_json({'ok': False, 'error': str(error), 'errorCode': 'state-resume-failed'}, getattr(error, 'status', 500 if isinstance(error, OSError) else 400)); return
+            self._send_json(result); return
         if self.path == '/api/host-state/takeover':
             if not host_request_allowed(self):
                 self._send_json({'ok': False, 'error': 'state takeover is host-only'}, 403); return

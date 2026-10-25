@@ -232,6 +232,7 @@ let hostStateRevision = null;
 let hostStateSessionId = '';
 let hostStateConflict = null;
 let hostStateReadPromise = null;
+let hostStateResumeInProgress = false;
 let hostStateWriteQueue = Promise.resolve();
 let hostStatePostPending = false;
 let hostStatePendingActions = [];
@@ -8145,6 +8146,7 @@ function bindEvents() {
   const saveToolsDialog = $('#save-tools-dialog');
   $('#btn-host-overview')?.addEventListener('click', showCover);
   $('#host-conflict-download')?.addEventListener('click', downloadHostConflictDraft);
+  $('#host-conflict-resume')?.addEventListener('click', resumeHostRuntimeAfterConflict);
   $('#host-conflict-reload')?.addEventListener('click', reloadHostFormalAfterConflict);
   $('#btn-save-tools-open').addEventListener('click', () => {
     renderHostSaveScope();
@@ -9099,7 +9101,7 @@ function pauseHostStateSync(message, details = {}) {
   const panel = $('#host-save-conflict');
   if (panel) panel.hidden = false;
   const label = $('#host-save-conflict-message');
-  if (label) label.textContent = hostStateConflict.message + ' 本页仍保留草稿；下载后可重新读取正式存档。';
+  if (label) label.textContent = hostStateConflict.message + ' 本页草稿已保留，可接续房间进度或重新读取正式存档。';
   updateSaveStatus('同步暂停 · 本页草稿待处理', 'error');
   updateStreamUi();
 }
@@ -9112,7 +9114,7 @@ async function ensureHostStateBaseline() {
     const {response,data:info} = await SundollClientRuntime.requestJson(`${serverApiBase()}/api/info`, {cache:'no-store'}, {timeoutMs:8000,message:'战役版本读取超时，请重试'});
     if (!response.ok || !Number.isInteger(info.stateRevision) || typeof info.sessionId !== 'string' || !info.sessionId) throw new Error('未能确认战役版本，请重新连接');
     if (info.stateAuthority?.published === true) {
-      pauseHostStateSync('工作区已有运行进度，请核对后重新读取正式存档。', {errorCode:'state-baseline-required'});
+      pauseHostStateSync('房间已有运行进度，请接续后继续编辑。', {errorCode:'state-baseline-required'});
       return false;
     }
     hostStateRevision = info.stateRevision;
@@ -9160,6 +9162,94 @@ function confirmHostFormalReload() {
     dialog.addEventListener('close', () => resolve(dialog.returnValue === 'continue'), {once:true});
     dialog.showModal();
   });
+}
+
+async function resumeHostRuntimeAfterConflict() {
+  const panel = $('#host-save-conflict'), button = $('#host-conflict-resume');
+  if (hostStateResumeInProgress || campaignLoadInProgress || campaignOpenInProgress
+      || $('#host-formal-reload-dialog')?.open || $('#host-conflict-reload')?.disabled) return false;
+  if (!hostStateConflict || !state.campaignId) { toast('请先选择需要接续的战役'); return false; }
+  hostStateResumeInProgress = true;
+  const campaignId = state.campaignId;
+  // Keep the existing conflict lock through every read and UI update. Inert
+  // prevents edits inside loadFolderSave's own asynchronous stages being lost.
+  const surfaces = Array.from(document.body.children).filter(node => node !== panel && !['SCRIPT','STYLE'].includes(node.tagName));
+  const previousInert = surfaces.map(node => [node,node.inert]);
+  const controls = ['#host-conflict-resume','#host-conflict-reload','#host-conflict-download'].map(id => $(id)).filter(Boolean);
+  const previousDisabled = controls.map(control => [control,control.disabled]);
+  previousInert.forEach(([node]) => { node.inert = true; });
+  controls.forEach(control => { control.disabled = true; });
+  panel?.setAttribute('aria-busy','true');
+  if (button) button.textContent = '正在接续…';
+  let editGeneration = hostEditGeneration;
+  const unchanged = () => {
+    if (state.campaignId !== campaignId || hostEditGeneration !== editGeneration || !hostStateConflict) {
+      throw new Error('本页战役或草稿已变化，接续已停止，请保留草稿后重试');
+    }
+  };
+  try {
+    flushDetailTextSave();
+    editGeneration = hostEditGeneration;
+    keepHostConflictDraft();
+    await hostStateWriteQueue; unchanged();
+    await folderSaveQueue; unchanged();
+    const record = await campaignGet(campaignId); unchanged();
+    if (!record?._path) throw new Error('正式战役未找到，请返回战役总览选择');
+    const formal = await localSaveApiRequest('read-campaign',{path:record._path}); unchanged();
+    if (!/^[0-9a-f]{64}$/.test(formal.sourceHash || '')) throw new Error('正式存档版本未确认，接续已停止');
+    const {response:infoResponse,data:info} = await SundollClientRuntime.requestJson(`${serverApiBase()}/api/info`,{cache:'no-store'},{timeoutMs:8000}); unchanged();
+    if (!infoResponse.ok || !Number.isInteger(info.stateRevision) || !info.sessionId) throw new Error('房间版本未确认，请稍后重试');
+    const {response,data:result} = await SundollClientRuntime.requestJson(`${serverApiBase()}/api/host-state/resume`,{
+      method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({campaignId,path:record._path,expectedHash:formal.sourceHash,expectedStateRevision:info.stateRevision,serverSessionId:info.sessionId}),
+    },{timeoutMs:30000,message:'接续读取超时，房间进度未被本次操作改写，请重试'}); unchanged();
+    if (!response.ok || result.ok !== true) throw new Error(result.error || '当前房间进度无法接续，请保留草稿');
+    const parsed = parseCampaignFile(JSON.stringify(result.record),record._folderName);
+    if (parsed?.id !== campaignId || !parsed.state || result.sourceHash !== formal.sourceHash
+        || result.sessionId !== info.sessionId || result.stateRevision !== info.stateRevision
+        || !Number.isInteger(result.streamSeq) || result.streamSeq < 0
+        || !(result.mapPresentationId === null || typeof result.mapPresentationId === 'string')) {
+      throw new Error('接续响应不完整或版本已变化，提交继续暂停');
+    }
+    const basketOpen = parsed.state.travelBasketOpen === true;
+    const privateInitiativeSwap = parsed.state.encounter?.allowInitiativeSwap === true;
+    const loaded = await loadFolderSave({...record,path:record._path,_verifiedRead:{text:JSON.stringify(result.record),sourceHash:result.sourceHash}},false); unchanged();
+    if (!loaded) throw new Error('房间进度尚未完整读取，提交继续暂停');
+    const {response:checkResponse,data:check} = await SundollClientRuntime.requestJson(`${serverApiBase()}/api/info`,{cache:'no-store'},{timeoutMs:8000}); unchanged();
+    if (!checkResponse.ok || check.stateRevision !== result.stateRevision || check.sessionId !== result.sessionId
+        || check.stateAuthority?.campaignId !== campaignId || check.stateAuthority?.formalSourceHash !== result.sourceHash
+        || check.stateAuthority?.published !== true) {
+      throw new Error('读取期间房间进度已变化，请重新接续；本页草稿仍有恢复点');
+    }
+    // The ordinary formal loader closes the basket and marks state for publish.
+    // Resume is a read: restore live presentation and never publish on its behalf.
+    state.travelBasketOpen = basketOpen;
+    if (state.encounter) state.encounter.allowInitiativeSwap = privateInitiativeSwap;
+    window.TravelBasket?.changed();
+    mapPresentationId = result.mapPresentationId;
+    hostStateRevision = result.stateRevision; hostStateSessionId = result.sessionId;
+    streamServerSessionId = result.sessionId; streamAppliedSeq = result.streamSeq;
+    hostStatePendingActions = []; hostStateConflict = null;
+    streamDirty = false;
+    if (autosaveTimer) clearTimeout(autosaveTimer);
+    autosaveTimer = null;
+    if (panel) panel.hidden = true;
+    updateSaveStatus('已接续房间进度', 'ok'); updateStreamUi();
+    toast('已接续当前进度，本页原草稿已保留恢复点');
+    return true;
+  } catch (error) {
+    const message = error.message || '接续未完成，请保留草稿后重试';
+    if (hostStateConflict) hostStateConflict.message = message;
+    pauseHostStateSync(message);
+    toast(message);
+    return false;
+  } finally {
+    previousInert.forEach(([node,inert]) => { node.inert = inert; });
+    previousDisabled.forEach(([control,disabled]) => { control.disabled = disabled; });
+    panel?.setAttribute('aria-busy','false');
+    if (button) button.textContent = '接续房间进度';
+    hostStateResumeInProgress = false;
+    (hostStateConflict ? button : $('#btn-save-tools-open'))?.focus();
+  }
 }
 
 async function reloadHostFormalAfterConflict() {

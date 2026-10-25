@@ -38,7 +38,7 @@ def body_limit(path,role):
     host_only={'/api/local-save':128*1024**2,'/api/modules':64*1024,
         '/api/modules/import':128*1024**2,'/api/modules/preview':128*1024**2,
         '/api/assets/cache-map':12*1024**2,'/api/players/kick':64*1024,
-        '/api/state':12*1024**2,'/api/host-state/takeover':64*1024,
+        '/api/state':12*1024**2,'/api/host-state/takeover':64*1024,'/api/host-state/resume':64*1024,
         '/api/host-action':64*1024,'/api/item-library':512*1024}
     if path in host_only:
         if not host: raise AccountError('此操作需要该战役的 DM 权限',403)
