@@ -1610,7 +1610,8 @@ function showMapReaction(a){if(!currentMap||!a||a.mapId!==currentMap.id||!MAP_RE
   }
   function renderPlayerConditions(t,editable=canActWithToken(t)){
     const box=$('#detail-conditions');box.innerHTML='';const conditions=playerPublicConditions(t);$('#player-condition-open').disabled=!editable;
-    $('#player-condition-lock-hint').textContent=editable?'修改后会实时同步，并通知主控台。':(encounter().playMode==='turn'?'🔒 等到该棋子的回合才能修改状态。':'请先加入房间。');
+    $('#player-condition-lock-hint').hidden=editable;
+    $('#player-condition-lock-hint').textContent=editable?'':(encounter().playMode==='turn'?'等待该角色的回合。':'请先加入房间。');
     conditions.forEach(condition=>{const chip=document.createElement('div'),edit=document.createElement('button'),remove=document.createElement('button');chip.className='condition-chip';chip.style.setProperty('--condition-color',condition.color);edit.type='button';edit.className='condition-main';edit.textContent=condition.icon+' '+condition.label+' · '+(condition.remainingTurns?condition.remainingTurns+' 回合':'永久');edit.title='编辑状态';edit.disabled=!editable;edit.addEventListener('click',()=>openPlayerConditionEditor(condition.id));remove.type='button';remove.className='condition-remove';remove.textContent='×';remove.title='移除状态';remove.setAttribute('aria-label','移除'+condition.label);remove.disabled=!editable;remove.addEventListener('click',()=>applyPlayerConditions(t,conditions.filter(item=>item.id!==condition.id),'已移除状态：'+condition.label));chip.append(edit,remove);box.appendChild(chip);});
     if(!conditions.length)box.innerHTML='<span class="hint">暂无公开状态</span>';
     if(!editable)closePlayerConditionEditor();
@@ -1818,7 +1819,8 @@ function showMapReaction(a){if(!currentMap||!a||a.mapId!==currentMap.id||!MAP_RE
     document.querySelectorAll('[data-temp-hp]').forEach(b=>b.disabled=!hpEditable);
     const tempUndoReady=hpEditable&&playerTempHpUndo&&playerTempHpUndo.tokenId===t.id&&playerTempHpUndo.mapId===currentMap?.id&&Number(t.tempHp||0)===playerTempHpUndo.after.tempHp&&Number(t.tempHpMax??t.tempHp??0)===playerTempHpUndo.after.tempHpMax;
     $('#temp-hp-undo').disabled=!tempUndoReady;
-    $('#ac-hint').textContent='生命值随时可调整 · 护甲：'+(editable?(e.playMode==='turn'?'✓ 当前回合可修改':e.playMode==='prepare'?'战斗准备阶段可修改':'自由模式可修改'):(e.playMode==='turn'?'🔒 等待你的回合':'请先加入房间'));
+    $('#ac-hint').hidden=editable;
+    $('#ac-hint').textContent=editable?'':(e.playMode==='turn'?'护甲需在自己的回合修改。':'请先加入房间。');
     syncSpellRangeUi(t,editable);requestSpellRangeRender();
     const pct=clamp((t.hp/Math.max(1,t.hpMax))*100,0,100); $('#hp-bar').style.width=pct+'%'; $('#hp-bar').style.background=pct>50?'#4cc38a':pct>25?'#f4a261':'#e74c5e';
     renderPlayerConditions(t,editable);

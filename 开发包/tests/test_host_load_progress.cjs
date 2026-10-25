@@ -42,7 +42,7 @@ test('cancelled loading cannot become completed when a later callback resolves',
   run.cancel();finish(true);await pending;run.finish();assert.equal(f.controller.snapshot().status,'cancelled');assert.equal(f.controller.snapshot().stages[0].status,'cancelled');
 });
 function domFixture(){
-  const nodes=new Map();function node(){return{hidden:true,children:[],dataset:{},textContent:'',value:'',events:{},setAttribute(){},replaceChildren(...children){this.children=children;},addEventListener(type,fn){this.events[type]=fn;},focus(){this.focused=true;},select(){this.selected=true;}};}
+  const nodes=new Map();function node(){return{hidden:true,children:[],dataset:{},textContent:'',value:'',events:{},close(){this.closed=true;},setAttribute(){},replaceChildren(...children){this.children=children;},addEventListener(type,fn){this.events[type]=fn;},focus(){this.focused=true;},select(){this.selected=true;}};}
   const document={getElementById:id=>{if(!nodes.has(id))nodes.set(id,node());return nodes.get(id);},createElement:node};
   const timers=new Map();let serial=0;const env={document,navigator:{clipboard:{writeText:async()=>{throw new Error('unavailable');}}},setTimeout:fn=>{timers.set(++serial,fn);return serial;},clearTimeout:id=>timers.delete(id)};
   const f=fixture();loading.mount(f.controller,env);return{...f,nodes,timers};
@@ -63,6 +63,7 @@ test('successful diagnostics dismiss, but reopening or reading them keeps them v
   assert.equal(f.timers.size,1);for(const [id,callback] of [...f.timers]){f.timers.delete(id);callback();}
   assert.equal(f.nodes.get('host-load-progress').hidden,true);
   f.nodes.get('btn-host-load-diagnostics').events.click();
+  assert.equal(f.nodes.get('save-tools-dialog').closed,true);
   assert.equal(f.nodes.get('host-load-progress').hidden,false);
   const next=f.controller.begin('campaign');await next.step('saveRead',()=>true);next.finish();
   f.nodes.get('host-load-progress').events.focusin();

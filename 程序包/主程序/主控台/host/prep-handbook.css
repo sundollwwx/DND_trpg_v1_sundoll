@@ -47,3 +47,13 @@
  #prep-dialog :is(input[type=text],input[type=search],textarea),#qc-detail-dialog :is(input,textarea){font-size:16px}
 }
 @media(prefers-reduced-motion:reduce){#prep-dialog .qc-tile{transition:none}.qc-tile:hover{transform:none}}
+.prep-area-editor{margin:0 0 18px;padding:10px 14px;border:1px solid #8da9a52b;border-radius:10px;background:#1b2b2c}
+.prep-area-editor>summary{cursor:pointer;color:#c4d4cb;font-size:13px;line-height:1.6}
+.prep-area-fields{display:grid;gap:14px;margin-top:14px}
+.prep-area-fields>label{display:grid;gap:5px;font-size:12px;color:#b6c7bf}
+.prep-area-fields textarea{min-height:80px;resize:vertical}
+.prep-map-choices{display:grid;gap:8px;margin:0;min-width:0;max-height:240px;overflow:auto;padding:10px 12px;border:1px solid #8da9a52b;border-radius:8px;overscroll-behavior:contain}
+.prep-map-choices legend{padding:0 5px;color:#b6c7bf;font-size:12px}
+.prep-map-choices label{display:flex;align-items:start;gap:8px;min-width:0;line-height:1.5;font-size:13px}
+.prep-map-choices input[type=checkbox]{flex:0 0 auto;margin:3px 0;accent-color:#cbb17e}
+.prep-map-choices span{overflow-wrap:anywhere}.prep-map-choices small{color:#91a59d;font-size:11px}

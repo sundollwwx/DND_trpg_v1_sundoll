@@ -12,7 +12,7 @@ from urllib.parse import urlsplit
 
 
 def public_origin(value):
-    """Only the configured HTTPS origin may become a shareable public base."""
+    """Validate the gateway's currently confirmed public connection address."""
     try:
         parsed=urlsplit(str(value or '').strip())
         if (parsed.scheme!='https' or not parsed.hostname or parsed.username is not None or parsed.password is not None
@@ -68,7 +68,7 @@ def main():
     app.DOCUMENT_LIBRARY_ROOT = str(bundle/'asset/文档')
     app.WEB_ENTRANCES = WebEntrances({},paths.USER_DATA_ROOT)
     app.ACCOUNT_SETTINGS = config['settings']
-    app.PUBLIC_BASE_URL = public_origin(config['settings'].get('publicOrigin'))
+    app.PUBLIC_BASE_URL = ''
     app.AUTH_METHOD = 'email_password'
     accounts = AccountStore(config['authRoot'],config['settings'],epoch=lambda:epoch(config['centralSave']))
     app.account_store = lambda:accounts
@@ -185,6 +185,10 @@ def main():
             try:
                 if not hmac.compare_digest(self.headers.get('X-Room-Secret',''),config['secret']):
                     raise AccountError('无权访问',403)
+                # Account configuration is not evidence that a tunnel is up.
+                # Use only the authenticated parent's current observation;
+                # keep it request-local so reads do not mutate room state.
+                self._room_public_base=public_origin(self.headers.get('X-Room-Public-Base',''))
                 if urlsplit(self.path).path=='/_internal/hibernate':
                     if self.command!='POST' or self.headers.get('X-Room-Control')!='hibernate':
                         raise AccountError('无权访问',403)

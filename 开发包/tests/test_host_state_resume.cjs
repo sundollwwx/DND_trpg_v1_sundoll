@@ -113,7 +113,7 @@ test('a newer SSE state after resume pauses normally instead of silently advanci
 test('the conflict panel offers one read-only resume, retains draft/recovery exits and versions the script',()=>{
  assert.equal(html.match(/id="host-conflict-resume"/g)?.length,1);
  for(const id of ['host-conflict-download','host-conflict-reload'])assert.equal(html.match(new RegExp(`id="${id}"`,'g'))?.length,1);
- assert.match(html,/host\/app\.js\?v=20261024-room-resume-v1/);
+ assert.match(html,/host\/app\.js\?v=20261025-ready-v1/);
  assert.match(html,/此操作会用正式存档替换房间当前进度/);
 });
 

@@ -148,6 +148,8 @@
   function renderMode(next = mode) {
     mode = next;
     setView('auth');
+    $('account-notice').hidden = enabled && emailReady;
+    $('account-notice').textContent = !enabled ? '邮箱账号暂未开放，请等待管理员完成配置。' : '邮件服务暂不可用，注册和找回密码暂未开放。已有账号可以登录。';
     const register = mode === 'register', code = mode === 'register-code' || mode === 'forgot-code';
     const confirm = register || mode === 'reset' || mode === 'forgot-code';
     const labels = {login:'登录账号',register:'创建账号',forgot:'找回密码',verify:'验证邮箱',reset:'设置新密码','register-code':'验证邮箱','forgot-code':'重设密码'};
@@ -294,6 +296,7 @@
     closeManagement();
     $('account-auth').hidden = true;
     $('account-dashboard').hidden = false;
+    $('account-notice').hidden = true;
     setView('dashboard');
     $('account-title').textContent = '我的主页';
     $('account-intro').hidden = true;
@@ -762,40 +765,45 @@
     }
   });
   async function start() {
+    if (busy) return;
     busy = true;
+    setView('loading');
+    $('account-app').setAttribute('aria-busy', 'true');
+    $('account-auth').hidden = true;
+    $('account-retry').hidden = true;
+    $('account-title').textContent = '我的冒险';
     document.querySelectorAll('button').forEach(button => { button.disabled = true; });
     $('account-form').setAttribute('aria-busy', 'true');
-    renderMode();
-    status('正在连接账号服务…');
+    status('正在连接…');
     try {
       const config = await request('config');
       enabled = config.enabled; emailReady = config.emailReady;
       roomsEnabled = config.roomsEnabled === true;
-      if (!enabled || !emailReady) {
-        $('account-notice').hidden = false;
-        $('account-notice').textContent = !enabled ? '邮箱账号暂未开放，请等待管理员完成配置。' : '邮件服务暂不可用，注册和找回密码暂未开放。已有账号可以登录。';
-      }
-      renderMode();
-      status();
       if (enabled && mode !== 'verify' && mode !== 'reset') {
-        try { await dashboard((await request('session')).account); }
+        try { const session = await request('session'); status(); await dashboard(session.account); }
         catch (error) {
           if (error.status === 401 && !$('account-dashboard').hidden) { showLogin(); status('登录已失效，请重新登录后继续。', true); }
-          else if (error.status === 401) publishAccount('');
+          else if (error.status === 401) { publishAccount(''); $('account-auth').hidden = false; status(); }
           else throw error;
         }
-      }
+      } else { $('account-auth').hidden = false; status(); }
     } catch (error) {
       if (error.accountChanged) showLogin(false);
+      if ($('account-dashboard').hidden && $('account-auth').hidden) {
+        $('account-title').textContent = '暂时无法连接';
+        $('account-retry').hidden = false;
+      }
       status(error.message || '无法连接账号服务，请刷新重试', true);
     }
     finally {
       busy = false;
       document.querySelectorAll('button').forEach(button => { button.disabled = false; });
       $('account-form').setAttribute('aria-busy', 'false');
+      $('account-app').setAttribute('aria-busy', 'false');
       updateBindingButton();
       if (!$('account-auth').hidden) renderMode();
     }
   }
+  $('account-retry').addEventListener('click', start);
   start();
 })();

@@ -301,7 +301,8 @@ def handle(handler, app):
         if handler.command=='POST':body_limit(route,room['role'])
         worker=supervisor.get(room)
         headers = {k:v for k,v in handler.headers.items() if k.lower() not in HOP_HEADERS and not k.lower().startswith('x-room-')}
-        headers.update({'X-Room-Secret':worker['secret'],'X-Room-Account':token,'X-Room-Origin':expected})
+        headers.update({'X-Room-Secret':worker['secret'],'X-Room-Account':token,'X-Room-Origin':expected,
+                        'X-Room-Public-Base':getattr(app,'PUBLIC_BASE_URL','')})
         # Distinct cookies keep media sessions correct when multiple rooms are open.
         cookies=SimpleCookie(headers.get('Cookie',''))
         media=cookies.get('sundoll-media-'+rid)

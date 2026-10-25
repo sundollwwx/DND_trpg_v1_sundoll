@@ -3984,7 +3984,7 @@ class Handler(SimpleHTTPRequestHandler):
                 'projectId': paths.project_id(ROOT),
                 'sessionId': SESSION_ID,
                 'roomCode': ROOM_CODE,
-                'publicBase': PUBLIC_BASE_URL or WEB_ENTRANCES.url('player'),
+                'publicBase': normalize_public_base_url(getattr(self, '_room_public_base', PUBLIC_BASE_URL)) or '',
                 'stateRevision': revision,
                 **({'stateAuthority': authority} if host else {}),
                 'playerCount': len([p for p in players if p.get('online')]),
@@ -3999,7 +3999,7 @@ class Handler(SimpleHTTPRequestHandler):
             })
         elif path == '/api/players':
             with LOCK:
-                response = {'ok': True, 'players': online_players(), 'publicBase': PUBLIC_BASE_URL or WEB_ENTRANCES.url('player')}
+                response = {'ok': True, 'players': online_players(), 'publicBase': normalize_public_base_url(getattr(self, '_room_public_base', PUBLIC_BASE_URL)) or ''}
             self._send_json(response)
         elif path == '/api/session':
             token = (parse_qs(urlparse(self.path).query).get('token') or [''])[0]

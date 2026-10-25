@@ -69,14 +69,54 @@ test('save completion does not mark a new campaign or subsequent edits as alread
 
 test('missing map links remain disabled and preserve references without rebuilding deleted maps',()=>{
  const f=prepFixture(()=>Promise.resolve(true));const before=JSON.stringify(f.state);
- const missing=f.body.all().find(e=>e.tag==='button'&&e.textContent==='地图已移除（保留引用）');assert.ok(missing);assert.equal(missing.disabled,true);assert.match(missing.title,/原地图已删除/);
- assert.ok(f.body.all().some(e=>e.textContent.includes('不会恢复已删除地图')));
+ const missing=f.body.all().find(e=>e.tag==='button'&&e.textContent==='地图已移除');assert.ok(missing);assert.equal(missing.disabled,true);assert.match(missing.title,/原地图已删除/);
+ assert.ok(f.body.all().some(e=>e.textContent.includes('取消勾选以解除关联')));
  const live=f.body.all().find(e=>e.textContent==='预览：现有地图');live.onclick();assert.deepEqual(f.views,['m1']);assert.equal(JSON.stringify(f.state),before);
 });
 
 
 test('a map removed while the handbook is open cannot be previewed by a stale button',()=>{
  const f=prepFixture(()=>Promise.resolve(true));const live=f.body.all().find(e=>e.textContent==='预览：现有地图');f.state.maps=[];live.onclick();assert.deepEqual(f.views,[]);assert.equal(f.get('prep-dialog').open,true);assert.match(f.messages.at(-1),/已移除/);assert.deepEqual(Array.from(f.state.prepHandbook[0].mapIds),['m1','deleted']);
+});
+
+test('previewing the already active map only closes the handbook without another save or switch',()=>{
+ const f=prepFixture(()=>Promise.resolve(true));f.state.activeMapId='m1';
+ f.body.all().find(e=>e.textContent==='预览：现有地图').onclick();
+ assert.equal(f.get('prep-dialog').open,false);assert.deepEqual(f.views,[]);assert.deepEqual(f.saves,[]);
+});
+
+test('area metadata edits persist without rebuilding focused inputs or losing preparation',()=>{
+ const f=prepFixture(()=>Promise.resolve(true));
+ const find=id=>f.body.all().find(e=>e.id===id),title=find('prep-area-title'),summary=find('prep-area-summary');
+ title.value='Revised location';title.oninput();summary.value='Opening scene';summary.oninput();
+ assert.equal(find('prep-area-title'),title);assert.equal(find('prep-area-summary'),summary);
+ assert.equal(f.state.prepHandbook[0].title,'Revised location');
+ assert.equal(f.state.prepHandbook[0].summary,'Opening scene');
+ assert.equal(f.state.prepHandbook[0].sections[0].body,'保留剧情');
+ const saved=prep.normalize(JSON.parse(JSON.stringify(f.state.prepHandbook)));
+ assert.deepEqual(saved,JSON.parse(JSON.stringify(f.state.prepHandbook)));assert.equal(f.saves.length,2);
+});
+
+test('map association edits keep missing references until explicitly removed and never present a map',()=>{
+ const f=prepFixture(()=>Promise.resolve(true));
+ const live=f.body.all().find(e=>e.attrs['aria-label']==='关联地图：现有地图');
+ live.checked=false;live.onchange();assert.deepEqual(Array.from(f.state.prepHandbook[0].mapIds),['deleted']);
+ live.checked=true;live.onchange();live.onchange();
+ assert.deepEqual(Array.from(f.state.prepHandbook[0].mapIds),['deleted','m1']);
+ const missing=f.body.all().find(e=>e.attrs['aria-label']==='关联地图：已移除的地图');
+ missing.checked=false;missing.onchange();assert.deepEqual(Array.from(f.state.prepHandbook[0].mapIds),['m1']);
+ assert.deepEqual(f.views,[]);assert.equal(f.state.maps.length,1);
+ assert.ok(f.body.all().some(e=>e.textContent==='预览：现有地图'));
+});
+
+test('a removed map cannot be reattached and an old editor cannot mutate a different campaign',()=>{
+ const f=prepFixture(()=>Promise.resolve(true));
+ const live=f.body.all().find(e=>e.attrs['aria-label']==='关联地图：现有地图');
+ f.state.maps=[];live.checked=true;live.onchange();assert.equal(f.saves.length,0);
+ assert.match(f.messages.at(-1),/地图已移除/);
+ const title=f.body.all().find(e=>e.id==='prep-area-title'),before=JSON.stringify(f.state.prepHandbook);
+ f.state.campaignId='another';title.value='Do not apply';title.oninput();
+ assert.equal(JSON.stringify(f.state.prepHandbook),before);assert.equal(f.get('prep-dialog').open,false);
 });
 
 test('oversized safe image sources and unreadable originals are retained without active URL rendering',()=>{

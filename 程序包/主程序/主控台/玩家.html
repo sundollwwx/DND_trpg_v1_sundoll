@@ -87,7 +87,7 @@
           <select id="player-doodle-width" title="线条粗细"><option value="3">细</option><option value="6" selected>中</option><option value="10">粗</option></select>
         </div>
         <div class="player-doodle-actions"><button type="button" id="player-doodle-undo">↩ 撤销</button><button type="button" id="player-doodle-clear">× 一键清空</button></div>
-        <p class="hint">标注会实时同步给主控台和所有玩家；测距仍只在本地显示。</p>
+        <p class="hint">标注全员可见，测距仅自己可见。</p>
       </section>
 
       <section class="card" id="player-audio-card" data-player-workspace="resources">
@@ -148,7 +148,7 @@
             <details class="field temporary-vitals"><summary>◇ 临时生命值 <span id="temp-hp-summary">0 / 0</span></summary><div class="three"><label>当前<input id="temp-hp" type="number" min="0" max="99999"></label><span>/</span><label>总数<input id="temp-hp-max" type="number" min="0" max="99999"></label></div><div class="hp-bar" id="temp-hp-track" hidden><i id="temp-hp-fill" style="background:#a8e6b0"></i></div><div class="quick temp-hp-quick" aria-label="临时生命值快捷调整"><button type="button" data-temp-hp="-5">−5</button><button type="button" data-temp-hp="-1">−1</button><button type="button" data-temp-hp="1">＋1</button><button type="button" data-temp-hp="5">＋5</button><button type="button" data-temp-hp="full">回满</button><button id="temp-hp-undo" type="button" disabled>↶ 撤销</button></div></details>
             <div class="field"><label>护甲等级</label><div class="ac-row"><input id="ac" type="number" min="0" max="99"><span id="ac-hint" class="hint">由你自己维护</span></div></div>
             <section class="player-condition-section">
-              <div class="player-condition-heading"><div><strong>状态效果</strong><span>公开并同步给主控台</span></div><button id="player-condition-open" type="button">＋ 添加</button></div>
+              <div class="player-condition-heading"><div><strong>状态效果</strong><span>全员可见</span></div><button id="player-condition-open" type="button">＋ 添加</button></div>
               <div id="detail-conditions" class="condition-list interactive"></div>
               <div id="player-condition-editor" class="player-condition-editor" hidden>
                 <div class="player-condition-editor-head"><strong id="player-condition-editor-title">添加状态</strong><button id="player-condition-close" type="button" aria-label="关闭状态编辑">×</button></div>
@@ -173,7 +173,7 @@
   </main>
   <div id="player-map-browser-modal" class="player-map-mask" hidden>
     <section class="player-map-browser" role="dialog" aria-modal="true" aria-labelledby="player-map-browser-title">
-      <header class="player-map-browser-head"><div><h2 id="player-map-browser-title">🗺️ 战役地图</h2><p>可以自由进入主控台开放的地图；黑色问号地图尚未开放。</p></div><button id="player-map-browser-back" type="button" hidden>← 返回背包</button><button id="player-map-browser-close" class="player-map-browser-close" type="button" aria-label="关闭地图册">✕</button></header>
+      <header class="player-map-browser-head"><div><h2 id="player-map-browser-title">🗺️ 战役地图</h2><p>选择 DM 已开放的地图。</p></div><button id="player-map-browser-back" type="button" hidden>← 返回背包</button><button id="player-map-browser-close" class="player-map-browser-close" type="button" aria-label="关闭地图册">✕</button></header>
       <div class="player-map-summary"><span id="player-map-browser-count">等待地图结构</span><span id="player-map-browser-current">当前尚未进入地图</span></div>
       <nav id="player-map-chapter-tabs" class="player-map-chapters" role="tablist" aria-label="战役章节"></nav>
       <div id="player-map-location-columns" class="player-map-locations" aria-label="地点与楼层地图"></div>
@@ -244,7 +244,7 @@
             <button id="join-mode-register" type="button" aria-pressed="false">注册新玩家</button>
           </div>
           <form id="join-form"><div class="join-fields"><label class="join-field" for="join-name">玩家名<input id="join-name" maxlength="24" autocomplete="nickname" placeholder="输入你的玩家名字"></label></div><div id="join-error" role="status" aria-live="polite"></div><button id="join-submit" class="primary join-submit" type="submit">进入玩家地图</button></form>
-          <footer class="join-box-foot"><span id="join-session-hint">收藏这个入口，下次直接打开；会记住这台设备上的玩家名。</span></footer>
+          <footer class="join-box-foot"><span id="join-session-hint"></span></footer>
         </aside>
       </div>
     </div>
@@ -273,6 +273,6 @@
   <link rel="stylesheet" href="shared/dining.css?v=20261014-game-ui-polish-v1">
   <script src="shared/dining.js?v=20261002-world-nav-v4"></script>
   <script src="/api/daily-life/climate.js"></script>
-  <script src="player/player.js?v=20261014-game-ui-polish-v1"></script>
+  <script src="player/player.js?v=20261025-ready-v1"></script>
 </body>
 </html>

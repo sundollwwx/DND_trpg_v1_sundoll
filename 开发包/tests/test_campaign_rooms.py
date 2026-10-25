@@ -80,6 +80,18 @@ class CampaignRoomTests(unittest.TestCase):
 
 
 class CampaignRoomHttpTests(CampaignRoomTests):
+    def test_room_public_link_tracks_live_gateway_and_ignores_forged_or_configured_origins(self):
+        prefix='/rooms/'+self.room['id']
+        # Existing configuration points at pl.example.com; that alone is not
+        # evidence of a running public connector. The same worker must follow
+        # connect/disconnect without being restarted.
+        for public in ('','https://confirmed.example.test',''):
+            with mock.patch.object(SERVER,'PUBLIC_BASE_URL',public):
+                for endpoint in ('/api/info','/api/players'):
+                    code,body,_=self.request(prefix+endpoint,headers={'X-Room-Public-Base':'https://forged.example.test'})
+                    self.assertEqual(code,200,body)
+                    self.assertEqual(json.loads(body)['publicBase'],public)
+
     def setUp(self):
         super().setUp()
         values=dict(LOCAL_SAVE_ROOT=str(self.root/'save'),ACCOUNT_SETTINGS=self.settings,_ACCOUNT_STORE=self.accounts,

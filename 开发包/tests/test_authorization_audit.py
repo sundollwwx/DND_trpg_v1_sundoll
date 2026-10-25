@@ -140,18 +140,19 @@ class AuthorizationAuditTests(CampaignRoomHttpTests):
             self.assertIn(self.request('/rooms/'+rid+route,payload,user=1)[0],(401,413),route)
         self.assertEqual(self.request('/api/account/create-player',dict(name='不应写入原工作区'),user=1)[0],409)
 
-    def test_room_worker_advertises_a_valid_public_origin_without_granting_membership(self):
+    def test_room_worker_advertises_only_a_confirmed_public_origin_without_granting_membership(self):
+        from test_campaign_rooms import SERVER
         rid=self.room['id']
-        for route in ('/api/info','/api/players'):
-            code,body,_=self.request('/rooms/'+rid+route)
+        with mock.patch.object(SERVER,'PUBLIC_BASE_URL','https://pl.example.com'):
+            for route in ('/api/info','/api/players'):
+                code,body,_=self.request('/rooms/'+rid+route)
+                self.assertEqual(code,200,body)
+                self.assertEqual(json.loads(body)['publicBase'],'https://pl.example.com')
+                self.assertEqual(self.request('/rooms/'+rid+route,user=2)[0],404)
+        with mock.patch.object(SERVER,'PUBLIC_BASE_URL','https://user:secret@example.com/private?token=invalid'):
+            code,body,_=self.request('/rooms/'+rid+'/api/info')
             self.assertEqual(code,200,body)
-            self.assertEqual(json.loads(body)['publicBase'],'https://pl.example.com')
-            self.assertEqual(self.request('/rooms/'+rid+route,user=2)[0],404)
-        self.accounts._supervisor.close()
-        self.settings['publicOrigin']='https://user:secret@example.com/private?token=invalid'
-        code,body,_=self.request('/rooms/'+rid+'/api/info')
-        self.assertEqual(code,200,body)
-        self.assertEqual(json.loads(body)['publicBase'],'')
+            self.assertEqual(json.loads(body)['publicBase'],'')
 
     def test_public_share_origin_rejects_non_origins_and_unsafe_urls(self):
         from server.room_worker import public_origin

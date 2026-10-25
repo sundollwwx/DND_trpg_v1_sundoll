@@ -107,7 +107,7 @@
     close.addEventListener('click',()=>{cancelDismiss();box.hidden=true;});
     box.addEventListener('pointerenter',keepDiagnostics);
     box.addEventListener('focusin',keepDiagnostics);
-    for(const button of [open,document.getElementById('cover-host-load-diagnostics')])button?.addEventListener('click',()=>{keepDiagnostics();box.hidden=false;render(controller.snapshot());});
+    for(const button of [open,document.getElementById('cover-host-load-diagnostics')])button?.addEventListener('click',()=>{document.getElementById('save-tools-dialog')?.close();keepDiagnostics();box.hidden=false;render(controller.snapshot());});
   }
   return Object.freeze({create,mount,stages,kinds});
 });

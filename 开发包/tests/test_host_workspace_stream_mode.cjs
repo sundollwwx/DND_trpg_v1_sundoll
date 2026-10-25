@@ -9,12 +9,12 @@ function fixture({enabled=true,roomsEnabled=true,room=null,configValid=true}={})
   const context={window:{SundollRoom:room},location:{protocol:'https:'},hostStreamAccountConfig:null,hostStreamAccountRead:null,
     streamOn:false,streamInfo:null,streamPlayers:[],streamConnectionState:'off',hostPlayerKickPending:new Set(),hostStateConflict:null,renderHostSaveScope(){},
     $,document:{createElement:node},toast:text=>calls.push(['toast',text]),hostMusic:{updateBgmStatus(){},stopLiveAudioBroadcast:async()=>{}},
-    SundollClientRuntime:{requestJson:async(url,options,settings)=>{calls.push(['config',url,settings.timeoutMs]);return{response:{ok:true},data:config};}},
-    localStorage:{getItem:()=> '1',setItem(){calls.push(['storage']);},removeItem(){}},
+    SundollClientRuntime:{requestJson:async(url,options,settings)=>{calls.push([url==='/api/info'?'info':'config',url,settings.timeoutMs]);return{response:{ok:true},data:url==='/api/info'?{ips:[],publicBase:'',sessionId:'qa-session',stateRevision:0}:config};}},
+    localStorage:{getItem:()=> '1',setItem(){calls.push(['storage']);},removeItem(){calls.push(['remove-storage']);}},
     navigator:{clipboard:{writeText:async url=>calls.push(['clipboard',url])}},playerViewerUrl:()=>'/player',
     serverApiBase:()=>'',fetch:async()=>{calls.push(['info']);return{ok:true,json:async()=>({ips:[],publicBase:''})};},
     normalizeServerBase:value=>value,queryPublicBase:()=>'',AbortController,setTimeout:()=>1,clearTimeout(){},
-    setInterval:()=>1,clearInterval(){},streamTimer:null,streamPlayersTimer:null,streamES:null,
+    setInterval:()=>1,clearInterval(id){calls.push(['clear-interval',id]);},streamTimer:null,streamPlayersTimer:null,streamES:null,
     startStreamClient:()=>calls.push(['events']),streamPush:()=>calls.push(['push']),streamTick(){},scheduleStreamMapPreloads(){},cancelStreamMapPreloads(){},
     mergePlayerStateFromServer:async()=>{},refreshStreamPlayers:async()=>{},
   };
@@ -42,12 +42,30 @@ test('a real room preserves its existing stream without querying global account 
 });
 test('unconfirmed account mode prevents a write and can be retried without guessing old mode',async()=>{
   const f=fixture({configValid:false});await f.context.toggleStream();assert.equal(f.context.streamOn,false);assert.equal(f.calls.some(call=>call[0]==='push'),false);
-  f.context.SundollClientRuntime.requestJson=async()=>({response:{ok:true},data:{ok:true,enabled:false,roomsEnabled:false}});
+  f.context.SundollClientRuntime.requestJson=async()=>({response:{ok:true},data:{ok:true,enabled:false,roomsEnabled:false,sessionId:'qa-session',stateRevision:0}});
   await f.context.toggleStream();assert.equal(f.context.streamOn,true);
 });
 test('LAN origins denied account configuration may retain explicitly confirmed legacy authentication',async()=>{
-  const f=fixture();f.context.SundollClientRuntime.requestJson=async url=>url==='/api/account/config'?{response:{ok:false},data:{}}:{response:{ok:true},data:{authentication:{method:'name'}}};
+  const f=fixture();f.context.SundollClientRuntime.requestJson=async url=>url==='/api/account/config'?{response:{ok:false},data:{}}:{response:{ok:true},data:{authentication:{method:'name'},sessionId:'qa-session',stateRevision:0}};
   await f.context.toggleStream();assert.equal(f.context.streamOn,true);assert.ok(f.calls.some(call=>call[0]==='push'));
+});
+
+test('manual connection bounds the complete JSON read and preserves a specific server error',async()=>{
+ const f=fixture({room:{id:'r1'}});let received;
+ f.context.SundollClientRuntime.requestJson=async(url,options,settings)=>{received=settings;return{response:{ok:false},data:{error:'请重新登录'}};};
+ await f.context.toggleStream();assert.equal(received.timeoutMs,8000);assert.equal(f.context.streamOn,false);
+ assert.ok(f.calls.some(c=>c[0]==='toast'&&c[1]==='请重新登录'));
+ assert.equal(f.calls.some(c=>c[0]==='push'),false);
+ assert.equal(f.calls.some(c=>String(c[1]).includes('服务器未启动')),false);
+});
+
+test('a partial connection failure closes the stream and timers instead of keeping a false restore flag',async()=>{
+ const f=fixture({room:{id:'r1'}});
+ f.context.startStreamClient=()=>{f.context.streamES={close(){f.calls.push(['closed']);}};throw new Error('Stream failed');};
+ await f.context.toggleStream();assert.equal(f.context.streamOn,false);assert.equal(f.context.streamES,null);
+ assert.ok(f.calls.some(c=>c[0]==='closed'));assert.ok(f.calls.some(c=>c[0]==='remove-storage'));
+ assert.ok(f.calls.filter(c=>c[0]==='clear-interval'&&c[1]===1).length>=2);
+ assert.equal(f.calls.some(c=>c[0]==='push'),false);
 });
 test('LAN fallback cannot treat an email or unknown mode as legacy access',async()=>{
   for(const method of ['email_password','future_auth',undefined]){

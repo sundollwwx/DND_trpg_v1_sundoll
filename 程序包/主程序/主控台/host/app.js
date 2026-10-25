@@ -3502,12 +3502,12 @@ async function refreshHostHome(options = {}) {
     }
     const usingDefaultFolder = usingLocalSaveBridge();
     status.dataset.state = 'ready';
-    status.textContent = usingDefaultFolder ? '模块工作区已就绪' : '存档已连接';
+    status.textContent = '存档已连接';
     folderButton.textContent = '刷新列表';
     renderCoverRecent(records, 'ready');
     setCoverFeedback(usingDefaultFolder
-      ? (records.length ? `已读取 ${records.length} 个战役，角色与通用内容独立保存。` : '空白工作区已就绪，可新建战役或导入模块。')
-      : (records.length ? `已找到 ${records.length} 个正式战役。` : '存档文件夹已准备好，可以新建第一场战役。'));
+      ? (records.length ? `${records.length} 个战役` : '新建战役或导入已有内容。')
+      : (records.length ? `${records.length} 个战役` : '存档文件夹已准备好，可以新建第一场战役。'));
     loadRun?.finish();
   } catch (error) {
     if (serial !== coverRefreshSerial) return;
@@ -8822,7 +8822,7 @@ async function mergePlayerStateFromServer() {
     if (!s || !Array.isArray(s.maps) || s.campaignId !== state.campaignId) return;
     if (hostStateConflict) return false;
     if (hostStateSessionId && (s._sessionId !== hostStateSessionId || s._stateRevision !== hostStateRevision)) {
-      pauseHostStateSync('服务器进度已变化，请保留草稿并重新读取正式存档。'); return false;
+      pauseHostStateSync('服务器进度已变化，请先处理同步冲突。'); return false;
     }
     const remoteStreamSeq = Number(s._streamSeq) || 0;
     const latestSeqAtResponse = streamAppliedSeq;
@@ -8953,7 +8953,7 @@ async function refreshStreamInfoFromServer() {
     if (!res.ok) return;
     const info = await res.json();
     if (info.sessionId && info.sessionId !== streamServerSessionId) {
-      if (hostStateSessionId && info.sessionId !== hostStateSessionId) pauseHostStateSync('战役服务已重启，请保留草稿并重新读取正式存档。');
+      if (hostStateSessionId && info.sessionId !== hostStateSessionId) pauseHostStateSync('战役服务已重启，请先处理同步冲突。');
       else { streamServerSessionId = info.sessionId; streamAppliedSeq = 0; }
     }
     const ip = (info.ips || []).find((value) => value !== '127.0.0.1') || 'localhost';
@@ -9013,8 +9013,8 @@ function startStreamClient() {
 function applyHostStateEvent(ev) {
   if(hostStateConflict)return false;
   const remote=ev?.state,revision=remote?._stateRevision,session=remote?._sessionId;
-  if(hostStateSessionId&&session&&session!==hostStateSessionId){pauseHostStateSync('战役服务已重启，请重新读取正式存档。');return false;}
-  if(Number.isInteger(hostStateRevision)&&Number.isInteger(revision)&&revision>hostStateRevision){pauseHostStateSync('另一操作已更新运行进度，请重新读取正式存档。');return false;}
+  if(hostStateSessionId&&session&&session!==hostStateSessionId){pauseHostStateSync('战役服务已重启，请先接续房间进度。');return false;}
+  if(Number.isInteger(hostStateRevision)&&Number.isInteger(revision)&&revision>hostStateRevision){pauseHostStateSync('另一操作已更新运行进度，请先接续房间进度。');return false;}
   if(remote?.campaignId===state.campaignId&&typeof remote.packageContextRevision==='string'&&remote.packageContextRevision!==state.packageContextRevision){
     state.packageContextRevision=remote.packageContextRevision;window.PlayerBackpack?.contextChanged();window.ItemLibrary?.contextChanged?.();window.MapItems?.contextChanged?.();
   }
@@ -9040,21 +9040,21 @@ function applyHostStateAction(ev) {
   if (hostStateConflict || !ev?.action) return false;
   const action=ev.action,revision=ev.revision;
   const passive=['roll','mapReaction','danmaku','announce','bgm'].includes(action.op);
-  if (hostStateSessionId && action._sessionId && action._sessionId!==hostStateSessionId) {pauseHostStateSync('战役服务已重启，请重新读取正式存档。');return false;}
-  if (!passive && (!Number.isInteger(revision)||!action._sessionId||!Number.isInteger(hostStateRevision))) {pauseHostStateSync('玩家改动的版本未确认，请重新读取正式存档。');return false;}
-  if (Number.isInteger(revision)&&Number.isInteger(hostStateRevision)&&revision>hostStateRevision+1) {pauseHostStateSync('运行进度已变化，请重新读取正式存档。');return false;}
-  if (passive&&Number.isInteger(revision)&&Number.isInteger(hostStateRevision)&&revision>hostStateRevision) {pauseHostStateSync('运行进度的变化未确认，请重新读取正式存档。');return false;}
+  if (hostStateSessionId && action._sessionId && action._sessionId!==hostStateSessionId) {pauseHostStateSync('战役服务已重启，请先接续房间进度。');return false;}
+  if (!passive && (!Number.isInteger(revision)||!action._sessionId||!Number.isInteger(hostStateRevision))) {pauseHostStateSync('玩家改动的版本未确认，请先接续房间进度。');return false;}
+  if (Number.isInteger(revision)&&Number.isInteger(hostStateRevision)&&revision>hostStateRevision+1) {pauseHostStateSync('运行进度已变化，请先接续房间进度。');return false;}
+  if (passive&&Number.isInteger(revision)&&Number.isInteger(hostStateRevision)&&revision>hostStateRevision) {pauseHostStateSync('运行进度的变化未确认，请先接续房间进度。');return false;}
   if (action.campaignId!=null&&action.campaignId!==state.campaignId) {
-    if(Number.isInteger(revision)&&revision>hostStateRevision)pauseHostStateSync('运行战役已变化，请重新读取正式存档。');
+    if(Number.isInteger(revision)&&revision>hostStateRevision)pauseHostStateSync('运行战役已变化，请先接续房间进度。');
     return false;
   }
   // A duplicate mutation must not replay old coordinates or resource values.
   if (!passive && revision<=hostStateRevision) return true;
   const seq=ev.seq||0;
-  if (!passive&&seq<=streamAppliedSeq) {pauseHostStateSync('玩家改动顺序未确认，请重新读取正式存档。');return false;}
+  if (!passive&&seq<=streamAppliedSeq) {pauseHostStateSync('玩家改动顺序未确认，请先接续房间进度。');return false;}
   let applied=false;
   try {applied=applyRemoteAction(action)===true;}catch(_) { /* Keep the frozen baseline on incomplete application. */ }
-  if(!applied){if(!passive)pauseHostStateSync('玩家改动未完整合并，请重新读取正式存档。');return false;}
+  if(!applied){if(!passive)pauseHostStateSync('玩家改动未完整合并，请先接续房间进度。');return false;}
   if(!passive)streamAppliedSeq=seq;
   if(!passive&&Number.isInteger(revision)&&Number.isInteger(hostStateRevision))hostStateRevision=Math.max(hostStateRevision,revision);
   return true;
@@ -9073,7 +9073,7 @@ function drainHostStateActions() {
 }
 
 function hostStateGuardFields() {
-  if (hostStateConflict) throw new Error('同步已暂停，请保留草稿并重新读取正式存档');
+  if (hostStateConflict) throw new Error('同步已暂停，请先处理同步冲突');
   if (!Number.isInteger(hostStateRevision) || !hostStateSessionId) throw new Error('尚未确认战役版本，请先连接服务');
   return {expectedStateRevision: hostStateRevision, serverSessionId: hostStateSessionId};
 }
@@ -9326,7 +9326,7 @@ async function streamPush() {
     });
     const result = await res.json().catch(() => ({}));
     if (!res.ok) {
-      if (res.status === 409) pauseHostStateSync(result.error || '运行进度已更新，请重新读取正式存档。', result);
+      if (res.status === 409) pauseHostStateSync(result.error || '运行进度已更新，请先接续房间进度。', result);
       throw Object.assign(new Error(result.error || '同步未完成'), {status:res.status, errorCode:result.errorCode});
     }
     if (!acknowledgeHostStateWrite(result,payload)) return false;
@@ -9355,7 +9355,7 @@ async function streamPush() {
     });
   } catch (e) {
     if (hostStateConflict) return false;
-    if (writeStarted && (!e.status || e.status >= 500)) {pauseHostStateSync('运行同步结果未确认，请保留草稿并重新读取正式存档。', {errorCode:'state-result-unknown'});return false;}
+    if (writeStarted && (!e.status || e.status >= 500)) {pauseHostStateSync('运行同步结果未确认，请先处理同步冲突。', {errorCode:'state-result-unknown'});return false;}
     if (typeof SundollDining !== 'undefined') SundollDining.syncFailed();
     // 失败后约 1.5 秒重试一次，不关闭联机
     streamLastPushAt = Date.now() - 1200;
@@ -9648,15 +9648,15 @@ async function copyStreamUrl() {
   if (!await loadHostStreamAccountConfig()) { toast('联机设置读取未确认，请重试'); return; }
   if (hostStreamRequiresRoom()) { updateStreamUi(); toast('请先在“我的战役”迁入战役空间，再邀请邮箱成员'); return; }
   if (!streamOn || !streamInfo) {
-    toast('请先开启玩家模式');
+    toast('请先开启联机');
     return;
   }
   const url = playerViewerUrl();
   try {
     await navigator.clipboard.writeText(url);
-    toast('已复制玩家观看地址：' + url);
+    toast('已复制房间链接');
   } catch (e) {
-    toast('玩家观看地址：' + url);
+    toast('房间链接：' + url);
   }
 }
 
@@ -9673,7 +9673,7 @@ async function toggleStream() {
     streamInfo = null;
     streamPlayers = [];
     updateStreamUi();
-    toast('📡 玩家模式已关闭');
+    toast('联机已关闭');
     return;
   }
   if (!await loadHostStreamAccountConfig()) { toast('联机设置读取未确认，请重试'); return; }
@@ -9682,12 +9682,10 @@ async function toggleStream() {
   streamConnectionState = 'connecting';
   updateStreamUi();
   try {
-    const ctl = new AbortController();
-    const t = setTimeout(() => ctl.abort(), 2500);
-    const res = await fetch(`${serverApiBase()}/api/info`, { signal: ctl.signal });
-    clearTimeout(t);
-    if (!res.ok) throw new Error('bad');
-    const info = await res.json();
+    const {response:res,data:info} = await SundollClientRuntime.requestJson(`${serverApiBase()}/api/info`,
+      {cache:'no-store'}, {timeoutMs:8000,message:'连接房间超时，请重试'});
+    if (!res.ok) throw new Error(info.error || '无法连接房间，请重试');
+    if (!info.sessionId || !Number.isInteger(info.stateRevision)) throw new Error('房间响应不完整，请重试');
     streamConnectionState = 'connecting';
     try { localStorage.setItem('sangduoer-stream-on', '1'); } catch (e) { /* 忽略 */ }
     clearInterval(streamTimer);
@@ -9707,14 +9705,19 @@ async function toggleStream() {
     };
     updateStreamUi();
     refreshStreamPlayers();
-    toast(`📡 玩家模式已开启，玩家入口：${playerViewerUrl()}`);
+    toast('房间已联机');
   } catch (e) {
     streamOn = false;
     streamConnectionState = 'off';
+    clearInterval(streamTimer);
+    clearInterval(streamPlayersTimer);
+    cancelStreamMapPreloads();
+    if (streamES) { streamES.close(); streamES = null; }
+    try { localStorage.removeItem('sangduoer-stream-on'); } catch (_) { /* Storage may be unavailable. */ }
     streamInfo = null;
     streamPlayers = [];
     updateStreamUi();
-    toast('📡 服务器未启动：请双击项目里的「启动桑哆尔之歌」一键启动，再点一次开启');
+    toast(e.message || '无法连接房间，请重试');
   }
 }
 
@@ -9749,11 +9752,11 @@ async function restoreStreamFromStorage() {
     };
     updateStreamUi();
     refreshStreamPlayers();
-    toast(`📡 已自动恢复玩家模式，玩家入口：${playerViewerUrl()}`);
+    toast('房间已联机');
     return mergeConfirmed !== false;
   } catch (e) {
     updateStreamUi();
-    toast('📡 已自动恢复玩家模式：正在等待联机服务器启动，启动后会自动推送');
+    toast('正在连接房间…');
     return false;
   }
 }

@@ -192,7 +192,7 @@ function queueCurrentFolderSave(options = {}) {
       const newerDraft = typeof hostEditGeneration !== 'undefined' && Number.isInteger(record?._clientEditGeneration) && hostEditGeneration > record._clientEditGeneration;
       if (typeof hostStateConflict !== 'undefined' && hostStateConflict) updateSaveStatus('正式存档已保存 · 同步暂停', 'error');
       else if (newerDraft) updateSaveStatus('有新修改 · 等待自动保存', 'pending');
-      else updateSaveStatus(`正式存档已保存 ${new Date(lastFolderSaveAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}${record?.indexWarning ? ' · 列表待更新' : ''}`, record?.indexWarning ? 'pending' : 'ok');
+      else updateSaveStatus(`已保存 ${new Date(lastFolderSaveAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}${record?.indexWarning ? ' · 列表待更新' : ''}`, record?.indexWarning ? 'pending' : 'ok');
       if ($('#campaign-modal') && !$('#campaign-modal').hidden) renderCampaignList();
       if ($('#cover') && !$('#cover').hidden) refreshHostHome({ forceRecords: true });
       return true;
@@ -348,7 +348,7 @@ function saveNow(options = {}) {
 
 async function saveNowWithFeedback() {
   flushDetailTextSave();
-  if (typeof hostStateConflict !== 'undefined' && hostStateConflict) { keepHostConflictDraft(); toast('同步已暂停，请先保留草稿并重新读取正式存档'); return false; }
+  if (typeof hostStateConflict !== 'undefined' && hostStateConflict) { keepHostConflictDraft(); toast('同步已暂停，请先处理同步冲突'); return false; }
   if (!(await ensureSaveFolderAccess(true))) return false;
   if (!state.campaignId) {
     const name = prompt('给这个存档起个名字', `战役 ${new Date().toLocaleDateString('zh-CN')}`);

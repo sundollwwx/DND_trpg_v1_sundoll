@@ -9,11 +9,11 @@
   <link rel="icon" href="/asset/界面/品牌/桑哆尔之歌-logo.png">
   <link rel="stylesheet" href="/web/account.css?v=20261020-account-recovery-v1">
   <script src="/shared/workspace-session.js"></script>
-  <script src="/web/account.js?v=20261020-account-recovery-v2" defer></script>
+  <script src="/web/account.js?v=20261025-ready-v1" defer></script>
 <link rel="stylesheet" href="/shared/design-system.css?v=20261014-function-surfaces-v2">
 <script src="/shared/ui-assets-cache.js" defer></script>
 </head>
-<body data-view="auth">
+<body data-view="loading">
   <a class="skip-link" href="#account-app">跳到正文</a>
   <header class="account-header">
     <div class="account-header-inner">
@@ -24,16 +24,16 @@
       <a id="account-home" class="account-home-link" href="{{mainUrl}}"><span aria-hidden="true">←</span> 返回主站</a>
     </div>
   </header>
-  <main id="account-app" class="entrance login account" data-view="auth" tabindex="-1">
+  <main id="account-app" class="entrance login account" data-view="loading" aria-busy="true" tabindex="-1">
     <div class="account-content">
       <div class="account-heading">
         <p class="eyebrow">YOUR NEXT CHAPTER</p>
-        <h1 id="account-title">登录账号</h1>
+        <h1 id="account-title">我的冒险</h1>
         <p class="intro" id="account-intro" hidden></p>
       </div>
       <p id="account-notice" class="notice" hidden></p>
       <p id="account-invitation-notice" class="notice" hidden></p>
-      <section id="account-auth" aria-label="邮箱账号">
+      <section id="account-auth" aria-label="邮箱账号" hidden>
         <nav class="account-tabs" aria-label="登录或注册">
           <button id="mode-login" type="button" aria-pressed="true">登录</button>
           <button id="mode-register" type="button" aria-pressed="false">注册</button>
@@ -118,7 +118,9 @@
         <div id="profile-missing" class="profile-panel" hidden><p>初次使用可以建立玩家档案。已有角色和背包，请让管理员邀请你的邮箱连接原档案。</p><form id="profile-form"><label for="profile-name">玩家名字</label><input id="profile-name" maxlength="24" autocomplete="nickname" required><button type="submit">建立新玩家档案</button></form></div>
         <button id="bind-profile" type="button" hidden>连接邀请中的已有玩家档案</button>
       </section>
-      <p id="account-status" role="status" aria-live="polite" aria-atomic="true"></p>
+      <p id="account-status" role="status" aria-live="polite" aria-atomic="true">正在连接…</p>
+      <button id="account-retry" class="text-button" type="button" hidden>重新连接</button>
+      <noscript><p>请启用 JavaScript 后使用账号服务。</p></noscript>
     </div>
   </main>
   <footer class="account-footer">THE SONG OF SUNDOLL</footer>

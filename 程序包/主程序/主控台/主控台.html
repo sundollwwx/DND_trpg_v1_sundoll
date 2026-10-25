@@ -45,8 +45,6 @@
     <div class="topbar-session-controls" aria-label="存档与联机状态">
       <span id="host-connection" class="host-connection" data-state="off" role="status">未联机</span>
       <span id="save-status" class="save-status" title="当前战役的正式存档状态" role="status" aria-live="polite">未保存</span>
-      <span id="app-version" class="app-version">v1.1</span>
-      <button id="btn-host-load-diagnostics" type="button" title="查看加载阶段与脱敏诊断" aria-label="加载诊断">诊断</button>
     </div>
     <div id="map-settings">
       <label class="toggle"><input type="checkbox" id="names-toggle" checked> 名字</label>
@@ -212,7 +210,6 @@
     <section class="card" id="shared-note-card" data-workspace="room" data-tool-panel="announcement" data-default-collapsed>
       <div class="card-head"><h2>▤ 共享公告 · 玩家可见</h2><span id="shared-note-count" class="hint">0/4000</span></div>
       <textarea id="shared-note" rows="7" maxlength="4000" placeholder="给玩家看的规则约定、当前目标、线索或场景提示……"></textarea>
-      <p class="hint">内容会随联机状态同步到玩家端。</p>
     </section>
       </div>
     </section>
@@ -650,7 +647,6 @@
     <div class="map-browser-head">
       <div>
         <h2 id="map-browser-title">🗺️ 寰宇图志</h2>
-        <p class="hint">在这里载入、切换、排序和删除地图；每张地图都可单独显示、隐藏和调整网格。</p>
       </div>
       <div class="map-browser-head-actions">
         <a id="btn-map-prompt-studio" class="map-prompt-studio-button" href="../asset/地图/地图创作台.html" title="进入统一画风的 AI 地图提示词创作台；完成后使用浏览器返回主控台">✦ 创作地图</a>
@@ -678,13 +674,12 @@
     <div class="map-browser-head">
       <div>
         <h2 id="map-image-import-title">📥 导入地图图片</h2>
-        <p class="hint">每张图片会独立成为一张地图；可先设定名称、是否显示网格和战术格距。</p>
       </div>
       <button id="btn-map-image-import-more" type="button">＋ 继续选择</button>
     </div>
     <div id="map-image-import-list" class="map-image-import-list"></div>
     <p id="map-image-import-size" class="map-image-import-size"></p>
-    <p class="hint">不会压缩原图，以免降低地图清晰度；大图会相应增加存档体积。</p>
+    <p class="hint">保留原图；大图会增加存档体积。</p>
     <div class="modal-actions">
       <button id="btn-map-image-import-cancel" type="button">取消</button>
       <button id="btn-map-image-import-confirm" class="primary" type="button">导入为新地图</button>
@@ -766,7 +761,7 @@
         </article>
 
         <section class="cover-recent-block" aria-labelledby="cover-recent-title">
-          <header class="cover-recent-head"><div><strong id="cover-recent-title">正式战役</strong><span>按最近保存时间排列</span></div><button id="cover-folder" type="button">刷新列表</button></header>
+          <header class="cover-recent-head"><div><strong id="cover-recent-title">战役列表</strong><span>最近保存</span></div><button id="cover-folder" type="button">刷新列表</button></header>
           <div id="cover-recent" class="cover-recent"><span class="cover-recent-empty">正在检查存档文件夹…</span></div>
         </section>
       </main>
@@ -777,11 +772,11 @@
           <div class="cover-actions">
             <button id="cover-load" class="cover-action-card" type="button"><span class="cover-action-icon" aria-hidden="true">📂</span><span><strong>冒险管理</strong><small>战役、玩家与模块</small></span><b aria-hidden="true">→</b></button>
             <button id="cover-player-profiles" class="cover-action-card" type="button" hidden><span class="cover-action-icon" aria-hidden="true">♟</span><span><strong>参团角色</strong><small>角色、伙伴与背包</small></span><b aria-hidden="true">→</b></button>
-            <button id="cover-new" class="cover-action-card" type="button"><span class="cover-action-icon" aria-hidden="true">✦</span><span><strong>新建战役</strong><small>建立正式存档</small></span><b aria-hidden="true">＋</b></button>
+            <button id="cover-new" class="cover-action-card" type="button"><span class="cover-action-icon" aria-hidden="true">✦</span><span><strong>新建战役</strong><small>开启新的冒险</small></span><b aria-hidden="true">＋</b></button>
           </div>
           <form id="cover-new-form" class="cover-new-form" hidden><label for="cover-new-name">战役名称</label><div><input id="cover-new-name" maxlength="80" autocomplete="off" placeholder="例如：烬鳞讨伐"><button class="primary" type="submit">创建</button><button id="cover-new-cancel" type="button">取消</button></div></form>
         </section>
-        <p id="cover-feedback" class="cover-feedback" role="status" aria-live="polite">浏览器恢复点只用于防止意外关闭。</p>
+        <p id="cover-feedback" class="cover-feedback" role="status" aria-live="polite"></p>
       </aside>
     </div>
   </div>
@@ -823,12 +818,14 @@
 <dialog id="save-tools-dialog" aria-labelledby="save-tools-title">
   <div class="save-tools-head">
     <h2 id="save-tools-title">💾 存档</h2>
+    <span id="app-version" class="app-version">v1.1</span>
     <button id="btn-save-tools-close" type="button" aria-label="关闭存档窗口">✕</button>
   </div>
   <div class="save-tools-actions">
     <button type="button" data-save-action="save"><strong>保存当前进度</strong><span id="save-tools-scope">写入当前工作区的正式存档</span></button>
     <button type="button" data-save-action="manage"><strong>战役与模块管理</strong><span>读取、导出、归档与迁移</span></button>
     <button id="save-tools-backups" type="button" data-save-action="backups" hidden><strong>备份与恢复</strong><span>备份或恢复这套本地工作区</span></button>
+    <button id="btn-host-load-diagnostics" type="button" aria-label="加载诊断"><strong>加载诊断</strong></button>
   </div>
 </dialog>
 
@@ -995,8 +992,8 @@
 <header><div><h2 id="prep-heading">备团手册</h2><span id="prep-campaign"></span></div><button id="prep-save" type="button">立即保存</button><button id="prep-close" type="button" aria-label="关闭备团手册">关闭</button></header>
 <div class="prep-layout"><nav aria-label="备团手册导航"><input id="prep-search" type="search" aria-label="搜索备团内容" placeholder="搜索流程、人物、线索"><div id="prep-areas"></div><input id="prep-new-title" type="text" maxlength="120" aria-label="新地块名称" placeholder="新地块名称"><button id="prep-add" type="button">新增地块</button></nav><main id="prep-content"></main></div>
 </dialog>
-<link rel="stylesheet" href="host/prep-handbook.css?v=20261013-dialog-refine-v1">
-<script src="host/prep-handbook.js?v=20261013-save-guard-v1"></script>
+<link rel="stylesheet" href="host/prep-handbook.css?v=20261025-ready-v1">
+<script src="host/prep-handbook.js?v=20261025-ready-v1"></script>
 <script src="../asset/棋子库/默认预设.js?v=20260902-library-cleanup-v3"></script>
 <script src="../asset/界面/休息动画/休息场景.js?v=20260923-network-perf-v1"></script>
 <script src="../asset/界面/休息动画/休息音频.js?v=20260923-network-perf-v1"></script>
@@ -1026,14 +1023,14 @@
   <script src="shared/dining.js?v=20261002-world-nav-v4"></script>
   <script src="../shared/map-forms.js?v=20260926-1"></script>
   <link rel="stylesheet" href="host/map-forms.css?v=20261014-game-ui-polish-v1">
-  <script src="host/load-progress.js?v=20261013-ui-coherence-v1"></script>
-  <script src="host/storage.js?v=20261013-save-guard-v1"></script>
+  <script src="host/load-progress.js?v=20261025-ready-v1"></script>
+  <script src="host/storage.js?v=20261025-ready-v1"></script>
   <script src="host/documents.js?v=20261013-save-guard-v1"></script>
   <script src="host/music.js?v=20261013-private-v1"></script>
   <script src="/api/daily-life/climate.js"></script>
   <script src="host/encounter-ui.js?v=20261003-initiative-environment-dm-v6"></script>
   <script src="host/initiative-portrait-defaults.js?v=20261002-v1"></script>
-  <script src="host/app.js?v=20261024-room-resume-v1"></script>
+  <script src="host/app.js?v=20261025-ready-v1"></script>
   <script src="host/map-forms.js?v=20260926-1"></script>
   <script src="host/bootstrap.js?v=20261008-load-stages-v1"></script>
   <script src="host/travel-basket.js?v=20260924-delete-v15"></script>

@@ -62,6 +62,32 @@ function descendants(node) { return node.children.flatMap(child => [child,...des
 const roomAction = (p, text, index = 0) => descendants(p.get('room-list').children[index]).find(node => node.textContent === text);
 const manage = (p, index = 0) => roomAction(p,'邀请与成员',index);
 
+test('initial session lookup never flashes a signed-out form for an authenticated user', async () => {
+  let resolveSession;
+  const p=page({api:{session:()=>new Promise(resolve=>{resolveSession=resolve;}),rooms:{ok:true,rooms:[room]}}});
+  await settle();
+  assert.equal(p.get('account-auth').hidden,true);
+  assert.equal(p.get('account-dashboard').hidden,true);
+  assert.equal(p.get('account-title').textContent,'我的冒险');
+  assert.equal(p.get('account-app').attrs['aria-busy'],'true');
+  resolveSession({ok:true,account});await settle();
+  assert.equal(p.get('account-auth').hidden,true);
+  assert.equal(p.get('account-dashboard').hidden,false);
+  assert.equal(p.get('account-app').attrs['aria-busy'],'false');
+});
+
+test('an unknown session caused by a network failure has an explicit retry without claiming logout', async () => {
+  let attempts=0;
+  const p=page({api:{session:()=>{if(++attempts===1)throw new Error('Offline');return {ok:true,account};},rooms:{ok:true,rooms:[room]}}});
+  await settle();
+  assert.equal(p.get('account-auth').hidden,true);
+  assert.equal(p.get('account-retry').hidden,false);
+  assert.equal(p.get('account-title').textContent,'暂时无法连接');
+  p.get('account-retry').fire('click');await settle();
+  assert.equal(attempts,2);assert.equal(p.get('account-retry').hidden,true);
+  assert.equal(p.get('account-dashboard').hidden,false);
+});
+
 test('room authentication continuation survives refresh and returns to the original DM page', async () => {
   const target='/rooms/'+room.id+'/主控台/主控台.html',memory=new Map();
   page({hash:'#continue='+encodeURIComponent(target),memory}); await settle();
